@@ -24,7 +24,9 @@ export default function AdminReportsPage() {
   }
 
   if (!isAdmin) {
-    return null
+    return <div className='flex items-center justify-center text-black'>
+      Only admin can preview this page...
+    </div>
   }
 
   return (
