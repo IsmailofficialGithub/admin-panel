@@ -1,63 +1,104 @@
-import { createAdminClient } from '@/lib/supabase/admin'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { EmailTemplateUserCreated } from "@/lib/email/templete/EmailTempleteUserCreated";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { NextResponse } from "next/server";
+import { transporter } from "@/lib/email/config/nodemailer/nodemailer";
 
 export async function POST(request) {
   try {
-    const supabase = await createServerSupabaseClient()
-    
+    const supabase = await createServerSupabaseClient();
+
     // Check if current user is admin
-    const { data: { user } } = await supabase.auth.getUser()
-    
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // const {
+    //   data: { user },
+    // } = await supabase.auth.getUser();
 
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
+    // if (!user) {
+    //   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // }
 
-    if (profile?.role !== 'admin') {
-      return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 })
-    }
+    // const { data: profile } = await supabase
+    //   .from("user_profiles")
+    //   .select("role")
+    //   .eq("id", user.id)
+    //   .single();
+
+    // if (profile?.role !== "admin") {
+    //   return NextResponse.json(
+    //     { error: "Forbidden: Admin access required" },
+    //     { status: 403 }
+    //   );
+    // }
 
     // Get request data
-    const { email, password, full_name, role } = await request.json()
+    const { email, password, full_name, role, phone } = await request.json();
 
     // Validate input
-    if (!email || !password) {
-      return NextResponse.json({ error: 'Email and password are required' }, { status: 400 })
+    if (!email || !password || !full_name) {
+      return NextResponse.json(
+        { error: "FullName , Email , password are required" },
+        { status: 400 }
+      );
     }
 
     // Create user using admin client
-    const adminClient = createAdminClient()
-    
-    const { data: newUser, error: createError } = await adminClient.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: {
-        full_name: full_name || ''
-      }
-    })
+    const adminClient = createAdminClient();
+
+    const { data: newUser, error: createError } =
+      await adminClient.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        ...(phone ? { phone } : {}), // ✅ only include phone if it's defined
+        user_metadata: {
+          full_name: full_name || "",
+        },
+      });
 
     if (createError) {
-      return NextResponse.json({ error: createError.message }, { status: 400 })
+      return NextResponse.json({ error: createError.message }, { status: 400 });
     }
 
     // Update user role in profiles table
-    if (role && role !== 'user') {
-      const { error: updateError } = await adminClient
-        .from('user_profiles')
-        .update({ role })
-        .eq('id', newUser.user.id)
+    const { error: insertError } = await adminClient
+      .from("user_profiles")
+      .insert([
+        {
+          id: newUser.user.id, // use the new auth user’s ID
+          full_name,
+          role: role || "user", // default role if not provided
+          phone: phone || null,
+          email,
+        },
+      ]);
 
-      if (updateError) {
-        console.error('Error updating role:', updateError)
-      }
+    if (insertError) {
+      console.error("Error inserting profile:", insertError);
+      return NextResponse.json(
+        { error: "User created but profile insert failed" },
+        { status: 500 }
+      );
     }
+    const data = await transporter.verify();
+    if (!data) {
+      throw new Error("Email server not ready");
+    }
+    const website_url = process.env.NEXT_PUBLIC_API_URL;
+    const emailHtml = EmailTemplateUserCreated({
+      full_name,
+      email,
+      password,
+      website_url,
+    });
+
+    const ownerMail = {
+      from: `"Duha Nashrah.AI" <${process.env.AdminEmail}>`,
+      to: email,
+      subject: `New User Created: ${full_name}`,
+      html: emailHtml,
+    };
+
+    await transporter.sendMail(ownerMail);
 
     return NextResponse.json({
       success: true,
@@ -65,12 +106,14 @@ export async function POST(request) {
         id: newUser.user.id,
         email: newUser.user.email,
         full_name,
-        role: role || 'user'
-      }
-    })
-
+        role: role || "user",
+      },
+    });
   } catch (error) {
-    console.error('Error creating user:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error("Error creating user:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }

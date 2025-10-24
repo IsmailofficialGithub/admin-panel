@@ -12,10 +12,11 @@ import { useConsumer } from "@/lib/hooks/useConsumer";
 
 export default function AdminConsumerPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isCreateConsumerModalOpen, setIsCreateConsumerModalOpen] =useState(false);
-      const {  refetch ,consumers} = useConsumer();
-      const [isrefresh, setIsrefresh] = useState(false);
-    
+  const [isCreateConsumerModalOpen, setIsCreateConsumerModalOpen] =
+    useState(false);
+  const { refetch, consumers } = useConsumer();
+  const [isrefresh, setIsrefresh] = useState(false);
+
   const { isAdmin, loading } = useAuth();
   const router = useRouter();
 
@@ -42,12 +43,11 @@ export default function AdminConsumerPage() {
     <div className="p-8">
       <div className="mb-6 flex justify-between items-center">
         <div>
-          <p className="text-gray-600 mt-1">Create and manage Consumers accounts</p>
+          <p className="text-gray-600 mt-1">
+            Create and manage Consumers accounts
+          </p>
         </div>
         <div className="gap-2 flex">
-          <Button onClick={() => setIsCreateModalOpen(true)}>
-            + Create User
-          </Button>
           <Button onClick={() => setIsCreateConsumerModalOpen(true)}>
             + Create Consumer
           </Button>
@@ -55,10 +55,7 @@ export default function AdminConsumerPage() {
       </div>
 
       <div className="bg-white rounded-lg shadow">
-        <ConsumerTable
-        isrefresh={isrefresh} 
-        setIsrefresh={setIsrefresh}
-        />
+        <ConsumerTable isrefresh={isrefresh} setIsrefresh={setIsrefresh} />
       </div>
 
       <CreateUserModal
@@ -70,8 +67,8 @@ export default function AdminConsumerPage() {
         isOpen={isCreateConsumerModalOpen}
         onClose={() => setIsCreateConsumerModalOpen(false)}
         onSuccess={() => {
-          setIsCreateConsumerModalOpen(!setIsCreateConsumerModalOpen)
-         setIsrefresh(true);
+          setIsCreateConsumerModalOpen(!setIsCreateConsumerModalOpen);
+          setIsrefresh(true);
         }} // Cua handles refetching internally via useUsers
       />
     </div>

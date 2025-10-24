@@ -44,9 +44,7 @@ export default function AdminUsersPage() {
           <Button onClick={() => setIsCreateModalOpen(true)}>
           + Create User
         </Button>
-        <Button onClick={() => setIsCreateConsumerModalOpen(true)}>
-          + Create Consumer
-        </Button>
+
         </div>
       </div>
 
