@@ -1,42 +1,43 @@
 import { transporter } from "@/lib/email/config/nodemailer/nodemailer";
+import EmailTemplateUserCreated from "@/lib/email/templete/EmailTempleteUserCreated";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
 export async function POST(request) {
   try {
-    const supabase = await createServerSupabaseClient();
+    // const supabase = await createServerSupabaseClient();
 
-    // --- 1. Authenticate current user ---
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    // // --- 1. Authenticate current user ---
+    // const {
+    //   data: { user },
+    // } = await supabase.auth.getUser();
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    // if (!user) {
+    //   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // }
 
-    // --- 2. Verify admin role ---
-    const { data: profile, error: profileError } = await supabase
-      .from("user_profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single();
+    // // --- 2. Verify admin role ---
+    // const { data: profile, error: profileError } = await supabase
+    //   .from("user_profiles")
+    //   .select("role")
+    //   .eq("id", user.id)
+    //   .single();
 
-    if (profileError) {
-      console.error("Profile fetch error:", profileError);
-      return NextResponse.json(
-        { error: "Failed to fetch user profile" },
-        { status: 500 }
-      );
-    }
+    // if (profileError) {
+    //   console.error("Profile fetch error:", profileError);
+    //   return NextResponse.json(
+    //     { error: "Failed to fetch user profile" },
+    //     { status: 500 }
+    //   );
+    // }
 
-    if (profile?.role !== "admin") {
-      return NextResponse.json(
-        { error: "Forbidden: Admin access required" },
-        { status: 403 }
-      );
-    }
+    // if (profile?.role !== "admin") {
+    //   return NextResponse.json(
+    //     { error: "Forbidden: Admin access required" },
+    //     { status: 403 }
+    //   );
+    // }
 
     // --- 3. Extract and validate request data ---
     const { email, password, full_name = "", avatar_url = "", phone = null } =
