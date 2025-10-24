@@ -11,7 +11,7 @@ export function LogoutPopUp({ isOpen, onClose }) {
 
   const handleSignOut = async () => {
     setLoading(true)
-
+    console.log('here')
     try {
         await signOut();
     } catch (err) {
@@ -25,7 +25,7 @@ export function LogoutPopUp({ isOpen, onClose }) {
     <Modal isOpen={isOpen} onClose={onClose} title="Delete User">
       <div className="mb-6">
         <p className="text-gray-700 mb-2">
-          Are you sure you want to Logout? 
+          Are you sure you want to Logout? ....
         </p>
         <p className="text-sm text-gray-600">
           Name : <strong>{profile?.full_name}</strong>

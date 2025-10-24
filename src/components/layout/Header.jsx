@@ -9,6 +9,8 @@ export function Header({ title = 'HOME' }) {
   const { user, profile, signOut, loading } = useAuth()
 
   const handleLogout = async () => {
+    console.log('here')
+    await signOut()
     if (confirm('Are you sure you want to logout?')) {
       await signOut()
     }

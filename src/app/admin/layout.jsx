@@ -9,7 +9,7 @@ import { useEffect } from 'react'
 
 export default function AdminLayout({ children }) {
   const pathname = usePathname()
-  const { user, loading } = useAuth()
+  const { user, loading,signOut } = useAuth()
   const router = useRouter()
   
   useEffect(() => {
@@ -65,8 +65,9 @@ export default function AdminLayout({ children }) {
                 </div>
                 
                 <button 
-                  onClick={() => {
+                  onClick={async() => {
                     if (confirm('Are you sure you want to logout?')) {
+                      await signOut()
                       router.push('/login')
                     }
                   }}

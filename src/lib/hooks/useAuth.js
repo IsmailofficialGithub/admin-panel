@@ -44,7 +44,10 @@ export function useAuth() {
   }, [])
 
   const signOut = async () => {
+    console.log('call')
     await supabase.auth.signOut()
+   document.cookie = 'sb:token=; Max-Age=0; path=/';
+  document.cookie = 'sb:refresh-token=; Max-Age=0; path=/';
     router.push('/login')
   }
 
