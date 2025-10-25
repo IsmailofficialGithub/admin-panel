@@ -65,7 +65,6 @@ export async function POST(request) {
       console.error("User creation error:", createError);
       return NextResponse.json({ error: createError.message }, { status: 400 });
     }
-  console.log(newUser.id)
 
 
     // --- 5. Insert profile record ---

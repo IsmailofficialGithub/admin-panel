@@ -29,17 +29,16 @@ export async function GET(request) {
     }
 
     // Get all users
-    const { data: users, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("role","consumer")
-      .order("created_at", { ascending: false });
-      console.log(users)
+   const { data: users, error } = await supabase
+  .from("users_with_profiles") // using view to merge data
+  .select("*")
+  .eq("role", "consumer")
+  .order("created_at", { ascending: false });
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
-
+    console.log(users)
     return NextResponse.json({ users });
   } catch (error) {
     console.error("Error fetching users:", error);

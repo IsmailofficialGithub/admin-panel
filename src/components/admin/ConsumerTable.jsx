@@ -41,9 +41,9 @@ export function ConsumerTable({isrefresh,setIsrefresh}) {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {consumers.map((consumer) => (
+            {consumers.map((consumer,index) => (
               <ConsumerRow
-                key={consumer.user_id}
+                key={index}
                 user={consumer}
                 onDelete={setDeleteUser}
               />
@@ -53,7 +53,7 @@ export function ConsumerTable({isrefresh,setIsrefresh}) {
 
         {consumers.length === 0 && (
           <div className="text-center py-12 text-gray-500">
-            No consumers found. Create your first user!
+            No consumers found. Create your first user! 
           </div>
         )}
       </div>

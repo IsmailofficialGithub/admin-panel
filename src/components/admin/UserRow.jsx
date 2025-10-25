@@ -10,12 +10,12 @@ export function UserRow({ user, onEditRole, onDelete }) {
       day: 'numeric'
     })
   }
-
   return (
     <tr className="border-b hover:bg-gray-50">
       <td className="px-6 py-4">
         <div className="text-sm font-medium text-gray-900">{user.full_name || 'N/A'}</div>
         <div className="text-sm text-gray-500">{user.email}</div>
+        <div className="text-sm text-gray-500">{user.phone}</div>
       </td>
       <td className="px-6 py-4">
         <Badge variant={user.role}>{user.role}</Badge>
