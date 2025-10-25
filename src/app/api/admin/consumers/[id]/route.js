@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/Development/admin";
-import { createServerSupabaseClient } from "@/lib/supabase/Development/server";
+import { createAdminClient } from "@/lib/supabase/Production/admin";
+import { createServerSupabaseClient } from "@/lib/supabase/Production/server";
 import { redis } from "@/lib/redis/redisConfig"; // optional — only if you configured Redis
 
 // =========================================================

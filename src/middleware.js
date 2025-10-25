@@ -9,8 +9,8 @@ export async function middleware(request) {
   })
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL_ISMAIL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY_ISMAIL,
+    process.env.NEXT_PUBLIC_SUPABASE_URL_PRODUCTION,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY_PRODUCTION,
     {
       cookies: {
         get(name) {

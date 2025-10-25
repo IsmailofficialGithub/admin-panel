@@ -1,5 +1,5 @@
-import { createAdminClient } from '@/lib/supabase/Development/admin'
-import { createServerSupabaseClient } from '@/lib/supabase/Development/server'
+import { createAdminClient } from '@/lib/supabase/Production/admin'
+import { createServerSupabaseClient } from '@/lib/supabase/Production/server'
 import { NextResponse } from 'next/server'
 
 export async function DELETE(request, { params }) {
