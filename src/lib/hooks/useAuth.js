@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/supabase/Production/client'
 import { useRouter } from 'next/navigation'
 
 export function useAuth() {
@@ -15,14 +15,16 @@ export function useAuth() {
   useEffect(() => {
     const fetchUser = async () => {
       const { data: { user } } = await supabase.auth.getUser()
+
+      console.log(user.id)
       setUser(user)
 
       if (user) {
         // NOTE: 'user_profiles' table must exist in your Supabase schema
         const { data: profile } = await supabase
-          .from('user_profiles')
+          .from('profiles')
           .select('*')
-          .eq('id', user.id)
+          .eq('user_id', user.id)
           .single()
         
         setProfile(profile)
@@ -32,6 +34,7 @@ export function useAuth() {
     }
 
     fetchUser()
+    console.log(profile)
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
@@ -44,7 +47,6 @@ export function useAuth() {
   }, [])
 
   const signOut = async () => {
-    console.log('call')
     await supabase.auth.signOut()
    document.cookie = 'sb:token=; Max-Age=0; path=/';
   document.cookie = 'sb:refresh-token=; Max-Age=0; path=/';

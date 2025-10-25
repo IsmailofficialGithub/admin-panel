@@ -1,15 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { UserRow } from './UserRow'
 import { EditRoleModal } from './EditRoleModal'
 import { DeleteUserModal } from './DeleteUserModal'
 import { useUsers } from '@/lib/hooks/useUsers'
 
-export function UserTable() {
+export function UserTable({isrefresh,setIsrefresh}) {
   const { users, loading, refetch } = useUsers()
   const [editUser, setEditUser] = useState(null)
   const [deleteUser, setDeleteUser] = useState(null)
+  useEffect(() => {
+      refetch();
+      setIsrefresh(false);
+    }, [isrefresh]);
 
   if (loading) {
     return (
@@ -40,9 +44,9 @@ export function UserTable() {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {users.map((user) => (
+            {users.map((user,index) => (
               <UserRow
-                key={user.id}
+                key={index}
                 user={user}
                 onEditRole={setEditUser}
                 onDelete={setDeleteUser}

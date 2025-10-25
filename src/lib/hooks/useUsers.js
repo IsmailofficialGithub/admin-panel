@@ -74,6 +74,7 @@ export function useUsers() {
   }
 
   const deleteUser = async (userId) => {
+    console.log(userId)
     try {
       const response = await fetch(`/api/admin/users/${userId}`, {
         method: 'DELETE'

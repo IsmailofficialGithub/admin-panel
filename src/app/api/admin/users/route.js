@@ -1,4 +1,4 @@
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient } from '@/lib/supabase/Production/server'
 import { NextResponse } from 'next/server'
 
 export async function GET(request) {
@@ -13,9 +13,9 @@ export async function GET(request) {
     }
 
     const { data: profile } = await supabase
-      .from('user_profiles')
+      .from('profiles')
       .select('role')
-      .eq('id', user.id)
+      .eq('user_id', user.id)
       .single()
 
     if (profile?.role !== 'admin') {
@@ -24,8 +24,9 @@ export async function GET(request) {
 
     // Get all users
     const { data: users, error } = await supabase
-      .from('user_profiles')
+      .from('profiles')
       .select('*')
+      .neq('role', 'consumers')
       .order('created_at', { ascending: false })
 
     if (error) {

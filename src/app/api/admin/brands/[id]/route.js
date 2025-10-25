@@ -1,4 +1,4 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createServerSupabaseClient } from "@/lib/supabase/Development/server";
 import { NextResponse } from "next/server";
 
 // 🔧 Helper: Check if the user is admin

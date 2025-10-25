@@ -1,6 +1,6 @@
 import { EmailTemplateUserCreated } from "@/lib/email/templete/EmailTempleteUserCreated";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/Production/admin";
+import { createServerSupabaseClient } from "@/lib/supabase/Production/server";
 import { NextResponse } from "next/server";
 import { transporter } from "@/lib/email/config/nodemailer/nodemailer";
 
@@ -9,26 +9,28 @@ export async function POST(request) {
     const supabase = await createServerSupabaseClient();
 
     // Check if current user is admin
-    // const {
-    //   data: { user },
-    // } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-    // if (!user) {
-    //   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    // }
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    console.log(user)
 
-    // const { data: profile } = await supabase
-    //   .from("user_profiles")
-    //   .select("role")
-    //   .eq("id", user.id)
-    //   .single();
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("user_id", user.id)
+      .single();
+      console.log(profile)
 
-    // if (profile?.role !== "admin") {
-    //   return NextResponse.json(
-    //     { error: "Forbidden: Admin access required" },
-    //     { status: 403 }
-    //   );
-    // }
+    if (profile?.role !== "admin") {
+      return NextResponse.json(
+        { error: "Forbidden: Admin access required" },
+        { status: 403 }
+      );
+    }
 
     // Get request data
     const { email, password, full_name, role, phone } = await request.json();
@@ -61,14 +63,14 @@ export async function POST(request) {
 
     // Update user role in profiles table
     const { error: insertError } = await adminClient
-      .from("user_profiles")
-      .insert([
+      .from("profiles")
+      .upsert([
         {
-          id: newUser.user.id, // use the new auth user’s ID
+          user_id: newUser.user.id, // use the new auth user’s ID
           full_name,
           role: role || "user", // default role if not provided
           phone: phone || null,
-          email,
+          // email,
         },
       ]);
 

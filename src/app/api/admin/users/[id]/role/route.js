@@ -1,4 +1,4 @@
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient } from '@/lib/supabase/Development/server'
 import { NextResponse } from 'next/server'
 
 export async function PATCH(request, { params }) {
@@ -14,9 +14,9 @@ export async function PATCH(request, { params }) {
     }
 
     const { data: profile } = await supabase
-      .from('user_profiles')
+      .from('profiles')
       .select('role')
-      .eq('id', user.id)
+      .eq('user_id', user.id)
       .single()
 
     if (profile?.role !== 'admin') {
@@ -32,9 +32,9 @@ export async function PATCH(request, { params }) {
 
     // Update user role
     const { data, error } = await supabase
-      .from('user_profiles')
+      .from('profiles')
       .update({ role })
-      .eq('id', id)
+      .eq('user_id', id)
       .select()
       .single()
 

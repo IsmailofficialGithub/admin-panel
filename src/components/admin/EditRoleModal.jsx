@@ -28,7 +28,7 @@ export function EditRoleModal({ isOpen, onClose, user, onSuccess }) {
 
     try {
       // NOTE: This assumes you have a Next.js API route set up for role updates
-      const response = await fetch(`/api/admin/users/${user.id}/role`, {
+      const response = await fetch(`/api/admin/users/${user.user_id}/role`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role })

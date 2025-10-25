@@ -13,6 +13,7 @@ export default function AdminUsersPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isCreateConsumerModalOpen, setIsCreateConsumerModalOpen] = useState(false)
   const { isAdmin, loading } = useAuth()
+   const [isrefresh, setIsrefresh] = useState(false);
   const router = useRouter()
 
   // Route protection
@@ -49,7 +50,7 @@ export default function AdminUsersPage() {
       </div>
 
       <div className="bg-white rounded-lg shadow">
-        <UserTable />
+        <UserTable  isrefresh={isrefresh} setIsrefresh={setIsrefresh} />
       </div>
 
       <CreateUserModal
@@ -60,7 +61,10 @@ export default function AdminUsersPage() {
       <CreateConsumerModal
         isOpen={isCreateConsumerModalOpen}
         onClose={() => setIsCreateConsumerModalOpen(false)}
-        onSuccess={() => {}} // UserTable handles refetching internally via useUsers
+        onSuccess={() => {
+          setIsCreateConsumerModalOpen(false)
+          setIsrefresh(true);
+        }} // UserTable handles refetching internally via useUsers
       />
     </div>
   )

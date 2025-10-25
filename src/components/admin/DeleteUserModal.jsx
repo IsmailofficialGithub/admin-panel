@@ -12,7 +12,7 @@ export function DeleteUserModal({ isOpen, onClose, user, onSuccess }) {
 
     try {
       // NOTE: This assumes you have a Next.js API route set up for user deletion
-      const response = await fetch(`/api/admin/users/${user.id}`, {
+      const response = await fetch(`/api/admin/users/${user.user_id}`, {
         method: 'DELETE'
       })
 

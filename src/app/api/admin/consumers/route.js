@@ -1,23 +1,24 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createServerSupabaseClient } from "@/lib/supabase/Production/server";
 import { NextResponse } from "next/server";
 
 export async function GET(request) {
   try {
     const supabase = await createServerSupabaseClient();
 
-    // Check if current user is admin
+    // // Check if current user is admin
     const {
       data: { user },
     } = await supabase.auth.getUser();
+
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const { data: profile } = await supabase
-      .from("user_profiles")
+      .from("profiles")
       .select("role")
-      .eq("id", user.id)
+      .eq("user_id", user.id)
       .single();
 
     if (profile?.role !== "admin") {
@@ -31,13 +32,14 @@ export async function GET(request) {
     const { data: users, error } = await supabase
       .from("profiles")
       .select("*")
+      .eq("role","consumer")
       .order("created_at", { ascending: false });
+      console.log(users)
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    console.log(users);
     return NextResponse.json({ users });
   } catch (error) {
     console.error("Error fetching users:", error);

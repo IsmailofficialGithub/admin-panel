@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/Development/admin";
+import { createServerSupabaseClient } from "@/lib/supabase/Development/server";
 import { redis } from "@/lib/redis/redisConfig"; // optional — only if you configured Redis
 
 // =========================================================
@@ -16,24 +16,24 @@ export async function DELETE(request, { params }) {
     }
 
     // // ✅ Check if current user is admin
-    // const {
-    //   data: { user },
-    // } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-    // if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    // const { data: profile } = await supabase
-    //   .from("profiles")
-    //   .select("role")
-    //   .eq("user_id", user.id)
-    //   .single();
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("user_id", user.id)
+      .single();
 
-    // if (profile?.role !== "admin") {
-    //   return NextResponse.json(
-    //     { error: "Forbidden: Admin access required" },
-    //     { status: 403 }
-    //   );
-    // }
+    if (profile?.role !== "admin") {
+      return NextResponse.json(
+        { error: "Forbidden: Admin access required" },
+        { status: 403 }
+      );
+    }
     
 
     // ✅ Delete user (auth + related)
@@ -44,8 +44,8 @@ export async function DELETE(request, { params }) {
     }
 
     // Optionally delete from your public tables too
-    await supabase.from("profiles").delete().eq("user_id", id);
-    await supabase.from("brands").delete().eq("owner_user_id", id);
+    // await supabase.from("profiles").delete().eq("user_id", id);
+    // await supabase.from("brands").delete().eq("owner_user_id", id);
 
     return NextResponse.json({
       success: true,
@@ -104,7 +104,7 @@ export async function GET(request, { params }) {
       .select("*")
       .eq("user_id", id)
       .maybeSingle();
-      console.log(userProfile)
+  
 
     if (profileErr) throw profileErr;
 

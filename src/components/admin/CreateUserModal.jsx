@@ -69,7 +69,7 @@ export function CreateUserModal({ isOpen, onClose, onSuccess }) {
       setTimeout(() => {
         setMessage("");
       }, 4000);
-      onSuccess?.();
+   onSuccess?.();
       onClose()
     } catch (err) {
       console.error(err);

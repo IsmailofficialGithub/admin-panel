@@ -1,5 +1,5 @@
 // src/app/api/admin/brands/create/route.js
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient } from '@/lib/supabase/Development/server'
 import { NextResponse } from 'next/server'
 
 export async function POST(request) {

@@ -1,5 +1,5 @@
-import { createAdminClient } from '@/lib/supabase/admin'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/Development/admin'
+import { createServerSupabaseClient } from '@/lib/supabase/Development/server'
 import { NextResponse } from 'next/server'
 
 export async function DELETE(request, { params }) {
@@ -15,9 +15,9 @@ export async function DELETE(request, { params }) {
     }
 
     const { data: profile } = await supabase
-      .from('user_profiles')
+      .from('profiles')
       .select('role')
-      .eq('id', user.id)
+      .eq('user_id', user.id)
       .single()
 
     if (profile?.role !== 'admin') {
