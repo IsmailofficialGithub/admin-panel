@@ -4,11 +4,12 @@ import {  useEffect, useState } from "react";
 import { ConsumerRow } from "./ConsumerRow";
 import { DeleteConsumerModal } from "./DeleteConsumerModel";
 import { useConsumer } from "@/lib/hooks/useConsumer";
+import { ResetPasswordModal } from "./ResetPasswordModal";
 
 export function ConsumerTable({isrefresh,setIsrefresh}) {
   const { consumers, loading, refetch } = useConsumer();
   const [deleteUser, setDeleteUser] = useState(null);
-
+  const [resetPasswordUser, setResetPasswordUser] = useState(null);   
   useEffect(() => {
     refetch();
     setIsrefresh(false);
@@ -46,6 +47,7 @@ export function ConsumerTable({isrefresh,setIsrefresh}) {
                 key={index}
                 user={consumer}
                 onDelete={setDeleteUser}
+                onResetPassword={setResetPasswordUser}
               />
             ))}
           </tbody>
@@ -62,6 +64,12 @@ export function ConsumerTable({isrefresh,setIsrefresh}) {
         isOpen={!!deleteUser}
         onClose={() => setDeleteUser(null)}
         user={deleteUser}
+        onSuccess={refetch}
+      />
+       <ResetPasswordModal
+        isOpen={!!resetPasswordUser}
+        onClose={() => setResetPasswordUser(null)}
+        user={resetPasswordUser}
         onSuccess={refetch}
       />
     </>

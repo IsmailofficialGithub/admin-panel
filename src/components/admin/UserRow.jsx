@@ -2,7 +2,7 @@
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 
-export function UserRow({ user, onEditRole, onDelete }) {
+export function UserRow({ user, onEditRole, onDelete, onResetPassword }) {
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -28,9 +28,12 @@ export function UserRow({ user, onEditRole, onDelete }) {
           <Button size="sm" variant="secondary" onClick={() => onEditRole(user)}>
             Edit Role
           </Button>
-          <Button size="sm" variant="danger" onClick={() => onDelete(user)}>
-            Delete
-          </Button>
+            <Button size="sm" variant="danger" onClick={() => onDelete(user)}>
+              Delete
+            </Button>
+            <Button size="sm" variant="primary" onClick={() => onResetPassword(user)}>
+              Reset Pass
+            </Button>
         </div>
       </td>
     </tr>

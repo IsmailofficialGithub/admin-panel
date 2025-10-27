@@ -1,4 +1,4 @@
-import { EmailTemplateUserCreated } from "@/lib/email/templete/EmailTempleteUserCreated";
+import { AdminEmailTemplateUserCreated } from "@/lib/email/templete/AdminEmailTempleteUserCreated";
 import { createAdminClient } from "@/lib/supabase/Production/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/Production/server";
 import { NextResponse } from "next/server";
@@ -84,7 +84,7 @@ export async function POST(request) {
       throw new Error("Email server not ready");
     }
     const website_url = process.env.NEXT_PUBLIC_API_URL;
-    const emailHtml = EmailTemplateUserCreated({
+    const emailHtml = AdminEmailTemplateUserCreated({
       full_name,
       email,
       password,

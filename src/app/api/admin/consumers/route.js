@@ -38,7 +38,6 @@ export async function GET(request) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
-    console.log(users)
     return NextResponse.json({ users });
   } catch (error) {
     console.error("Error fetching users:", error);

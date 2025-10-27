@@ -5,11 +5,13 @@ import { UserRow } from './UserRow'
 import { EditRoleModal } from './EditRoleModal'
 import { DeleteUserModal } from './DeleteUserModal'
 import { useUsers } from '@/lib/hooks/useUsers'
+import { ResetPasswordModal } from './ResetPasswordModal'
 
 export function UserTable({isrefresh,setIsrefresh}) {
   const { users, loading, refetch } = useUsers()
   const [editUser, setEditUser] = useState(null)
   const [deleteUser, setDeleteUser] = useState(null)
+  const [resetPasswordUser, setResetPasswordUser] = useState(null)
   useEffect(() => {
       refetch();
       setIsrefresh(false);
@@ -50,6 +52,7 @@ export function UserTable({isrefresh,setIsrefresh}) {
                 user={user}
                 onEditRole={setEditUser}
                 onDelete={setDeleteUser}
+                onResetPassword={setResetPasswordUser}
               />
             ))}
           </tbody>
@@ -73,6 +76,12 @@ export function UserTable({isrefresh,setIsrefresh}) {
         isOpen={!!deleteUser}
         onClose={() => setDeleteUser(null)}
         user={deleteUser}
+        onSuccess={refetch}
+      />
+      <ResetPasswordModal
+        isOpen={!!resetPasswordUser}
+        onClose={() => setResetPasswordUser(null)}
+        user={resetPasswordUser}
         onSuccess={refetch}
       />
     </>

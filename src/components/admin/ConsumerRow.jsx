@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/Button'
 
-export function ConsumerRow({ user, onDelete }) {
+export function ConsumerRow({ user, onDelete ,onResetPassword}) {
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -24,9 +24,10 @@ export function ConsumerRow({ user, onDelete }) {
       </td>
       <td className="px-6 py-4 text-right text-sm font-medium">
         <div className="flex gap-2 justify-end">
-          <Button size="sm" variant="danger" onClick={() => onDelete(user.id)}>
-            Delete
-          </Button>
+            <Button size="sm" variant="danger" onClick={() => onDelete(user.id)}>
+              Delete
+            </Button>
+            <Button size="sm" variant="primary" onClick={() => onResetPassword(user)}>Reset Pass</Button>
         </div>
       </td>
     </tr>
