@@ -4,7 +4,6 @@ import { X, User, Mail, Shield, Calendar } from 'lucide-react';
 const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
   const [formData, setFormData] = useState({
     name: '',
-    email: '',
     role: 'User'
   });
 
@@ -38,13 +37,10 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
   const validateForm = () => {
     const newErrors = {};
     
-    // if (!formData.name.trim()) {
-    //   newErrors.name = 'Name is required';
-    // }
+    if (!formData.name.trim()) {
+      newErrors.name = 'Name is required';
+    }
     
-    // if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-    //   newErrors.email = 'Invalid email format';
-    // }
     
     if (!formData.role) {
       newErrors.role = 'Role is required';
@@ -237,7 +233,7 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
           </div>
 
           {/* Email Field */}
-          <div style={{ marginBottom: '20px' }}>
+          {/* <div style={{ marginBottom: '20px' }}>
             <label style={{
               display: 'block',
               fontSize: '14px',
@@ -295,7 +291,7 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
                 {errors.email}
               </p>
             )}
-          </div>
+          </div> */}
 
           {/* Role Field */}
           <div style={{ marginBottom: '20px' }}>
