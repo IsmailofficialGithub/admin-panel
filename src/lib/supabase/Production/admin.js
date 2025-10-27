@@ -1,9 +1,12 @@
 import { createClient } from '@supabase/supabase-js'
 
 export function createAdminClient() {
+  const url = process.env.REACT_APP_SUPABASE_URL_PRODUCTION;
+  const key = process.env.REACT_APP_SUPABASE_ANON_KEY_PRODUCTION;
+  console.log(url, key)
   return createClient(
-    process.env.REACT_APP_SUPABASE_URL_PRODUCTION,
-    process.env.SUPABASE_SERVICE_ROLE_KEY_PRODUCTION,
+    url,
+    key,
     {
       auth: {
         autoRefreshToken: false,

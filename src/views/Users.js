@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getAdminUsers } from '../api/users/getAdminUsers';
 import { updateUserRole } from '../api/users/updateUser';
+import { resetUserPassword } from '../api/resetPassword';
 import UpdateUserModal from '../components/ui/UpdateUserModel';
+import ForgetPasswordConfirmPopup from '../components/ui/forgetPasswordComformPopup';
 
 const User = () => {
   const [users, setUsers] = useState([]);
@@ -12,6 +14,8 @@ const User = () => {
   const [openDropdown, setOpenDropdown] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
+  const [showResetPopup, setShowResetPopup] = useState(false);
+  const [resetUser, setResetUser] = useState(null);
   const usersPerPage = 20;
 
   // Fetch users from database
@@ -59,6 +63,9 @@ const User = () => {
         });
         setIsModalOpen(true);
       }
+    } else if (action === 'Reset Password') {
+      setResetUser({ id: userId, name: userName });
+      setShowResetPopup(true);
     } else {
       alert(`${action} action clicked for user: ${userName} (ID: ${userId})`);
     }
@@ -104,6 +111,32 @@ const User = () => {
     } catch (err) {
       console.error('Error updating user:', err);
       alert('Failed to update user. Please try again.');
+    }
+  };
+
+  const handleConfirmReset = async () => {
+    try {
+      if (!resetUser) return;
+
+      // Call API to reset user password
+      const result = await resetUserPassword(resetUser.id);
+      
+      if (result.error) {
+        alert(`Error resetting password: ${result.error}`);
+        console.error('Reset password error:', result.error);
+        return;
+      }
+      
+      // Show success message
+      alert(`Password reset successfully! An email has been sent to ${result.email || 'the user'} with the new password.`);
+      console.log('Password reset successfully:', result);
+      
+      // Close popup
+      setShowResetPopup(false);
+      setResetUser(null);
+    } catch (err) {
+      console.error('Error resetting password:', err);
+      alert('Failed to reset password. Please try again.');
     }
   };
 
@@ -601,6 +634,17 @@ const User = () => {
         }}
         user={selectedUser}
         onUpdate={handleUpdateUser}
+      />
+
+      {/* Reset Password Confirmation Popup */}
+      <ForgetPasswordConfirmPopup
+        isOpen={showResetPopup}
+        onClose={() => {
+          setShowResetPopup(false);
+          setResetUser(null);
+        }}
+        onConfirm={handleConfirmReset}
+        userName={resetUser?.name}
       />
     </div>
     </>
