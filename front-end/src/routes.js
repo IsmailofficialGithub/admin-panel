@@ -26,16 +26,17 @@ import Maps from "views/Maps.js";
 import Notifications from "views/Notifications.js";
 import Upgrade from "views/Upgrade.js";
 import Resellers from "views/Resellers.js";
+import ResellerDetail from "views/ResellerDetail.js";
 
 const dashboardRoutes = [
+  // Hidden routes (not shown in sidebar)
   {
-    upgrade: true,
-    path: "/upgrade",
-    name: "Upgrade to PRO",
-    icon: "nc-icon nc-alien-33",
-    component: Upgrade,
-    layout: "/admin"
+    path: "/reseller/:id",
+    component: ResellerDetail,
+    layout: "/admin",
+    invisible: true // This prevents it from showing in sidebar
   },
+  // Sidebar routes
   // {
   //   path: "/dashboard",
   //   name: "Dashboard",
@@ -46,22 +47,50 @@ const dashboardRoutes = [
   {
     path: "/users",
     name: "Users",
-    icon: "nc-icon nc-single-02",
+    icon: "nc-icon nc-badge",
     component: Users,
     layout: "/admin"
   },
   {
     path: "/consumers",
     name: "Consumers",
-    icon: "nc-icon nc-single-02",
+    icon: "nc-icon nc-circle-09",
     component: Consumers,
-    layout: "/admin"
+    layout: "/admin",
+    submenus: [
+      {
+        path: "/consumers?status=active",
+        name: "Active",
+        component: Consumers,
+        layout: "/admin"
+      },
+      {
+        path: "/consumers?status=deactive",
+        name: "Deactive",
+        component: Consumers,
+        layout: "/admin"
+      },
+      {
+        path: "/consumers?status=expired_subscription",
+        name: "Expired",
+        component: Consumers,
+        layout: "/admin"
+      }
+    ]
   },
   {
     path: "/resellers",
     name: "Resellers",
-    icon: "nc-icon nc-single-02",
+    icon: "nc-icon nc-bulb-63",
     component: Resellers,
+    layout: "/admin"
+  },
+  {
+    upgrade: true,
+    path: "/upgrade",
+    name: "Upgrade to PRO",
+    icon: "nc-icon nc-alien-33",
+    component: Upgrade,
     layout: "/admin"
   },
   // {

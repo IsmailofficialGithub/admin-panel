@@ -162,8 +162,10 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
       newErrors.city = 'City is required';
     }
     
-    // Phone validation (optional but must be valid if provided)
-    if (formData.phone && !/^[\d\s\-\+\(\)]+$/.test(formData.phone)) {
+    // Phone validation - required
+    if (!formData.phone || formData.phone.trim() === '') {
+      newErrors.phone = 'Phone number is required';
+    } else if (!/^[\d\s\-\+\(\)]+$/.test(formData.phone)) {
       newErrors.phone = 'Please enter a valid phone number';
     }
     
@@ -1036,7 +1038,7 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
               color: '#374151',
               marginBottom: '8px'
             }}>
-              Phone Number <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+              Phone Number <span style={{ color: '#ef4444' }}>*</span>
             </label>
             <div style={{ position: 'relative', display: 'flex', gap: '8px' }}>
               {selectedCountry && (

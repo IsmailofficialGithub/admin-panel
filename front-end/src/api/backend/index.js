@@ -31,6 +31,14 @@ export {
   resetResellerPassword
 } from './resellers';
 
+export {
+  getProducts,
+  getProductById,
+  createProduct,
+  updateProduct,
+  deleteProduct
+} from './products';
+
 // Re-export API client for direct access if needed
 export { default as apiClient } from '../../services/apiClient';
 

@@ -1,0 +1,154 @@
+# Interactive Docker Image - Prompts for Environment Variables at Startup
+# Single image with Frontend + Backend
+
+FROM node:18-alpine
+
+# Install curl for healthcheck
+RUN apk add --no-cache curl bash
+
+# Set working directory
+WORKDIR /app
+
+# ============================================
+# BACKEND SETUP
+# ============================================
+WORKDIR /app/backend
+
+# Copy backend package files
+COPY backend/package*.json ./
+
+# Install backend dependencies
+RUN npm install --legacy-peer-deps
+
+# Copy backend code
+COPY backend/ ./
+
+# ============================================
+# FRONTEND SETUP
+# ============================================
+WORKDIR /app/frontend
+
+# Copy frontend package files
+COPY front-end/package*.json ./
+
+# Install frontend dependencies
+RUN npm install --legacy-peer-deps
+
+# Copy frontend code
+COPY front-end/ ./
+
+# ============================================
+# CREATE INTERACTIVE STARTUP SCRIPT
+# ============================================
+WORKDIR /app
+
+# Create the interactive startup script
+RUN cat > /app/start-interactive.sh << 'EOF'
+#!/bin/bash
+
+echo "============================================"
+echo "   Admin Dashboard - Interactive Setup"
+echo "============================================"
+echo ""
+
+# Function to read input with default value
+read_input() {
+    local prompt="$1"
+    local default="$2"
+    local var_name="$3"
+    
+    if [ -z "$default" ]; then
+        read -p "$prompt: " value
+    else
+        read -p "$prompt [$default]: " value
+        value="${value:-$default}"
+    fi
+    
+    export "$var_name=$value"
+}
+
+# Check if variables are already set (non-interactive mode)
+if [ -z "$SUPABASE_URL" ]; then
+    echo "📋 Please enter your configuration:"
+    echo ""
+    echo "--- Supabase Configuration (Required) ---"
+    read_input "Supabase URL" "https://your-project.supabase.co" "SUPABASE_URL"
+    read_input "Supabase Anon Key" "" "SUPABASE_ANON_KEY"
+    read_input "Supabase Service Role Key" "" "SUPABASE_SERVICE_ROLE_KEY"
+    
+    echo ""
+    echo "--- Application Configuration ---"
+    read_input "Client URL" "http://localhost:3000" "CLIENT_URL"
+    read_input "Backend Port" "5000" "PORT"
+    
+    echo ""
+    echo "--- Email Configuration (Optional - Press Enter to skip) ---"
+    read_input "Email Host" "smtp.gmail.com" "EMAIL_HOST"
+    read_input "Email Port" "587" "EMAIL_PORT"
+    read_input "Email User" "" "EMAIL_USER"
+    read_input "Email Password" "" "EMAIL_PASS"
+    
+    echo ""
+    echo "✅ Configuration saved!"
+    echo ""
+else
+    echo "✅ Using environment variables from Docker run command"
+    echo ""
+fi
+
+# Export additional required variables
+export NODE_ENV=development
+export REACT_APP_API_URL=http://localhost:${PORT}/api
+export SKIP_PREFLIGHT_CHECK=true
+export CI=true
+export DANGEROUSLY_DISABLE_HOST_CHECK=true
+
+echo "============================================"
+echo "   Starting Services..."
+echo "============================================"
+echo ""
+
+# Start Backend
+echo "🚀 Starting Backend on port ${PORT}..."
+cd /app/backend && npm run dev &
+BACKEND_PID=$!
+echo "✅ Backend started (PID: $BACKEND_PID)"
+
+# Wait a moment for backend to initialize
+sleep 2
+
+# Start Frontend
+echo "🎨 Starting Frontend on port 3000..."
+cd /app/frontend && PORT=3000 npm start &
+FRONTEND_PID=$!
+echo "✅ Frontend started (PID: $FRONTEND_PID)"
+
+echo ""
+echo "======================================"
+echo "   🎉 Application is Running!"
+echo "======================================"
+echo "Frontend: http://localhost:3000"
+echo "Backend:  http://localhost:${PORT}"
+echo "======================================"
+echo ""
+echo "💡 Tip: View logs with 'docker logs -f <container-name>'"
+echo "🛑 Stop with: docker stop <container-name>"
+echo ""
+
+# Wait for both processes
+wait $BACKEND_PID $FRONTEND_PID
+EOF
+
+# Make the script executable
+RUN chmod +x /app/start-interactive.sh
+
+# Expose both ports
+EXPOSE 3000 5000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:5000/health || exit 1
+
+# Run the interactive startup script
+CMD ["/bin/bash", "/app/start-interactive.sh"]
+

@@ -316,6 +316,34 @@ const apiClient = {
      */
     resetMyConsumerPassword: (id) => axiosInstance.post(`/resellers/my-consumers/${id}/reset-password`),
   },
+
+  // ==================== PRODUCTS ====================
+  products: {
+    /**
+     * Get all products
+     */
+    getAll: () => axiosInstance.get('/products'),
+
+    /**
+     * Get product by ID
+     */
+    getById: (id) => axiosInstance.get(`/products/${id}`),
+
+    /**
+     * Create new product
+     */
+    create: (productData) => axiosInstance.post('/products', productData),
+
+    /**
+     * Update product
+     */
+    update: (id, productData) => axiosInstance.put(`/products/${id}`, productData),
+
+    /**
+     * Delete product
+     */
+    delete: (id) => axiosInstance.delete(`/products/${id}`),
+  },
 };
 
 export default apiClient;

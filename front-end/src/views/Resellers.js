@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useHistory } from 'react-router-dom';
 import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 // ✅ Using backend API instead of direct Supabase calls
@@ -15,6 +16,7 @@ import UpdateResellerModal from '../components/ui/updateResellerModel';
 import DeleteModal from '../components/ui/deleteModel';
 
 const Resellers = () => {
+  const history = useHistory();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -149,7 +151,9 @@ const Resellers = () => {
       // Call API to update Reseller using user_id
       const result = await updateReseller(updatedReseller.user_id, {
         full_name: updatedReseller.full_name,
-        phone: updatedReseller.phone
+        phone: updatedReseller.phone,
+        country: updatedReseller.country,
+        city: updatedReseller.city
       });
       
       if (result.error) {
@@ -633,18 +637,25 @@ const Resellers = () => {
                         onMouseLeave={handleConsumerLeave}
                         style={{ display: 'inline-block', position: 'relative' }}
                       >
-                        <span style={{
-                          backgroundColor: '#007bff',
-                          color: 'white',
-                          padding: '6px 14px',
-                          borderRadius: '20px',
-                          fontSize: '13px',
-                          fontWeight: '600',
-                          display: 'inline-block',
-                          minWidth: '40px',
-                          cursor: user.referred_count > 0 ? 'pointer' : 'default',
-                          transition: 'all 0.2s'
-                        }}>
+                        <span 
+                          onClick={() => {
+                            if (user.referred_count > 0) {
+                              history.push(`/admin/reseller/${userId}`);
+                            }
+                          }}
+                          style={{
+                            backgroundColor: '#007bff',
+                            color: 'white',
+                            padding: '6px 14px',
+                            borderRadius: '20px',
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            display: 'inline-block',
+                            minWidth: '40px',
+                            cursor: user.referred_count > 0 ? 'pointer' : 'default',
+                            transition: 'all 0.2s'
+                          }}
+                        >
                           {user.referred_count || 0}
                         </span>
 
@@ -770,7 +781,7 @@ const Resellers = () => {
                                         e.currentTarget.style.backgroundColor = '#007bff';
                                       }}
                                       onClick={() => {
-                                        // TODO: Navigate to full consumer list page
+                                        history.push(`/admin/reseller/${userId}`);
                                       }}
                                     >
                                       View More ({resellerConsumers[userId].length - 5} more)

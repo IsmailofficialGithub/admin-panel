@@ -114,7 +114,7 @@ export const getConsumerById = async (req, res) => {
 export const updateConsumer = async (req, res) => {
   try {
     const { id } = req.params;
-    const { full_name, phone, trial_expiry_date, country, city } = req.body;
+    const { full_name, phone, trial_expiry_date, country, city, subscribed_products } = req.body;
 
     // Validate required fields for update
     if (!country || !city || !phone) {
@@ -136,6 +136,10 @@ export const updateConsumer = async (req, res) => {
       } else {
         updateData.trial_expiry = null;
       }
+    }
+    // Handle subscribed_products (array of product UUIDs)
+    if (subscribed_products !== undefined) {
+      updateData.subscribed_products = subscribed_products || [];
     }
 
     if (Object.keys(updateData).length === 0) {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation, useHistory } from 'react-router-dom';
 import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, CheckCircle, Search, Filter } from 'lucide-react';
 import toast from 'react-hot-toast';
 // ✅ Using backend API instead of direct Supabase calls
@@ -15,6 +16,8 @@ import UpdateConsumerModal from '../components/ui/updateConsumerModel';
 import DeleteModal from '../components/ui/deleteModel';
 
 const Consumers = () => {
+  const location = useLocation();
+  const history = useHistory();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -36,6 +39,17 @@ const Consumers = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const usersPerPage = 20;
+
+  // Read status from URL parameters on mount and when location changes
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const statusParam = params.get('status');
+    if (statusParam && ['active', 'deactive', 'expired_subscription'].includes(statusParam)) {
+      setAccountStatusFilter(statusParam);
+    } else {
+      setAccountStatusFilter('all');
+    }
+  }, [location.search]);
 
   // Debounce search input
   useEffect(() => {
@@ -166,7 +180,10 @@ const Consumers = () => {
       const result = await updateConsumer(updatedConsumer.user_id, {
         full_name: updatedConsumer.full_name,
         phone: updatedConsumer.phone,
-        trial_expiry_date: updatedConsumer.trial_expiry_date
+        trial_expiry_date: updatedConsumer.trial_expiry_date,
+        country: updatedConsumer.country,
+        city: updatedConsumer.city,
+        subscribed_products: updatedConsumer.subscribed_products || []
       });
       
       if (result.error) {
@@ -381,6 +398,8 @@ const Consumers = () => {
     setAccountStatusFilter('all');
     setSearchQuery('');
     setSearchInput('');
+    // Navigate to consumers page without status parameter to deselect submenu
+    history.push('/admin/consumers');
   };
 
   // Calculate trial status

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Mail, Lock, Phone, Calendar, CheckCircle, AlertCircle, MapPin, Globe, ChevronDown, RefreshCw, Eye, Users } from 'lucide-react';
+import { X, User, Mail, Lock, Phone, Calendar, CheckCircle, AlertCircle, MapPin, Globe, ChevronDown, RefreshCw, Eye, Users, Package } from 'lucide-react';
 import { countries, searchCountries } from '../../utils/countryData';
 import { generatePassword } from '../../utils/passwordGenerator';
-import { getResellers } from '../../api/backend';
+import { getResellers, getProducts } from '../../api/backend';
 
 const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
   const [formData, setFormData] = useState({
@@ -14,7 +14,8 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
     trial_expiry_date: '',
     country: '',
     city: '',
-    referred_by: ''
+    referred_by: '',
+    subscribed_products: []
   });
 
   const [countrySearch, setCountrySearch] = useState('');
@@ -22,14 +23,17 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
   const [selectedCountry, setSelectedCountry] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showProductsDropdown, setShowProductsDropdown] = useState(false);
   const [resellers, setResellers] = useState([]);
   const [loadingResellers, setLoadingResellers] = useState(false);
+  const [products, setProducts] = useState([]);
+  const [loadingProducts, setLoadingProducts] = useState(false);
 
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState({ type: '', text: '' });
 
-  // Fetch resellers when modal opens
+  // Fetch resellers and products when modal opens
   useEffect(() => {
     if (isOpen) {
       const fetchResellers = async () => {
@@ -45,7 +49,27 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
           setLoadingResellers(false);
         }
       };
+
+      const fetchProducts = async () => {
+        setLoadingProducts(true);
+        try {
+          const result = await getProducts();
+          console.log('Fetched products:', result); // Debug log
+          if (result && !result.error && Array.isArray(result)) {
+            setProducts(result);
+            console.log('Products set:', result.length); // Debug log
+          } else if (result && result.error) {
+            console.error('Error from getProducts:', result.error);
+          }
+        } catch (error) {
+          console.error('Error fetching products:', error);
+        } finally {
+          setLoadingProducts(false);
+        }
+      };
+
       fetchResellers();
+      fetchProducts();
     }
   }, [isOpen]);
 
@@ -144,6 +168,21 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
     }
   };
 
+  // Handle product selection
+  const handleProductToggle = (productId) => {
+    setFormData(prev => ({
+      ...prev,
+      subscribed_products: prev.subscribed_products.includes(productId)
+        ? prev.subscribed_products.filter(id => id !== productId)
+        : [...prev.subscribed_products, productId]
+    }));
+  };
+
+  // Check if product is selected
+  const isProductSelected = (productId) => {
+    return formData.subscribed_products.includes(productId);
+  };
+
   const validateForm = () => {
     const newErrors = {};
     
@@ -189,6 +228,10 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
     if (!formData.trial_expiry_date) {
       newErrors.trial_expiry_date = 'Trial period is required';
     }
+    if (!formData.phone) {
+      newErrors.phone = 'Phone number is required';
+    }
+    
     
     // Phone validation (optional but must be valid if provided)
     if (formData.phone && !/^[\d\s\-\+\(\)]+$/.test(formData.phone)) {
@@ -231,7 +274,8 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         trial_expiry_date: trialExpiryDate,
         country: formData.country.trim() || null,
         city: formData.city.trim() || null,
-        referred_by: formData.referred_by || null
+        referred_by: formData.referred_by || null,
+        subscribed_products: formData.subscribed_products
       });
 
       if (result.success) {
@@ -247,7 +291,8 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
             trial_expiry_date: '',
             country: '',
             city: '',
-            referred_by: ''
+            referred_by: '',
+            subscribed_products: []
           });
           setSelectedCountry(null);
           setCountrySearch('');
@@ -277,7 +322,8 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         trial_expiry_date: '',
         country: '',
         city: '',
-        referred_by: ''
+        referred_by: '',
+        subscribed_products: []
       });
       setSelectedCountry(null);
       setCountrySearch('');
@@ -546,6 +592,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 style={{
                   display: 'flex',
                   alignItems: 'center',
+
                   gap: '4px',
                   padding: '4px 12px',
                   fontSize: '12px',
@@ -1005,7 +1052,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
               color: '#374151',
               marginBottom: '8px'
             }}>
-              Phone Number <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+              Phone Number <span style={{ color: '#ef4444' }}>*</span>
             </label>
             <div style={{ position: 'relative', display: 'flex', gap: '8px' }}>
               {selectedCountry && (
@@ -1172,6 +1219,189 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
               }}>
                 <span style={{ fontSize: '16px' }}>ℹ️</span>
                 This consumer will be assigned to the selected reseller
+              </p>
+            )}
+          </div>
+
+          {/* Subscribed Products Field (Multi-select) */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              <Package size={16} style={{ color: '#6b7280' }} />
+              Subscribed Products <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+            </label>
+            <div style={{ position: 'relative' }}>
+              <div
+                onClick={() => !isSubmitting && setShowProductsDropdown(!showProductsDropdown)}
+                style={{
+                  width: '100%',
+                  minHeight: '42px',
+                  padding: '8px 40px 8px 12px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.2s',
+                  boxSizing: 'border-box',
+                  backgroundColor: 'white',
+                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '6px',
+                  alignItems: 'center',
+                  opacity: isSubmitting ? 0.6 : 1
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSubmitting) {
+                    e.currentTarget.style.borderColor = '#3b82f6';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#d1d5db';
+                }}
+              >
+                {loadingProducts ? (
+                  <span style={{ color: '#9ca3af' }}>Loading products...</span>
+                ) : formData.subscribed_products.length === 0 ? (
+                  <span style={{ color: '#9ca3af' }}>Select products...</span>
+                ) : (
+                  formData.subscribed_products.map(productId => {
+                    const product = products.find(p => p.id === productId);
+                    return (
+                      <span
+                        key={productId}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '4px 8px',
+                          backgroundColor: '#3b82f6',
+                          color: 'white',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          fontWeight: '500'
+                        }}
+                      >
+                        {product?.name}
+                        <X
+                          size={14}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!isSubmitting) handleProductToggle(productId);
+                          }}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      </span>
+                    );
+                  })
+                )}
+                <div style={{
+                  position: 'absolute',
+                  right: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  pointerEvents: 'none'
+                }}>
+                  <ChevronDown size={16} style={{ color: '#9ca3af' }} />
+                </div>
+              </div>
+
+              {/* Products Dropdown */}
+              {showProductsDropdown && !isSubmitting && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    marginTop: '4px',
+                    backgroundColor: 'white',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                    maxHeight: '200px',
+                    overflowY: 'auto',
+                    zIndex: 1000
+                  }}
+                >
+                  {loadingProducts ? (
+                    <div style={{ padding: '10px 12px', textAlign: 'center', color: '#9ca3af' }}>
+                      Loading products...
+                    </div>
+                  ) : products.length === 0 ? (
+                    <div style={{ padding: '10px 12px', textAlign: 'center', color: '#9ca3af' }}>
+                      No products available
+                    </div>
+                  ) : (
+                    products.map((product) => (
+                    <div
+                      key={product.id}
+                      onClick={() => handleProductToggle(product.id)}
+                      style={{
+                        padding: '10px 12px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        transition: 'background-color 0.2s',
+                        backgroundColor: isProductSelected(product.id) ? '#eff6ff' : 'white'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = isProductSelected(product.id) ? '#dbeafe' : '#f9fafb';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = isProductSelected(product.id) ? '#eff6ff' : 'white';
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: '18px',
+                          height: '18px',
+                          border: isProductSelected(product.id) ? '2px solid #3b82f6' : '2px solid #d1d5db',
+                          borderRadius: '4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: isProductSelected(product.id) ? '#3b82f6' : 'white',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        {isProductSelected(product.id) && (
+                          <CheckCircle size={12} style={{ color: 'white' }} />
+                        )}
+                      </div>
+                      <span style={{
+                        fontSize: '14px',
+                        color: '#374151',
+                        fontWeight: isProductSelected(product.id) ? '500' : '400'
+                      }}>
+                        {product.name}
+                      </span>
+                    </div>
+                  ))
+                  )}
+                </div>
+              )}
+            </div>
+            {formData.subscribed_products.length > 0 && (
+              <p style={{
+                color: '#6b7280',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}>
+                <span style={{ fontSize: '16px' }}>ℹ️</span>
+                {formData.subscribed_products.length} product{formData.subscribed_products.length !== 1 ? 's' : ''} selected
               </p>
             )}
           </div>

@@ -899,9 +899,9 @@ export const resetMyConsumerPassword = async (req, res) => {
  */
 export const createConsumerAdmin = async (req, res) => {
   try {
-    const { email, password, full_name, phone, trial_expiry_date, country, city, referred_by } = req.body;
+    const { email, password, full_name, phone, trial_expiry_date, country, city, referred_by, subscribed_products } = req.body;
 
-    console.log('👤 Admin creating consumer:', { email, referred_by });
+    console.log('👤 Admin creating consumer:', { email, referred_by, subscribed_products });
 
     // Validate input
     if (!email || !password || !full_name || !country || !city) {
@@ -981,6 +981,11 @@ export const createConsumerAdmin = async (req, res) => {
     // Add trial_expiry if provided
     if (trial_expiry_date) {
       profileData.trial_expiry = new Date(trial_expiry_date);
+    }
+
+    // Add subscribed_products if provided
+    if (subscribed_products !== undefined) {
+      profileData.subscribed_products = subscribed_products || [];
     }
 
     const { error: insertError } = await supabaseAdmin

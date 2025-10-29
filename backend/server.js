@@ -10,6 +10,7 @@ import authRoutes from './routes/auth.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import consumersRoutes from './routes/consumers.routes.js';
 import resellersRoutes from './routes/resellers.routes.js';
+import productsRoutes from './routes/products.routes.js';
 
 // Load environment variables
 dotenv.config();
@@ -59,6 +60,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/consumers', consumersRoutes);
 app.use('/api/resellers', resellersRoutes);
+app.use('/api/products', productsRoutes);
 // 404 Handler
 app.use((req, res) => {
   res.status(404).json({
