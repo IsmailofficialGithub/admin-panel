@@ -1,14 +1,24 @@
 import React, { useState } from 'react';
-import { X, User, Mail, Lock, Phone, CheckCircle, AlertCircle } from 'lucide-react';
+import { X, User, Mail, Lock, Phone, CheckCircle, AlertCircle, MapPin, Globe, ChevronDown, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { countries, searchCountries } from '../../utils/countryData';
+import { generatePassword } from '../../utils/passwordGenerator';
 
-const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
+const CreateResellerModal = ({ isOpen, onClose, onCreate }) => {
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
     password: '',
     confirmPassword: '',
-    phone: ''
+    phone: '',
+    country: '',
+    city: ''
   });
+
+  const [countrySearch, setCountrySearch] = useState('');
+  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
+  const [selectedCountry, setSelectedCountry] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -30,6 +40,76 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
     // Clear submit message
     if (submitMessage.text) {
       setSubmitMessage({ type: '', text: '' });
+    }
+  };
+
+  const handlePhoneChange = (e) => {
+    const value = e.target.value;
+    // Only allow numbers
+    const numericValue = value.replace(/\D/g, '');
+    
+    setFormData(prev => ({ ...prev, phone: numericValue }));
+    
+    // Clear phone error
+    if (errors.phone) {
+      setErrors(prev => ({ ...prev, phone: '' }));
+    }
+  };
+
+  const handleCountrySelect = (country) => {
+    setSelectedCountry(country);
+    setFormData(prev => ({
+      ...prev,
+      country: country.name,
+      // Keep only the number part without any country code
+      phone: prev.phone ? prev.phone.replace(/^\+?\d+\s*/, '').trim() : ''
+    }));
+    setCountrySearch('');
+    setShowCountryDropdown(false);
+    if (errors.country) {
+      setErrors(prev => ({ ...prev, country: '' }));
+    }
+  };
+
+  const handleCountryInputChange = (e) => {
+    const value = e.target.value;
+    setCountrySearch(value);
+    setSelectedCountry(null);
+    setFormData(prev => ({ ...prev, country: '' }));
+    setShowCountryDropdown(true);
+  };
+
+  const handleCountryInputFocus = () => {
+    setShowCountryDropdown(true);
+  };
+
+  const handleCountryInputClick = () => {
+    // If a country is selected and user clicks to edit, clear it for searching
+    if (selectedCountry) {
+      setSelectedCountry(null);
+      setCountrySearch('');
+      setFormData(prev => ({ ...prev, country: '' }));
+      setShowCountryDropdown(true);
+    }
+  };
+
+  const filteredCountries = countrySearch 
+    ? searchCountries(countrySearch)
+    : countries;
+
+  const handleGeneratePassword = () => {
+    const newPassword = generatePassword(12);
+    setFormData(prev => ({
+      ...prev,
+      password: newPassword,
+      confirmPassword: newPassword
+    }));
+    if (errors.password || errors.confirmPassword) {
+      setErrors(prev => ({
+        ...prev,
+        password: '',
+        confirmPassword: ''
+      }));
     }
   };
 
@@ -64,6 +144,16 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
       newErrors.confirmPassword = 'Passwords do not match';
     }
     
+    // Country validation
+    if (!formData.country.trim()) {
+      newErrors.country = 'Country is required';
+    }
+    
+    // City validation
+    if (!formData.city.trim()) {
+      newErrors.city = 'City is required';
+    }
+    
     // Phone validation (optional but must be valid if provided)
     if (formData.phone && !/^[\d\s\-\+\(\)]+$/.test(formData.phone)) {
       newErrors.phone = 'Please enter a valid phone number';
@@ -83,15 +173,22 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
     setSubmitMessage({ type: '', text: '' });
 
     try {
+      // Combine country code with phone number
+      const fullPhone = selectedCountry && formData.phone 
+        ? `${selectedCountry.phoneCode} ${formData.phone.trim()}`
+        : formData.phone.trim() || null;
+
       const result = await onCreate({
         email: formData.email.trim(),
         password: formData.password,
         full_name: formData.full_name.trim(),
-        phone: formData.phone.trim() || null
+        phone: fullPhone,
+        country: formData.country.trim() || null,
+        city: formData.city.trim() || null
       });
 
       if (result.success) {
-        setSubmitMessage({ type: 'success', text: 'Resaler created successfully!' });
+        setSubmitMessage({ type: 'success', text: 'Reseller created successfully!' });
         // Reset form
         setTimeout(() => {
           setFormData({
@@ -99,13 +196,19 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
             email: '',
             password: '',
             confirmPassword: '',
-            phone: ''
+            phone: '',
+            country: '',
+            city: ''
           });
+          setSelectedCountry(null);
+          setCountrySearch('');
+          setShowPassword(false);
+          setShowConfirmPassword(false);
           setSubmitMessage({ type: '', text: '' });
           onClose();
         }, 1500);
       } else {
-        setSubmitMessage({ type: 'error', text: result.error || 'Failed to create resaler' });
+        setSubmitMessage({ type: 'error', text: result.error || 'Failed to create reseller' });
       }
     } catch (error) {
       setSubmitMessage({ type: 'error', text: 'An unexpected error occurred' });
@@ -121,8 +224,14 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
         email: '',
         password: '',
         confirmPassword: '',
-        phone: ''
+        phone: '',
+        country: '',
+        city: ''
       });
+      setSelectedCountry(null);
+      setCountrySearch('');
+      setShowPassword(false);
+      setShowConfirmPassword(false);
       setErrors({});
       setSubmitMessage({ type: '', text: '' });
       onClose();
@@ -154,7 +263,7 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
           backgroundColor: 'white',
           borderRadius: '12px',
           width: '100%',
-          maxWidth: '500px',
+          maxWidth: '550px',
           boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
           maxHeight: '90vh',
@@ -179,7 +288,7 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
             fontWeight: '600',
             color: '#111827'
           }}>
-            Create New Resaler
+            Create New Reseller
           </h2>
           <button
             onClick={handleClose}
@@ -370,15 +479,50 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
 
           {/* Password Field */}
           <div style={{ marginBottom: '20px' }}>
-            <label style={{
-              display: 'block',
-              fontSize: '14px',
-              fontWeight: '500',
-              color: '#374151',
-              marginBottom: '8px'
-            }}>
-              Password <span style={{ color: '#ef4444' }}>*</span>
-            </label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <label style={{
+                fontSize: '14px',
+                fontWeight: '500',
+                color: '#374151'
+              }}>
+                Password <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <button
+                type="button"
+                onClick={handleGeneratePassword}
+                disabled={isSubmitting}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  color: '#3b82f6',
+                  backgroundColor: '#eff6ff',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: '6px',
+                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s',
+                  opacity: isSubmitting ? 0.5 : 1
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSubmitting) {
+                    e.currentTarget.style.backgroundColor = '#dbeafe';
+                    e.currentTarget.style.borderColor = '#93c5fd';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSubmitting) {
+                    e.currentTarget.style.backgroundColor = '#eff6ff';
+                    e.currentTarget.style.borderColor = '#bfdbfe';
+                  }
+                }}
+              >
+                <RefreshCw size={14} />
+                Generate
+              </button>
+            </div>
             <div style={{ position: 'relative' }}>
               <div style={{
                 position: 'absolute',
@@ -390,7 +534,7 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
                 <Lock size={18} />
               </div>
               <input
-                type="password"
+                type={showPassword ? "text" : "password"}
                 name="password"
                 value={formData.password}
                 onChange={handleChange}
@@ -398,7 +542,7 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
                 disabled={isSubmitting}
                 style={{
                   width: '100%',
-                  padding: '10px 12px 10px 40px',
+                  padding: '10px 40px 10px 40px',
                   border: errors.password ? '1px solid #ef4444' : '1px solid #d1d5db',
                   borderRadius: '8px',
                   fontSize: '14px',
@@ -418,6 +562,26 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
                   e.target.style.boxShadow = 'none';
                 }}
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                disabled={isSubmitting}
+                style={{
+                  position: 'absolute',
+                  right: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: '#9ca3af'
+                }}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
             {errors.password && (
               <p style={{
@@ -453,7 +617,7 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
                 <Lock size={18} />
               </div>
               <input
-                type="password"
+                type={showConfirmPassword ? "text" : "password"}
                 name="confirmPassword"
                 value={formData.confirmPassword}
                 onChange={handleChange}
@@ -461,7 +625,7 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
                 disabled={isSubmitting}
                 style={{
                   width: '100%',
-                  padding: '10px 12px 10px 40px',
+                  padding: '10px 40px 10px 40px',
                   border: errors.confirmPassword ? '1px solid #ef4444' : '1px solid #d1d5db',
                   borderRadius: '8px',
                   fontSize: '14px',
@@ -481,6 +645,26 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
                   e.target.style.boxShadow = 'none';
                 }}
               />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                disabled={isSubmitting}
+                style={{
+                  position: 'absolute',
+                  right: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: '#9ca3af'
+                }}
+              >
+                {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
             {errors.confirmPassword && (
               <p style={{
@@ -490,6 +674,260 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
                 marginBottom: 0
               }}>
                 {errors.confirmPassword}
+              </p>
+            )}
+          </div>
+
+          {/* Country Field */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              Country <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <div style={{ position: 'relative' }}>
+              <div style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#9ca3af',
+                zIndex: 1
+              }}>
+                <Globe size={18} />
+              </div>
+              <input
+                type="text"
+                value={selectedCountry ? `${selectedCountry.flag} ${selectedCountry.name}` : countrySearch}
+                onChange={handleCountryInputChange}
+                onFocus={handleCountryInputFocus}
+                onClick={handleCountryInputClick}
+                placeholder="Search country..."
+                disabled={isSubmitting}
+                readOnly={false}
+                style={{
+                  width: '100%',
+                  padding: '10px 40px 10px 40px',
+                  border: errors.country ? '1px solid #ef4444' : '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.2s',
+                  boxSizing: 'border-box',
+                  opacity: isSubmitting ? 0.6 : 1,
+                  cursor: selectedCountry ? 'pointer' : 'text',
+                  backgroundColor: selectedCountry ? '#f9fafb' : 'white'
+                }}
+                onFocusCapture={(e) => {
+                  if (!errors.country && !isSubmitting) {
+                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                  }
+                }}
+                onBlur={(e) => {
+                  setTimeout(() => setShowCountryDropdown(false), 200);
+                  e.target.style.borderColor = errors.country ? '#ef4444' : '#d1d5db';
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+              {selectedCountry ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedCountry(null);
+                    setCountrySearch('');
+                    setFormData(prev => ({ ...prev, country: '', phone: '' }));
+                    setShowCountryDropdown(true);
+                  }}
+                  disabled={isSubmitting}
+                  style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    color: '#9ca3af',
+                    borderRadius: '4px',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#e5e7eb';
+                    e.currentTarget.style.color = '#374151';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = '#9ca3af';
+                  }}
+                >
+                  <X size={16} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowCountryDropdown(!showCountryDropdown);
+                  }}
+                  disabled={isSubmitting}
+                  style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: `translateY(-50%) rotate(${showCountryDropdown ? '180deg' : '0deg'})`,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    color: '#9ca3af',
+                    borderRadius: '4px',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#e5e7eb';
+                    e.currentTarget.style.color = '#374151';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = '#9ca3af';
+                  }}
+                >
+                  <ChevronDown size={18} />
+                </button>
+              )}
+              
+              {/* Country Dropdown */}
+              {showCountryDropdown && !isSubmitting && !selectedCountry && (
+                <div style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 4px)',
+                  left: 0,
+                  right: 0,
+                  maxHeight: '200px',
+                  overflowY: 'auto',
+                  backgroundColor: 'white',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                  zIndex: 1000
+                }}>
+                  {filteredCountries.length > 0 ? (
+                    filteredCountries.map((country) => (
+                      <div
+                        key={country.code}
+                        onClick={() => handleCountrySelect(country)}
+                        style={{
+                          padding: '10px 12px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          borderBottom: '1px solid #f3f4f6',
+                          transition: 'background-color 0.15s'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                      >
+                        <span style={{ fontSize: '20px' }}>{country.flag}</span>
+                        <span style={{ fontSize: '14px', color: '#374151', flex: 1 }}>{country.name}</span>
+                        <span style={{ fontSize: '12px', color: '#9ca3af' }}>{country.phoneCode}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{
+                      padding: '12px',
+                      textAlign: 'center',
+                      color: '#9ca3af',
+                      fontSize: '14px'
+                    }}>
+                      No countries found
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            {errors.country && (
+              <p style={{
+                color: '#ef4444',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                {errors.country}
+              </p>
+            )}
+          </div>
+
+          {/* City Field */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              City <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <div style={{ position: 'relative' }}>
+              <div style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#9ca3af'
+              }}>
+                <MapPin size={18} />
+              </div>
+              <input
+                type="text"
+                name="city"
+                value={formData.city}
+                onChange={handleChange}
+                placeholder="Enter city"
+                disabled={isSubmitting}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px 10px 40px',
+                  border: errors.city ? '1px solid #ef4444' : '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.2s',
+                  boxSizing: 'border-box',
+                  opacity: isSubmitting ? 0.6 : 1
+                }}
+                onFocus={(e) => {
+                  if (!errors.city && !isSubmitting) {
+                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                  }
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = errors.city ? '#ef4444' : '#d1d5db';
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+            </div>
+            {errors.city && (
+              <p style={{
+                color: '#ef4444',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                {errors.city}
               </p>
             )}
           </div>
@@ -505,45 +943,76 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
             }}>
               Phone Number <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
             </label>
-            <div style={{ position: 'relative' }}>
-              <div style={{
-                position: 'absolute',
-                left: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: '#9ca3af'
-              }}>
-                <Phone size={18} />
-              </div>
-              <input
-                type="tel"
-                name="phone"
-                value={formData.phone}
-                onChange={handleChange}
-                placeholder="Enter phone number"
-                disabled={isSubmitting}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px 10px 40px',
-                  border: errors.phone ? '1px solid #ef4444' : '1px solid #d1d5db',
+            <div style={{ position: 'relative', display: 'flex', gap: '8px' }}>
+              {selectedCountry && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '10px 12px',
+                  border: '1px solid #d1d5db',
                   borderRadius: '8px',
+                  backgroundColor: '#f9fafb',
                   fontSize: '14px',
-                  outline: 'none',
-                  transition: 'all 0.2s',
-                  boxSizing: 'border-box',
-                  opacity: isSubmitting ? 0.6 : 1
-                }}
-                onFocus={(e) => {
-                  if (!errors.phone && !isSubmitting) {
-                    e.target.style.borderColor = '#3b82f6';
-                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                  }
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = errors.phone ? '#ef4444' : '#d1d5db';
-                  e.target.style.boxShadow = 'none';
-                }}
-              />
+                  fontWeight: '500',
+                  color: '#374151',
+                  minWidth: '80px',
+                  justifyContent: 'center'
+                }}>
+                  {selectedCountry.phoneCode}
+                </div>
+              )}
+              <div style={{ position: 'relative', flex: 1 }}>
+                <div style={{
+                  position: 'absolute',
+                  left: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#9ca3af'
+                }}>
+                  <Phone size={18} />
+                </div>
+                <input
+                  type="tel"
+                  name="phone"
+                  value={formData.phone}
+                  onChange={handlePhoneChange}
+                  placeholder={selectedCountry ? "Enter phone number" : "Select country first"}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  disabled={isSubmitting}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px 10px 40px',
+                    border: errors.phone ? '1px solid #ef4444' : '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    outline: 'none',
+                    transition: 'all 0.2s',
+                    boxSizing: 'border-box',
+                    opacity: isSubmitting ? 0.6 : 1
+                  }}
+                  onFocus={(e) => {
+                    // If no country is selected, open the country dropdown
+                    if (!selectedCountry && !isSubmitting) {
+                      setShowCountryDropdown(true);
+                      e.target.blur(); // Remove focus from phone field
+                      // Scroll to country field
+                      const countrySection = document.querySelector('input[placeholder*="Search country"]');
+                      if (countrySection) {
+                        countrySection.focus();
+                        countrySection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }
+                    } else if (!errors.phone && !isSubmitting) {
+                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                    }
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = errors.phone ? '#ef4444' : '#d1d5db';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                />
+              </div>
             </div>
             {errors.phone && (
               <p style={{
@@ -638,7 +1107,7 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
                 Creating...
               </>
             ) : (
-              'Create Resaler'
+              'Create Reseller'
             )}
           </button>
         </div>
@@ -647,5 +1116,5 @@ const CreateResalerModal = ({ isOpen, onClose, onCreate }) => {
   );
 };
 
-export default CreateResalerModal;
+export default CreateResellerModal;
 

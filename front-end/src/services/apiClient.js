@@ -173,9 +173,9 @@ const apiClient = {
   // ==================== USERS ====================
   users: {
     /**
-     * Get all users (admin only)
+     * Get all users with optional search
      */
-    getAll: () => axiosInstance.get('/users'),
+    getAll: (queryString = '') => axiosInstance.get(`/users${queryString}`),
 
     /**
      * Get user by ID
@@ -206,9 +206,9 @@ const apiClient = {
   // ==================== CONSUMERS ====================
   consumers: {
     /**
-     * Get all consumers
+     * Get all consumers with optional filters
      */
-    getAll: () => axiosInstance.get('/consumers'),
+    getAll: (queryString = '') => axiosInstance.get(`/consumers${queryString}`),
 
     /**
      * Get consumer by ID
@@ -234,71 +234,87 @@ const apiClient = {
      * Reset consumer password
      */
     resetPassword: (id) => axiosInstance.post(`/consumers/${id}/reset-password`),
+
+    /**
+     * Update consumer account status
+     */
+    updateAccountStatus: (id, account_status, trial_expiry_date = null) => {
+      const payload = { account_status };
+      if (trial_expiry_date) {
+        payload.trial_expiry_date = trial_expiry_date;
+      }
+      return axiosInstance.patch(`/consumers/${id}/account-status`, payload);
+    },
   },
 
-  // ==================== RESALERS ====================
-  resalers: {
+  // ==================== RESELLERS ====================
+  resellers: {
     /**
-     * Get all resalers
+     * Get all resellers with optional search
      */
-    getAll: () => axiosInstance.get('/resalers'),
+    getAll: (queryString = '') => axiosInstance.get(`/resellers${queryString}`),
 
     /**
-     * Get resaler by ID
+     * Get reseller by ID
      */
-    getById: (id) => axiosInstance.get(`/resalers/${id}`),
+    getById: (id) => axiosInstance.get(`/resellers/${id}`),
 
     /**
-     * Create new resaler
+     * Create new reseller
      */
-    create: (resalerData) => axiosInstance.post('/resalers', resalerData),
+    create: (resellerData) => axiosInstance.post('/resellers', resellerData),
 
     /**
-     * Update resaler
+     * Update reseller
      */
-    update: (id, resalerData) => axiosInstance.put(`/resalers/${id}`, resalerData),
+    update: (id, resellerData) => axiosInstance.put(`/resellers/${id}`, resellerData),
 
     /**
-     * Delete resaler
+     * Delete reseller
      */
-    delete: (id) => axiosInstance.delete(`/resalers/${id}`),
+    delete: (id) => axiosInstance.delete(`/resellers/${id}`),
 
     /**
-     * Reset resaler password
+     * Reset reseller password
      */
-    resetPassword: (id) => axiosInstance.post(`/resalers/${id}/reset-password`),
+    resetPassword: (id) => axiosInstance.post(`/resellers/${id}/reset-password`),
 
     /**
-     * Create new consumer (via resaler endpoint) - Legacy
+     * Get referred consumers by reseller ID
      */
-    createConsumer: (consumerData) => axiosInstance.post('/resalers/create-consumer', consumerData),
+    getReferredConsumers: (id) => axiosInstance.get(`/resellers/${id}/referred-consumers`),
 
-    // ========== RESALER'S OWN CONSUMERS ==========
+    /**
+     * Create new consumer (via reseller endpoint) - Legacy
+     */
+    createConsumer: (consumerData) => axiosInstance.post('/resellers/create-consumer', consumerData),
+
+    // ========== RESELLER'S OWN CONSUMERS ==========
     
     /**
-     * Get all consumers created by the logged-in resaler
+     * Get all consumers created by the logged-in reseller
      */
-    getMyConsumers: () => axiosInstance.get('/resalers/my-consumers'),
+    getMyConsumers: () => axiosInstance.get('/resellers/my-consumers'),
 
     /**
-     * Create new consumer (as resaler)
+     * Create new consumer (as reseller)
      */
-    createMyConsumer: (consumerData) => axiosInstance.post('/resalers/my-consumers', consumerData),
+    createMyConsumer: (consumerData) => axiosInstance.post('/resellers/my-consumers', consumerData),
 
     /**
-     * Update consumer (as resaler)
+     * Update consumer (as reseller)
      */
-    updateMyConsumer: (id, consumerData) => axiosInstance.put(`/resalers/my-consumers/${id}`, consumerData),
+    updateMyConsumer: (id, consumerData) => axiosInstance.put(`/resellers/my-consumers/${id}`, consumerData),
 
     /**
-     * Delete consumer (as resaler)
+     * Delete consumer (as reseller)
      */
-    deleteMyConsumer: (id) => axiosInstance.delete(`/resalers/my-consumers/${id}`),
+    deleteMyConsumer: (id) => axiosInstance.delete(`/resellers/my-consumers/${id}`),
 
     /**
-     * Reset consumer password (as resaler)
+     * Reset consumer password (as reseller)
      */
-    resetMyConsumerPassword: (id) => axiosInstance.post(`/resalers/my-consumers/${id}/reset-password`),
+    resetMyConsumerPassword: (id) => axiosInstance.post(`/resellers/my-consumers/${id}/reset-password`),
   },
 };
 

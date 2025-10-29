@@ -1,16 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Lock, Eye, EyeOff, LogIn } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, LogIn, CloudCog } from 'lucide-react';
+import { useHistory } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { createClient } from '../lib/supabase/Production/client';
+import { useAuth } from '../hooks/useAuth';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const { user, isAdmin, loading } = useAuth();
+  const history = useHistory();
 
-  // Simple check: if already logged in, redirect
-  referred_by
+  // Redirect if already authenticated as admin
+  useEffect(() => {
+    if (!loading && user && isAdmin) {
+      history.push('/admin/users');
+    }
+  }, [user, isAdmin, loading, history]);
+
   const validateForm = () => {
     if (!email || !password) {
       toast.error('Please fill in all fields');
@@ -41,7 +50,6 @@ const Login = () => {
     try {
       const supabase = createClient();
 
-      console.log('🔐 Login: Attempting to sign in...');
       // Sign in with Supabase
       const { data, error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
@@ -55,51 +63,61 @@ const Login = () => {
         return;
       }
 
-      console.log('✅ Login: Sign in successful, user ID:', data.user.id);
-
       if (data?.user) {
-        // Fetch user profile to check role
-        console.log('🔄 Login: Fetching user profile...');
+        // Fetch user profile to check if admin
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('*')
           .eq('user_id', data.user.id)
-          .single();
+          .maybeSingle();
 
         if (profileError || !profile?.role) {
           console.error('❌ Login: No profile or role found');
           await supabase.auth.signOut();
+          // Clear all tokens and storage
+          localStorage.clear();
+          sessionStorage.clear();
+          // Clear all cookies including Supabase auth cookies
+          document.cookie.split(";").forEach((c) => {
+            const cookieName = c.split("=")[0].trim();
+            document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+          });
           toast.error('No role assigned to this user.');
           setIsLoading(false);
           return;
         }
 
-        console.log('✅ Login: Profile loaded, role:', profile.role);
-
-        // Role-based routing - redirect to /role/dashboard
-        const roleRoutes = {
-          'admin': '/admin/dashboard',
-          'user': '/user/dashboard',
-          'viewer': '/viewer/dashboard',
-          'consumer': '/consumer/dashboard',
-          'resaler': '/resalers/consumers'
-        };
-
-        const redirectPath = roleRoutes[profile.role];
-
-        if (!redirectPath) {
-          console.error('❌ Login: Invalid role, no redirect path');
+        // Check if user is Admin
+        if (profile.role !== 'admin') {
+          console.error('❌ Login: User is not admin, access denied');
           await supabase.auth.signOut();
-          toast.error('Invalid user role.');
+          // Clear all tokens and storage
+          localStorage.clear();
+          sessionStorage.clear();
+          // Clear all cookies including Supabase auth cookies
+          document.cookie.split(";").forEach((c) => {
+            const cookieName = c.split("=")[0].trim();
+            document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+          });
+          toast.error('Access denied. Only administrators can access this application.');
           setIsLoading(false);
           return;
         }
 
-        console.log('🚀 Login: Redirecting to:', redirectPath);
-        toast.success(`Welcome back!`);
+        toast.success(`Welcome back, Admin!`);
         
-        // Use window.location for hard redirect
-        window.location.href = redirectPath;
+        // Try immediate redirect first
+        try {
+          window.location.href = '/admin/users';
+        } catch (redirectError) {
+          console.error('❌ Immediate redirect failed:', redirectError);
+          // Fallback: try with setTimeout
+          setTimeout(() => {
+            window.location.href = '/admin/users';
+          }, 500);
+        }
+        
+        // Keep loading state true while redirecting
       }
     } catch (err) {
       console.error('❌ Login error:', err);

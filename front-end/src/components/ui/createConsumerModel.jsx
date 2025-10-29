@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
-import { X, User, Mail, Lock, Phone, Calendar, CheckCircle, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, User, Mail, Lock, Phone, Calendar, CheckCircle, AlertCircle, MapPin, Globe, ChevronDown, RefreshCw, Eye, Users } from 'lucide-react';
+import { countries, searchCountries } from '../../utils/countryData';
+import { generatePassword } from '../../utils/passwordGenerator';
+import { getResellers } from '../../api/backend';
 
 const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
   const [formData, setFormData] = useState({
@@ -8,12 +11,43 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
     password: '',
     confirmPassword: '',
     phone: '',
-    trial_expiry_date: ''
+    trial_expiry_date: '',
+    country: '',
+    city: '',
+    referred_by: ''
   });
+
+  const [countrySearch, setCountrySearch] = useState('');
+  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
+  const [selectedCountry, setSelectedCountry] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [resellers, setResellers] = useState([]);
+  const [loadingResellers, setLoadingResellers] = useState(false);
 
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState({ type: '', text: '' });
+
+  // Fetch resellers when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      const fetchResellers = async () => {
+        setLoadingResellers(true);
+        try {
+          const result = await getResellers();
+          if (result && !result.error) {
+            setResellers(result);
+          }
+        } catch (error) {
+          console.error('Error fetching resellers:', error);
+        } finally {
+          setLoadingResellers(false);
+        }
+      };
+      fetchResellers();
+    }
+  }, [isOpen]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -26,6 +60,82 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
       setErrors(prev => ({
         ...prev,
         [name]: ''
+      }));
+    }
+  };
+
+  const handlePhoneChange = (e) => {
+    const value = e.target.value;
+    // Only allow numbers
+    const numericValue = value.replace(/\D/g, '');
+    
+    setFormData(prev => ({ ...prev, phone: numericValue }));
+    
+    // Clear phone error
+    if (errors.phone) {
+      setErrors(prev => ({ ...prev, phone: '' }));
+    }
+  };
+
+  const handleCountrySelect = (country) => {
+    setSelectedCountry(country);
+    
+    // Remove any existing country code from phone number
+    let cleanPhone = formData.phone;
+    if (selectedCountry && formData.phone.startsWith(selectedCountry.phoneCode)) {
+      cleanPhone = formData.phone.substring(selectedCountry.phoneCode.length).trim();
+    }
+    
+    setFormData(prev => ({
+      ...prev,
+      country: country.name,
+      phone: cleanPhone // Just the local number without country code
+    }));
+    setCountrySearch('');
+    setShowCountryDropdown(false);
+    if (errors.country) {
+      setErrors(prev => ({ ...prev, country: '' }));
+    }
+  };
+
+  const handleCountryInputChange = (e) => {
+    const value = e.target.value;
+    setCountrySearch(value);
+    setSelectedCountry(null);
+    setFormData(prev => ({ ...prev, country: '' }));
+    setShowCountryDropdown(true);
+  };
+
+  const handleCountryInputFocus = () => {
+    setShowCountryDropdown(true);
+  };
+
+  const handleCountryInputClick = () => {
+    // If a country is selected and user clicks to edit, clear it for searching
+    if (selectedCountry) {
+      setSelectedCountry(null);
+      setCountrySearch('');
+      setFormData(prev => ({ ...prev, country: '' }));
+      setShowCountryDropdown(true);
+    }
+  };
+
+  const filteredCountries = countrySearch 
+    ? searchCountries(countrySearch)
+    : countries;
+
+  const handleGeneratePassword = () => {
+    const newPassword = generatePassword(12);
+    setFormData(prev => ({
+      ...prev,
+      password: newPassword,
+      confirmPassword: newPassword
+    }));
+    if (errors.password || errors.confirmPassword) {
+      setErrors(prev => ({
+        ...prev,
+        password: '',
+        confirmPassword: ''
       }));
     }
     // Clear submit message
@@ -65,6 +175,21 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
       newErrors.confirmPassword = 'Passwords do not match';
     }
     
+    // Country validation
+    if (!formData.country.trim()) {
+      newErrors.country = 'Country is required';
+    }
+    
+    // City validation
+    if (!formData.city.trim()) {
+      newErrors.city = 'City is required';
+    }
+    
+    // Trial Period validation
+    if (!formData.trial_expiry_date) {
+      newErrors.trial_expiry_date = 'Trial period is required';
+    }
+    
     // Phone validation (optional but must be valid if provided)
     if (formData.phone && !/^[\d\s\-\+\(\)]+$/.test(formData.phone)) {
       newErrors.phone = 'Please enter a valid phone number';
@@ -84,12 +209,29 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
     setSubmitMessage({ type: '', text: '' });
 
     try {
+      // Combine country code with phone number
+      const fullPhone = selectedCountry && formData.phone 
+        ? `${selectedCountry.phoneCode} ${formData.phone.trim()}`
+        : formData.phone.trim() || null;
+
+      // Calculate trial expiry date from selected days
+      let trialExpiryDate = null;
+      if (formData.trial_expiry_date) {
+        const days = parseInt(formData.trial_expiry_date);
+        const expiryDate = new Date();
+        expiryDate.setDate(expiryDate.getDate() + days);
+        trialExpiryDate = expiryDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+      }
+
       const result = await onCreate({
         email: formData.email.trim(),
         password: formData.password,
         full_name: formData.full_name.trim(),
-        phone: formData.phone.trim() || null,
-        trial_expiry_date: formData.trial_expiry_date || null
+        phone: fullPhone,
+        trial_expiry_date: trialExpiryDate,
+        country: formData.country.trim() || null,
+        city: formData.city.trim() || null,
+        referred_by: formData.referred_by || null
       });
 
       if (result.success) {
@@ -102,8 +244,15 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
             password: '',
             confirmPassword: '',
             phone: '',
-            trial_expiry_date: ''
+            trial_expiry_date: '',
+            country: '',
+            city: '',
+            referred_by: ''
           });
+          setSelectedCountry(null);
+          setCountrySearch('');
+          setShowPassword(false);
+          setShowConfirmPassword(false);
           setSubmitMessage({ type: '', text: '' });
           onClose();
         }, 1500);
@@ -125,8 +274,15 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         password: '',
         confirmPassword: '',
         phone: '',
-        trial_expiry_date: ''
+        trial_expiry_date: '',
+        country: '',
+        city: '',
+        referred_by: ''
       });
+      setSelectedCountry(null);
+      setCountrySearch('');
+      setShowPassword(false);
+      setShowConfirmPassword(false);
       setErrors({});
       setSubmitMessage({ type: '', text: '' });
       onClose();
@@ -158,7 +314,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
           backgroundColor: 'white',
           borderRadius: '12px',
           width: '100%',
-          maxWidth: '500px',
+          maxWidth: '550px',
           boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
           maxHeight: '90vh',
@@ -374,15 +530,43 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
 
           {/* Password Field */}
           <div style={{ marginBottom: '20px' }}>
-            <label style={{
-              display: 'block',
-              fontSize: '14px',
-              fontWeight: '500',
-              color: '#374151',
-              marginBottom: '8px'
-            }}>
-              Password <span style={{ color: '#ef4444' }}>*</span>
-            </label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '14px',
+                fontWeight: '500',
+                color: '#374151'
+              }}>
+                Password <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <button
+                type="button"
+                onClick={handleGeneratePassword}
+                disabled={isSubmitting}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '4px 12px',
+                  fontSize: '12px',
+                  color: '#3b82f6',
+                  backgroundColor: '#eff6ff',
+                  border: '1px solid #3b82f6',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#dbeafe';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#eff6ff';
+                }}
+              >
+                <RefreshCw size={12} />
+                Generate
+              </button>
+            </div>
             <div style={{ position: 'relative' }}>
               <div style={{
                 position: 'absolute',
@@ -394,7 +578,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 <Lock size={18} />
               </div>
               <input
-                type="password"
+                type={showPassword ? "text" : "password"}
                 name="password"
                 value={formData.password}
                 onChange={handleChange}
@@ -402,7 +586,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 disabled={isSubmitting}
                 style={{
                   width: '100%',
-                  padding: '10px 12px 10px 40px',
+                  padding: '10px 40px 10px 40px',
                   border: errors.password ? '1px solid #ef4444' : '1px solid #d1d5db',
                   borderRadius: '8px',
                   fontSize: '14px',
@@ -422,6 +606,36 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                   e.target.style.boxShadow = 'none';
                 }}
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                disabled={isSubmitting}
+                style={{
+                  position: 'absolute',
+                  right: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: '#9ca3af',
+                  borderRadius: '4px',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#e5e7eb';
+                  e.currentTarget.style.color = '#374151';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = '#9ca3af';
+                }}
+              >
+                {showPassword ? <Eye size={18} /> : <Eye size={18} style={{ opacity: 0.5 }} />}
+              </button>
             </div>
             {errors.password && (
               <p style={{
@@ -457,7 +671,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 <Lock size={18} />
               </div>
               <input
-                type="password"
+                type={showConfirmPassword ? "text" : "password"}
                 name="confirmPassword"
                 value={formData.confirmPassword}
                 onChange={handleChange}
@@ -465,7 +679,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 disabled={isSubmitting}
                 style={{
                   width: '100%',
-                  padding: '10px 12px 10px 40px',
+                  padding: '10px 40px 10px 40px',
                   border: errors.confirmPassword ? '1px solid #ef4444' : '1px solid #d1d5db',
                   borderRadius: '8px',
                   fontSize: '14px',
@@ -485,6 +699,36 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                   e.target.style.boxShadow = 'none';
                 }}
               />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                disabled={isSubmitting}
+                style={{
+                  position: 'absolute',
+                  right: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: '#9ca3af',
+                  borderRadius: '4px',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#e5e7eb';
+                  e.currentTarget.style.color = '#374151';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = '#9ca3af';
+                }}
+              >
+                {showConfirmPassword ? <Eye size={18} /> : <Eye size={18} style={{ opacity: 0.5 }} />}
+              </button>
             </div>
             {errors.confirmPassword && (
               <p style={{
@@ -494,6 +738,260 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 marginBottom: 0
               }}>
                 {errors.confirmPassword}
+              </p>
+            )}
+          </div>
+
+          {/* Country Field */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              Country <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <div style={{ position: 'relative' }}>
+              <div style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#9ca3af',
+                zIndex: 1
+              }}>
+                <Globe size={18} />
+              </div>
+              <input
+                type="text"
+                value={selectedCountry ? `${selectedCountry.flag} ${selectedCountry.name}` : countrySearch}
+                onChange={handleCountryInputChange}
+                onFocus={handleCountryInputFocus}
+                onClick={handleCountryInputClick}
+                placeholder="Search country..."
+                disabled={isSubmitting}
+                readOnly={false}
+                style={{
+                  width: '100%',
+                  padding: '10px 40px 10px 40px',
+                  border: errors.country ? '1px solid #ef4444' : '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.2s',
+                  boxSizing: 'border-box',
+                  opacity: isSubmitting ? 0.6 : 1,
+                  cursor: selectedCountry ? 'pointer' : 'text',
+                  backgroundColor: selectedCountry ? '#f9fafb' : 'white'
+                }}
+                onFocusCapture={(e) => {
+                  if (!errors.country && !isSubmitting) {
+                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                  }
+                }}
+                onBlur={(e) => {
+                  setTimeout(() => setShowCountryDropdown(false), 200);
+                  e.target.style.borderColor = errors.country ? '#ef4444' : '#d1d5db';
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+              {selectedCountry ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedCountry(null);
+                    setCountrySearch('');
+                    setFormData(prev => ({ ...prev, country: '', phone: '' }));
+                    setShowCountryDropdown(true);
+                  }}
+                  disabled={isSubmitting}
+                  style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    color: '#9ca3af',
+                    borderRadius: '4px',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#e5e7eb';
+                    e.currentTarget.style.color = '#374151';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = '#9ca3af';
+                  }}
+                >
+                  <X size={16} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowCountryDropdown(!showCountryDropdown);
+                  }}
+                  disabled={isSubmitting}
+                  style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: `translateY(-50%) rotate(${showCountryDropdown ? '180deg' : '0deg'})`,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    color: '#9ca3af',
+                    borderRadius: '4px',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#e5e7eb';
+                    e.currentTarget.style.color = '#374151';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = '#9ca3af';
+                  }}
+                >
+                  <ChevronDown size={18} />
+                </button>
+              )}
+              
+              {/* Country Dropdown */}
+              {showCountryDropdown && !isSubmitting && !selectedCountry && (
+                <div style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 4px)',
+                  left: 0,
+                  right: 0,
+                  maxHeight: '200px',
+                  overflowY: 'auto',
+                  backgroundColor: 'white',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                  zIndex: 1000
+                }}>
+                  {filteredCountries.length > 0 ? (
+                    filteredCountries.map((country) => (
+                      <div
+                        key={country.code}
+                        onClick={() => handleCountrySelect(country)}
+                        style={{
+                          padding: '10px 12px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          borderBottom: '1px solid #f3f4f6',
+                          transition: 'background-color 0.15s'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                      >
+                        <span style={{ fontSize: '20px' }}>{country.flag}</span>
+                        <span style={{ fontSize: '14px', color: '#374151', flex: 1 }}>{country.name}</span>
+                        <span style={{ fontSize: '12px', color: '#9ca3af' }}>{country.phoneCode}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{
+                      padding: '12px',
+                      textAlign: 'center',
+                      color: '#9ca3af',
+                      fontSize: '14px'
+                    }}>
+                      No countries found
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            {errors.country && (
+              <p style={{
+                color: '#ef4444',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                {errors.country}
+              </p>
+            )}
+          </div>
+
+          {/* City Field */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              City <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <div style={{ position: 'relative' }}>
+              <div style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#9ca3af'
+              }}>
+                <MapPin size={18} />
+              </div>
+              <input
+                type="text"
+                name="city"
+                value={formData.city}
+                onChange={handleChange}
+                placeholder="Enter city"
+                disabled={isSubmitting}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px 10px 40px',
+                  border: errors.city ? '1px solid #ef4444' : '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.2s',
+                  boxSizing: 'border-box',
+                  opacity: isSubmitting ? 0.6 : 1
+                }}
+                onFocus={(e) => {
+                  if (!errors.city && !isSubmitting) {
+                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                  }
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = errors.city ? '#ef4444' : '#d1d5db';
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+            </div>
+            {errors.city && (
+              <p style={{
+                color: '#ef4444',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                {errors.city}
               </p>
             )}
           </div>
@@ -509,45 +1007,76 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
             }}>
               Phone Number <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
             </label>
-            <div style={{ position: 'relative' }}>
-              <div style={{
-                position: 'absolute',
-                left: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: '#9ca3af'
-              }}>
-                <Phone size={18} />
-              </div>
-              <input
-                type="tel"
-                name="phone"
-                value={formData.phone}
-                onChange={handleChange}
-                placeholder="Enter phone number"
-                disabled={isSubmitting}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px 10px 40px',
-                  border: errors.phone ? '1px solid #ef4444' : '1px solid #d1d5db',
+            <div style={{ position: 'relative', display: 'flex', gap: '8px' }}>
+              {selectedCountry && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '10px 12px',
+                  border: '1px solid #d1d5db',
                   borderRadius: '8px',
+                  backgroundColor: '#f9fafb',
                   fontSize: '14px',
-                  outline: 'none',
-                  transition: 'all 0.2s',
-                  boxSizing: 'border-box',
-                  opacity: isSubmitting ? 0.6 : 1
-                }}
-                onFocus={(e) => {
-                  if (!errors.phone && !isSubmitting) {
-                    e.target.style.borderColor = '#3b82f6';
-                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                  }
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = errors.phone ? '#ef4444' : '#d1d5db';
-                  e.target.style.boxShadow = 'none';
-                }}
-              />
+                  fontWeight: '500',
+                  color: '#374151',
+                  minWidth: '80px',
+                  justifyContent: 'center'
+                }}>
+                  {selectedCountry.phoneCode}
+                </div>
+              )}
+              <div style={{ position: 'relative', flex: 1 }}>
+                <div style={{
+                  position: 'absolute',
+                  left: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#9ca3af'
+                }}>
+                  <Phone size={18} />
+                </div>
+                <input
+                  type="tel"
+                  name="phone"
+                  value={formData.phone}
+                  onChange={handlePhoneChange}
+                  placeholder={selectedCountry ? "Enter phone number" : "Select country first"}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  disabled={isSubmitting}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px 10px 40px',
+                    border: errors.phone ? '1px solid #ef4444' : '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    outline: 'none',
+                    transition: 'all 0.2s',
+                    boxSizing: 'border-box',
+                    opacity: isSubmitting ? 0.6 : 1
+                  }}
+                  onFocus={(e) => {
+                    // If no country is selected, open the country dropdown
+                    if (!selectedCountry && !isSubmitting) {
+                      setShowCountryDropdown(true);
+                      e.target.blur(); // Remove focus from phone field
+                      // Scroll to country field
+                      const countrySection = document.querySelector('input[placeholder*="Search country"]');
+                      if (countrySection) {
+                        countrySection.focus();
+                        countrySection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }
+                    } else if (!errors.phone && !isSubmitting) {
+                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                    }
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = errors.phone ? '#ef4444' : '#d1d5db';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                />
+              </div>
             </div>
             {errors.phone && (
               <p style={{
@@ -561,7 +1090,93 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
             )}
           </div>
 
-          {/* Trial Expiry Date Field (Optional) */}
+          {/* Reseller Field (Optional) */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              Assign to Reseller <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+            </label>
+            <div style={{ position: 'relative' }}>
+              <div style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#9ca3af',
+                zIndex: 1
+              }}>
+                <Users size={18} />
+              </div>
+              <select
+                name="referred_by"
+                value={formData.referred_by}
+                onChange={handleChange}
+                disabled={isSubmitting || loadingResellers}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px 10px 40px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.2s',
+                  boxSizing: 'border-box',
+                  opacity: (isSubmitting || loadingResellers) ? 0.6 : 1,
+                  backgroundColor: 'white',
+                  cursor: (isSubmitting || loadingResellers) ? 'not-allowed' : 'pointer',
+                  fontFamily: 'inherit',
+                  color: formData.referred_by ? '#374151' : '#9ca3af',
+                  appearance: 'none',
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 9L1 4h10z'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 12px center',
+                  paddingRight: '40px'
+                }}
+                onFocus={(e) => {
+                  if (!isSubmitting && !loadingResellers) {
+                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                  }
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#d1d5db';
+                  e.target.style.boxShadow = 'none';
+                }}
+              >
+                <option value="">No reseller (Admin created)</option>
+                {loadingResellers ? (
+                  <option value="">Loading resellers...</option>
+                ) : (
+                  resellers.map(reseller => (
+                    <option key={reseller.user_id} value={reseller.user_id}>
+                      {reseller.full_name} ({reseller.email})
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+            {formData.referred_by && (
+              <p style={{
+                color: '#6b7280',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}>
+                <span style={{ fontSize: '16px' }}>ℹ️</span>
+                This consumer will be assigned to the selected reseller
+              </p>
+            )}
+          </div>
+
+          {/* Trial Period Field (Required) */}
           <div style={{ marginBottom: '20px' }}>
             <label style={{
               display: 'flex',
@@ -573,41 +1188,51 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
               marginBottom: '8px'
             }}>
               <Calendar size={16} style={{ color: '#6b7280' }} />
-              Trial Expiry Date <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+              Trial Period <span style={{ color: '#ef4444' }}>*</span>
             </label>
-            <input
-              type="date"
-              name="trial_expiry_date"
-              value={formData.trial_expiry_date}
-              onChange={handleChange}
-              disabled={isSubmitting}
-              min={new Date().toISOString().split('T')[0]}
-              style={{
-                width: '100%',
-                padding: '10px 14px',
-                border: errors.trial_expiry_date ? '1px solid #ef4444' : '1px solid #d1d5db',
-                borderRadius: '8px',
-                fontSize: '14px',
-                outline: 'none',
-                transition: 'all 0.2s',
-                boxSizing: 'border-box',
-                opacity: isSubmitting ? 0.6 : 1,
-                backgroundColor: 'white',
-                cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                fontFamily: 'inherit',
-                color: '#374151'
-              }}
-              onFocus={(e) => {
-                if (!errors.trial_expiry_date && !isSubmitting) {
-                  e.target.style.borderColor = '#3b82f6';
-                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                }
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = errors.trial_expiry_date ? '#ef4444' : '#d1d5db';
-                e.target.style.boxShadow = 'none';
-              }}
-            />
+            <div style={{ position: 'relative' }}>
+              <select
+                name="trial_expiry_date"
+                value={formData.trial_expiry_date}
+                onChange={handleChange}
+                disabled={isSubmitting}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  border: errors.trial_expiry_date ? '1px solid #ef4444' : '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.2s',
+                  boxSizing: 'border-box',
+                  opacity: isSubmitting ? 0.6 : 1,
+                  backgroundColor: 'white',
+                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                  fontFamily: 'inherit',
+                  color: formData.trial_expiry_date ? '#374151' : '#9ca3af',
+                  appearance: 'none',
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 9L1 4h10z'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 12px center',
+                  paddingRight: '40px'
+                }}
+                onFocus={(e) => {
+                  if (!errors.trial_expiry_date && !isSubmitting) {
+                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                  }
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = errors.trial_expiry_date ? '#ef4444' : '#d1d5db';
+                  e.target.style.boxShadow = 'none';
+                }}
+              >
+                <option value="">Select trial period</option>
+                <option value="1">1 Day</option>
+                <option value="2">2 Days</option>
+                <option value="3">3 Days</option>
+              </select>
+            </div>
             {errors.trial_expiry_date && (
               <p style={{
                 color: '#ef4444',
@@ -629,11 +1254,16 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 gap: '4px'
               }}>
                 <span style={{ fontSize: '16px' }}>ℹ️</span>
-                Trial expires: {new Date(formData.trial_expiry_date).toLocaleDateString('en-US', {
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric'
-                })}
+                Trial expires: {(() => {
+                  const days = parseInt(formData.trial_expiry_date);
+                  const expiryDate = new Date();
+                  expiryDate.setDate(expiryDate.getDate() + days);
+                  return expiryDate.toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  });
+                })()}
               </p>
             )}
           </div>

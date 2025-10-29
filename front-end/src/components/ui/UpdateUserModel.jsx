@@ -1,21 +1,64 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Mail, Shield, Calendar } from 'lucide-react';
+import { X, User, Mail, Shield, Calendar, Globe, MapPin, Phone, ChevronDown } from 'lucide-react';
+import { countries, searchCountries } from '../../utils/countryData';
 
 const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
   const [formData, setFormData] = useState({
     name: '',
-    role: 'User'
+    role: 'User',
+    country: '',
+    city: '',
+    phone: ''
   });
 
+  const [countrySearch, setCountrySearch] = useState('');
+  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
+  const [selectedCountry, setSelectedCountry] = useState(null);
   const [errors, setErrors] = useState({});
 
   useEffect(() => {
     if (user) {
       setFormData({
-        name: user.name || '',
+        name: user.full_name || user.name || '',
         email: user.email || '',
-        role: user.role || 'User'
+        role: user.role || 'User',
+        country: user.country || '',
+        city: user.city || '',
+        phone: ''
       });
+      
+      // If user has a country, find and set it
+      if (user.country) {
+        const country = countries.find(c => c.name === user.country);
+        if (country) {
+          setSelectedCountry(country);
+          // Remove country code from phone if it exists
+          if (user.phone) {
+            // Extract just the number part (remove country code)
+            const phoneStr = String(user.phone).trim();
+            // Remove the country code if it's at the start
+            let phoneWithoutCode = phoneStr;
+            if (phoneStr.startsWith(country.phoneCode)) {
+              phoneWithoutCode = phoneStr.substring(country.phoneCode.length).trim();
+            }
+            setFormData(prev => ({ ...prev, phone: phoneWithoutCode }));
+          }
+        } else {
+          setSelectedCountry(null);
+          // If country name doesn't match, just set phone as is
+          if (user.phone) {
+            setFormData(prev => ({ ...prev, phone: String(user.phone).trim() }));
+          }
+        }
+      } else {
+        setSelectedCountry(null);
+        // If no country but has phone, just set the phone as is
+        if (user.phone) {
+          setFormData(prev => ({ ...prev, phone: String(user.phone).trim() }));
+        }
+      }
+      
+      setCountrySearch('');
       setErrors({});
     }
   }, [user]);
@@ -34,6 +77,60 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
     }
   };
 
+  const handlePhoneChange = (e) => {
+    const value = e.target.value;
+    // Only allow numbers
+    const numericValue = value.replace(/\D/g, '');
+    
+    setFormData(prev => ({ ...prev, phone: numericValue }));
+    
+    // Clear phone error
+    if (errors.phone) {
+      setErrors(prev => ({ ...prev, phone: '' }));
+    }
+  };
+
+  const handleCountrySelect = (country) => {
+    setSelectedCountry(country);
+    setFormData(prev => ({
+      ...prev,
+      country: country.name,
+      // Keep only the number part without any country code
+      phone: prev.phone ? prev.phone.replace(/^\+?\d+\s*/, '').trim() : ''
+    }));
+    setCountrySearch('');
+    setShowCountryDropdown(false);
+    if (errors.country) {
+      setErrors(prev => ({ ...prev, country: '' }));
+    }
+  };
+
+  const handleCountryInputChange = (e) => {
+    const value = e.target.value;
+    setCountrySearch(value);
+    setSelectedCountry(null);
+    setFormData(prev => ({ ...prev, country: '' }));
+    setShowCountryDropdown(true);
+  };
+
+  const handleCountryInputFocus = () => {
+    setShowCountryDropdown(true);
+  };
+
+  const handleCountryInputClick = () => {
+    // If a country is selected and user clicks to edit, clear it for searching
+    if (selectedCountry) {
+      setSelectedCountry(null);
+      setCountrySearch('');
+      setFormData(prev => ({ ...prev, country: '' }));
+      setShowCountryDropdown(true);
+    }
+  };
+
+  const filteredCountries = countrySearch 
+    ? searchCountries(countrySearch)
+    : countries;
+
   const validateForm = () => {
     const newErrors = {};
     
@@ -41,9 +138,23 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
       newErrors.name = 'Name is required';
     }
     
-    
     if (!formData.role) {
       newErrors.role = 'Role is required';
+    }
+    
+    if (!formData.country.trim()) {
+      newErrors.country = 'Country is required';
+    }
+    
+    if (!formData.city.trim()) {
+      newErrors.city = 'City is required';
+    }
+    
+    // Phone validation - required
+    if (!formData.phone || formData.phone.trim() === '') {
+      newErrors.phone = 'Phone number is required';
+    } else if (!/^[\d\s\-\+\(\)]+$/.test(formData.phone)) {
+      newErrors.phone = 'Please enter a valid phone number';
     }
     
     setErrors(newErrors);
@@ -52,10 +163,19 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
 
   const handleSubmit = () => {
     if (validateForm()) {
+      // Combine country code with phone number
+      const fullPhone = selectedCountry && formData.phone 
+        ? `${selectedCountry.phoneCode} ${formData.phone.trim()}`
+        : formData.phone.trim() || null;
+
       onUpdate({
         ...user,
-        ...formData,
-        email: formData.email || null
+        full_name: formData.name,  // Map 'name' to 'full_name'
+        role: formData.role,
+        email: formData.email || null,
+        country: formData.country.trim() || null,
+        city: formData.city.trim() || null,
+        phone: fullPhone
       });
       onClose();
     }
@@ -86,7 +206,7 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
           backgroundColor: 'white',
           borderRadius: '12px',
           width: '100%',
-          maxWidth: '500px',
+          maxWidth: '550px',
           boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
           maxHeight: '90vh',
@@ -232,67 +352,6 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
             )}
           </div>
 
-          {/* Email Field */}
-          {/* <div style={{ marginBottom: '20px' }}>
-            <label style={{
-              display: 'block',
-              fontSize: '14px',
-              fontWeight: '500',
-              color: '#374151',
-              marginBottom: '8px'
-            }}>
-              Email Address <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
-            </label>
-            <div style={{ position: 'relative' }}>
-              <div style={{
-                position: 'absolute',
-                left: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: '#9ca3af'
-              }}>
-                <Mail size={18} />
-              </div>
-              <input
-                type="email"
-                name="email"
-                value={formData.email}
-                onChange={handleChange}
-                placeholder="Enter email address"
-                style={{
-                  width: '100%',
-                  padding: '10px 12px 10px 40px',
-                  border: errors.email ? '1px solid #ef4444' : '1px solid #d1d5db',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  outline: 'none',
-                  transition: 'all 0.2s',
-                  boxSizing: 'border-box'
-                }}
-                onFocus={(e) => {
-                  if (!errors.email) {
-                    e.target.style.borderColor = '#3b82f6';
-                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                  }
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = errors.email ? '#ef4444' : '#d1d5db';
-                  e.target.style.boxShadow = 'none';
-                }}
-              />
-            </div>
-            {errors.email && (
-              <p style={{
-                color: '#ef4444',
-                fontSize: '12px',
-                marginTop: '6px',
-                marginBottom: 0
-              }}>
-                {errors.email}
-              </p>
-            )}
-          </div> */}
-
           {/* Role Field */}
           <div style={{ marginBottom: '20px' }}>
             <label style={{
@@ -362,6 +421,345 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
                 marginBottom: 0
               }}>
                 {errors.role}
+              </p>
+            )}
+          </div>
+
+          {/* Country Field */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              Country <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <div style={{ position: 'relative' }}>
+              <div style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#9ca3af',
+                zIndex: 1
+              }}>
+                <Globe size={18} />
+              </div>
+              <input
+                type="text"
+                value={selectedCountry ? `${selectedCountry.flag} ${selectedCountry.name}` : countrySearch}
+                onChange={handleCountryInputChange}
+                onFocus={handleCountryInputFocus}
+                onClick={handleCountryInputClick}
+                placeholder="Search country..."
+                readOnly={false}
+                style={{
+                  width: '100%',
+                  padding: '10px 40px 10px 40px',
+                  border: errors.country ? '1px solid #ef4444' : '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.2s',
+                  boxSizing: 'border-box',
+                  cursor: selectedCountry ? 'pointer' : 'text',
+                  backgroundColor: selectedCountry ? '#f9fafb' : 'white'
+                }}
+                onFocusCapture={(e) => {
+                  if (!errors.country) {
+                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                  }
+                }}
+                onBlur={(e) => {
+                  setTimeout(() => setShowCountryDropdown(false), 200);
+                  e.target.style.borderColor = errors.country ? '#ef4444' : '#d1d5db';
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+              {selectedCountry ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedCountry(null);
+                    setCountrySearch('');
+                    setFormData(prev => ({ ...prev, country: '' }));
+                    setShowCountryDropdown(true);
+                  }}
+                  style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    color: '#9ca3af',
+                    borderRadius: '4px',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#e5e7eb';
+                    e.currentTarget.style.color = '#374151';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = '#9ca3af';
+                  }}
+                >
+                  <X size={16} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowCountryDropdown(!showCountryDropdown);
+                  }}
+                  style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: `translateY(-50%) rotate(${showCountryDropdown ? '180deg' : '0deg'})`,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    color: '#9ca3af',
+                    borderRadius: '4px',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#e5e7eb';
+                    e.currentTarget.style.color = '#374151';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = '#9ca3af';
+                  }}
+                >
+                  <ChevronDown size={18} />
+                </button>
+              )}
+              
+              {/* Country Dropdown */}
+              {showCountryDropdown && !selectedCountry && (
+                <div style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 4px)',
+                  left: 0,
+                  right: 0,
+                  maxHeight: '200px',
+                  overflowY: 'auto',
+                  backgroundColor: 'white',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                  zIndex: 1000
+                }}>
+                  {filteredCountries.length > 0 ? (
+                    filteredCountries.map((country) => (
+                      <div
+                        key={country.code}
+                        onClick={() => handleCountrySelect(country)}
+                        style={{
+                          padding: '10px 12px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          borderBottom: '1px solid #f3f4f6',
+                          transition: 'background-color 0.15s'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                      >
+                        <span style={{ fontSize: '20px' }}>{country.flag}</span>
+                        <span style={{ fontSize: '14px', color: '#374151', flex: 1 }}>{country.name}</span>
+                        <span style={{ fontSize: '12px', color: '#9ca3af' }}>{country.phoneCode}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{
+                      padding: '12px',
+                      textAlign: 'center',
+                      color: '#9ca3af',
+                      fontSize: '14px'
+                    }}>
+                      No countries found
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            {errors.country && (
+              <p style={{
+                color: '#ef4444',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                {errors.country}
+              </p>
+            )}
+          </div>
+
+          {/* City Field */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              City <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <div style={{ position: 'relative' }}>
+              <div style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#9ca3af'
+              }}>
+                <MapPin size={18} />
+              </div>
+              <input
+                type="text"
+                name="city"
+                value={formData.city}
+                onChange={handleChange}
+                placeholder="Enter city"
+                style={{
+                  width: '100%',
+                  padding: '10px 12px 10px 40px',
+                  border: errors.city ? '1px solid #ef4444' : '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.2s',
+                  boxSizing: 'border-box'
+                }}
+                onFocus={(e) => {
+                  if (!errors.city) {
+                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                  }
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = errors.city ? '#ef4444' : '#d1d5db';
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+            </div>
+            {errors.city && (
+              <p style={{
+                color: '#ef4444',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                {errors.city}
+              </p>
+            )}
+          </div>
+
+          {/* Phone Field */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              Phone Number <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <div style={{ position: 'relative', display: 'flex', gap: '8px' }}>
+              {selectedCountry && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '10px 12px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  backgroundColor: '#f9fafb',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: '#374151',
+                  minWidth: '80px',
+                  justifyContent: 'center'
+                }}>
+                  {selectedCountry.phoneCode}
+                </div>
+              )}
+              <div style={{ position: 'relative', flex: 1 }}>
+                <div style={{
+                  position: 'absolute',
+                  left: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#9ca3af'
+                }}>
+                  <Phone size={18} />
+                </div>
+                <input
+                  type="tel"
+                  name="phone"
+                  value={formData.phone}
+                  onChange={handlePhoneChange}
+                  placeholder={selectedCountry ? "Enter phone number" : "Enter phone number"}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px 10px 40px',
+                    border: errors.phone ? '1px solid #ef4444' : '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    outline: 'none',
+                    transition: 'all 0.2s',
+                    boxSizing: 'border-box'
+                  }}
+                  onFocus={(e) => {
+                    // If no country is selected, open the country dropdown
+                    if (!selectedCountry) {
+                      setShowCountryDropdown(true);
+                      e.target.blur();
+                      const countrySection = document.querySelector('input[placeholder*="Search country"]');
+                      if (countrySection) {
+                        countrySection.focus();
+                        countrySection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }
+                    } else if (!errors.phone) {
+                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                    }
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = errors.phone ? '#ef4444' : '#d1d5db';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                />
+              </div>
+            </div>
+            {errors.phone && (
+              <p style={{
+                color: '#ef4444',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                {errors.phone}
               </p>
             )}
           </div>

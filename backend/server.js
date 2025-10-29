@@ -9,7 +9,7 @@ import rateLimit from 'express-rate-limit';
 import authRoutes from './routes/auth.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import consumersRoutes from './routes/consumers.routes.js';
-import resalersRoutes from './routes/resalers.routes.js';
+import resellersRoutes from './routes/resellers.routes.js';
 
 // Load environment variables
 dotenv.config();
@@ -58,7 +58,7 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/consumers', consumersRoutes);
-app.use('/api/resalers', resalersRoutes);
+app.use('/api/resellers', resellersRoutes);
 // 404 Handler
 app.use((req, res) => {
   res.status(404).json({

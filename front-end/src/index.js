@@ -27,13 +27,8 @@ import "./assets/css/demo.css";
 import "@fortawesome/fontawesome-free/css/all.min.css";
 
 import AdminLayout from "layouts/Admin.js";
-import UserLayout from "layouts/User.js";
-import ViewerLayout from "layouts/Viewer.js";
-import ConsumerLayout from "layouts/Consumer.js";
-import ResalerLayout from "layouts/Resaler.js";
 import Login from "views/Login.js";
-import TrialExpired from "views/TrialExpired.js";
-import RoleBasedRoute from "auth/RoleBasedRoute.js";
+import ProtectedRoute from "auth/ProtectedRoute.js";
 import { AuthProvider } from "contexts/AuthContext";
 import { Toaster } from "react-hot-toast";
 
@@ -69,12 +64,7 @@ root.render(
       />
       <Switch>
         <Route path="/login" component={Login} />
-        <Route path="/trial-expired" component={TrialExpired} />
-        <RoleBasedRoute path="/admin" allowedRole="admin" component={AdminLayout} />
-        <RoleBasedRoute path="/user" allowedRole="user" component={UserLayout} />
-        <RoleBasedRoute path="/viewer" allowedRole="viewer" component={ViewerLayout} />
-        <RoleBasedRoute path="/consumer" allowedRole="consumer" component={ConsumerLayout} />
-        <RoleBasedRoute path="/resalers" allowedRole="resaler" component={ResalerLayout} />
+        <ProtectedRoute path="/admin" component={AdminLayout} />
         <Redirect from="/" to="/login" />
       </Switch>
     </AuthProvider>

@@ -18,17 +18,18 @@ export {
   createConsumer,
   updateConsumer,
   deleteConsumer,
-  resetConsumerPassword
+  resetConsumerPassword,
+  updateConsumerAccountStatus
 } from './consumers';
 
 export {
-  getResalers,
-  getResalerById,
-  createResaler,
-  updateResaler,
-  deleteResaler,
-  resetResalerPassword
-} from './resalers';
+  getResellers,
+  getResellerById,
+  createReseller,
+  updateReseller,
+  deleteReseller,
+  resetResellerPassword
+} from './resellers';
 
 // Re-export API client for direct access if needed
 export { default as apiClient } from '../../services/apiClient';

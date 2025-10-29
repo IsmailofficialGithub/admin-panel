@@ -1,188 +1,431 @@
-# [Light Bootstrap Dashboard React](https://demos.creative-tim.com/light-bootstrap-dashboard-react/#/?ref=lbdr-readme) [![Tweet](https://img.shields.io/twitter/url/http/shields.io.svg?style=social&logo=twitter)](https://twitter.com/intent/tweet?url=https%3A%2F%2Fcreativetimofficial.github.io%2Flight-bootstrap-dashboard-react&text=Light%20Bootstrap%20Dashboard%20React%20-%20Free%20Bootstrap%20Admin%20Template&original_referer=https%3A%2F%2Fdemos.creative-tim.com%2Flight-bootstrap-dashboard-react%2F&via=creativetim&hashtags=react%2Cbootstrap%2Creact-bootstrap%2Ccreativetim%2Ccreative-tim)
+# Admin Dashboard - Frontend
 
-![version](https://img.shields.io/badge/version-2.0.1-blue.svg) ![license](https://img.shields.io/badge/license-MIT-blue.svg) [![GitHub issues open](https://img.shields.io/github/issues/creativetimofficial/light-bootstrap-dashboard-react.svg?maxAge=2592000)]() [![GitHub issues closed](https://img.shields.io/github/issues-closed-raw/creativetimofficial/light-bootstrap-dashboard-react.svg?maxAge=2592000)]() [![Chat](https://img.shields.io/badge/chat-on%20discord-7289da.svg)](https://discord.gg/E4aHAQy)
+A modern React-based admin dashboard with admin-only authentication and comprehensive management features for users, resellers, and consumers.
 
-![Product Gif](https://raw.githubusercontent.com/creativetimofficial/public-assets/master/light-bootstrap-dashboard-react/light-bootstrap-dashboard-react.gif)
+## 🚀 Features
 
-**[Light Bootstrap Dashboard React](https://demos.creative-tim.com/light-bootstrap-dashboard-react/#/?ref=lbdr-readme)** is an admin dashboard template designed to be beautiful and simple. It is built on top of [React Bootstrap](https://5c507d49471426000887a6a7--react-bootstrap.netlify.com/), using [Light Bootstrap Dashboard](https://www.creative-tim.com/product/light-bootstrap?ref=lbdr-readme) and it is fully responsive. It comes with a big collections of elements that will offer you multiple possibilities to create the app that best fits your needs. It can be used to create admin panels, project management systems, web applications backend, CMS or CRM.
+- ✅ **Admin-Only Access**: Secure authentication system that restricts access to administrators only
+- ✅ **User Management**: Create, update, delete users with role-based permissions
+- ✅ **Consumer Management**: Complete CRUD operations for consumers with account status management
+- ✅ **Reseller Management**: Manage resellers and view their referred consumers
+- ✅ **Account Status Control**: Active, Deactive, and Expired Subscription statuses
+- ✅ **Trial Extension**: Flexible trial period management for consumers
+- ✅ **Search & Filtering**: Real-time search with debounce and status-based filtering
+- ✅ **Responsive Design**: Mobile-friendly UI with adaptive layouts
+- ✅ **Toast Notifications**: User-friendly feedback for all actions
+- ✅ **Country & City Selection**: Comprehensive country selection with phone code integration
+- ✅ **Password Reset**: Email-based password reset functionality
 
-The product represents a big suite of front-end developer tools that can help you jump start your project. We have created it thinking about things you actually need in a dashboard. Light Bootstrap Dashboard React contains multiple handpicked and optimized plugins. Everything is designed to fit with one another. As you will be able to see, the dashboard you can access on Creative Tim is a customization of this product.
+## 📋 Prerequisites
 
-It comes with 6 filter colors for the sidebar (`black`, `azure`,`green`,`orange`,`red`,`purple`) and an option to have a background image.
+- Node.js (v16 or higher)
+- npm or yarn
+- Backend API running (see `backend/README.md`)
+- Supabase account and project
 
-## Table of Contents
+## 🛠️ Installation
 
-- [Versions](#versions)
-- [Demo](#demo)
-- [Quick Start](#quick-start)
-- [Deploy](#deploy)
-- [Documentation](#documentation)
-- [File Structure](#file-structure)
-- [Browser Support](#browser-support)
-- [Resources](#resources)
-- [Reporting Issues](#reporting-issues)
-- [Technical Support or Questions](#technical-support-or-questions)
-- [Licensing](#licensing)
-- [Useful Links](#useful-links)
+1. Navigate to the frontend directory:
+```bash
+cd front-end
+```
 
-## Versions
+2. Install dependencies:
+```bash
+npm install
+```
 
-[<img src="https://raw.githubusercontent.com/creativetimofficial/public-assets/master/logos/html-logo.jpg" width="60" height="60" />](https://www.creative-tim.com/product/light-bootstrap-dashboard?ref=lbdr-readme)[<img src="https://raw.githubusercontent.com/creativetimofficial/public-assets/master/logos/react-logo.jpg" width="60" height="60" />](https://www.creative-tim.com/product/light-bootstrap-dashboard-react?ref=lbdr-readme)[<img src="https://raw.githubusercontent.com/creativetimofficial/public-assets/master/logos/vue-logo.jpg" width="60" height="60" />](https://www.creative-tim.com/product/vue-light-bootstrap-dashboard?ref=lbdr-readme)[<img src="https://raw.githubusercontent.com/creativetimofficial/public-assets/master/logos/angular-logo.jpg" width="60" height="60" />](https://www.creative-tim.com/product/light-bootstrap-dashboard-angular2?ref=lbdr-readme)
+3. Create environment variables:
+   - The Supabase configuration is located in `src/lib/supabase/Production/`
+   - Update the Supabase URL and keys in the client configuration files
 
-| HTML                                                                                                                                                                                                                                                   | React                                                                                                                                                                                                                                                                     | Vue                                                                                                                                                                                                                                                               | Angular                                                                                                                                                                                                                                                                            |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [![Light Bootstrap Dashboard HTML](https://github.com/creativetimofficial/public-assets/blob/master/light-bootstrap-dashboard/light-bootstrap-dashboard.jpg?raw=true)](https://www.creative-tim.com/product/light-bootstrap-dashboard?ref=lbdr-readme) | [![Light Bootstrap Dashboard React](https://github.com/creativetimofficial/public-assets/blob/master/light-bootstrap-dashboard-react/light-bootstrap-dashboard-react.jpg?raw=true)](https://www.creative-tim.com/product/light-bootstrap-dashboard-react?ref=lbdr-readme) | [![Vue Light Bootstrap Dashboard](https://github.com/creativetimofficial/public-assets/blob/master/vue-light-bootstrap-dashboard/vue-light-bootstrap-dashboard.jpg?raw=true)](https://www.creative-tim.com/product/vue-light-bootstrap-dashboard?ref=lbdr-readme) | [![Light Bootstrap Dashboard Angular](https://github.com/creativetimofficial/public-assets/blob/master/light-bootstrap-dashboard-angular/light-bootstrap-dashboard-angular.jpg?raw=true)](https://www.creative-tim.com/product/light-bootstrap-dashboard-angular2?ref=lbdr-readme) |
+4. Ensure backend API is running on `http://localhost:5000`
 
-## Demo
+## 🏃 Running the Application
 
-| Dashboard                                                                                                                                                                                                                                        | User Profile                                                                                                                                                                                                                                       | Tables                                                                                                                                                                                                                                           | Maps                                                                                                                                                                                                                                                             |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [![Start page](https://raw.githubusercontent.com/creativetimofficial/public-assets/master/light-bootstrap-dashboard-react/dashboard-page.png)](https://demos.creative-tim.com/light-bootstrap-dashboard-react/#/admin/dashboard?ref=lbdr-readme) | [![User profile page](https://raw.githubusercontent.com/creativetimofficial/public-assets/master/light-bootstrap-dashboard-react/user-page.png)](https://demos.creative-tim.com/light-bootstrap-dashboard-react/#/admin/user-page?ref=lbdr-readme) | [![Tables page ](https://raw.githubusercontent.com/creativetimofficial/public-assets/master/light-bootstrap-dashboard-react/tables-page.png)](https://demos.creative-tim.com/light-bootstrap-dashboard-react/#/admin/table-list?ref=lbdr-readme) | [![Notifications Page](https://raw.githubusercontent.com/creativetimofficial/public-assets/master/light-bootstrap-dashboard-react/notifications-page.png)](https://demos.creative-tim.com/light-bootstrap-dashboard-react/#/admin/notifications?ref=lbdr-readme) |
+### Development mode:
+```bash
+npm start
+```
 
-[View More](https://demos.creative-tim.com/light-bootstrap-dashboard-react/#/admin/dashboard?ref=lbdr-readme).
+The app will open at `http://localhost:3000`
 
-## Quick start
+### Build for production:
+```bash
+npm run build
+```
 
-Quick start options:
+### Run production build:
+```bash
+npm run start:prod
+```
 
-- Clone the repo: `git clone https://github.com/creativetimofficial/light-bootstrap-dashboard-react.git`.
-- [Download from Github](https://github.com/creativetimofficial/light-bootstrap-dashboard-react/archive/master.zip).
-- [Download from Creative Tim](https://www.creative-tim.com/product/light-bootstrap-dashboard-react?ref=lbdr-readme).
+## 🔐 Authentication Flow
 
-## Deploy
+This application implements **Admin-Only Authentication**:
 
-:rocket: You can deploy your own version of the template to Genezio with one click:
+1. **Login**: User enters credentials
+2. **Validation**: Backend validates credentials via Supabase
+3. **Role Check**: System verifies user has `admin` role
+4. **Access Grant**: If admin, user is redirected to dashboard
+5. **Access Denied**: If not admin:
+   - User is signed out automatically
+   - All tokens/cookies are cleared
+   - User redirected to login with error message
 
-[![Deploy to Genezio](https://raw.githubusercontent.com/Genez-io/graphics/main/svg/deploy-button.svg)](https://app.genez.io/start/deploy?repository=https://github.com/creativetimofficial/light-bootstrap-dashboard-react&utm_source=github&utm_medium=referral&utm_campaign=github-creativetim&utm_term=deploy-project&utm_content=button-head)
+### Session Management
+- Sessions stored in both localStorage and cookies
+- Custom storage adapter ensures cross-tab synchronization
+- Automatic session refresh and validation
+- Protected routes redirect non-authenticated users
 
-## Documentation
-
-The documentation for the Light Bootstrap Dashboard React is hosted at our [website](https://demos.creative-tim.com/light-bootstrap-dashboard-react/#/documentation/?ref=lbdr-readme).
-
-## File Structure
-
-Within the download you'll find the following directories and files:
+## 📁 Project Structure
 
 ```
-light-bootstrap-dashboard-react
-.
-├── CHANGELOG.md
-├── ISSUE_TEMPLATE.md
-├── LICENSE.md
-├── README.md
-├── gulpfile.js
-├── jsconfig.json
+front-end/
+├── public/                      # Static assets
+│   ├── index.html
+│   ├── favicon.ico
+│   └── manifest.json
+├── src/
+│   ├── api/                     # API integration layer
+│   │   └── backend/
+│   │       ├── index.js         # Central API exports
+│   │       ├── users.js         # User API calls
+│   │       ├── consumers.js     # Consumer API calls
+│   │       └── resellers.js     # Reseller API calls
+│   ├── assets/                  # CSS, images, fonts
+│   │   ├── css/
+│   │   ├── img/
+│   │   └── scss/
+│   ├── auth/                    # Authentication components
+│   │   ├── ProtectedRoute.js   # Route protection
+│   │   └── RoleBasedRoute.js   # Role-based routing
+│   ├── components/              # Reusable components
+│   │   ├── Footer/
+│   │   ├── Navbars/
+│   │   ├── Sidebar/
+│   │   └── ui/                  # UI modals
+│   │       ├── createUserModel.jsx
+│   │       ├── UpdateUserModel.jsx
+│   │       ├── createConsumerModel.jsx
+│   │       ├── updateConsumerModel.jsx
+│   │       ├── createResellerModel.jsx
+│   │       ├── updateResellerModel.jsx
+│   │       └── deleteModel.jsx
+│   ├── contexts/                # React contexts
+│   │   └── AuthContext.js       # Authentication state
+│   ├── hooks/                   # Custom React hooks
+│   │   ├── useAuth.js
+│   │   ├── useUsers.js
+│   │   └── useConsumer.js
+│   ├── layouts/                 # Page layouts
+│   │   ├── Admin.js
+│   │   ├── User.js
+│   │   ├── Consumer.js
+│   │   ├── Resellers.js
+│   │   └── Viewer.js
+│   ├── lib/                     # External libraries config
+│   │   └── supabase/
+│   │       └── Production/
+│   │           ├── admin.js     # Admin Supabase client
+│   │           ├── client.js    # Regular Supabase client
+│   │           └── server.js    # Server-side client
+│   ├── routes/                  # Route definitions
+│   │   ├── consumerRoutes.js
+│   │   ├── resellerRoutes.js
+│   │   ├── userRoutes.js
+│   │   └── viewerRoutes.js
+│   ├── services/                # Service layer
+│   │   └── apiClient.js         # Axios instance with interceptors
+│   ├── utils/                   # Utility functions
+│   │   ├── countryData.js       # Country list with phone codes
+│   │   └── passwordGenerator.js # Password generation
+│   ├── views/                   # Page components
+│   │   ├── Login.js
+│   │   ├── Users.js
+│   │   ├── Consumers.js
+│   │   ├── Resellers.js
+│   │   ├── ResellerConsumers.js
+│   │   ├── Dashboard.js
+│   │   ├── UserProfile.js
+│   │   └── TrialExpired.js
+│   ├── index.js                 # App entry point
+│   └── routes.js                # Main route config
 ├── package.json
-├── Documentation
-│   ├── css
-│   │   ├── demo.css
-│   │   ├── documentation.css
-│   │   └── light-bootstrap-dashboard.css
-│   ├── img
-│   └── tutorial-components.html
-├── public
-│   ├── favicon.ico
-│   ├── index.html
-│   └── manifest.json
-└── src
-    ├── index.js
-    ├── logo.svg
-    ├── routes.js
-    ├── assets
-    │   ├── css
-    │   │   ├── animate.min.css
-    │   │   ├── demo.css
-    │   │   ├── light-bootstrap-dashboard-react.css
-    │   │   ├── light-bootstrap-dashboard-react.css.map
-    │   │   └── light-bootstrap-dashboard-react.min.css
-    │   ├── fonts
-    │   │   ├── nucleo-icons.eot
-    │   │   ├── nucleo-icons.svg
-    │   │   ├── nucleo-icons.ttf
-    │   │   ├── nucleo-icons.woff
-    │   │   └── nucleo-icons.woff2
-    │   ├── img
-    │   │   └── faces
-    │   └── scss
-    │       ├── lbd
-    │       │   ├── mixins
-    │       │   └── plugins
-    │       ├── lbdr
-    │       │   ├── plugins
-    │       │   └── react-differences.scss
-    │       └── light-bootstrap-dashboard-react.scss
-    ├── layouts
-    │   └── Admin.js
-    ├── components
-    │   ├── FixedPlugin
-    │   │   └── FixedPlugin.js
-    │   ├── Footer
-    │   │   └── Footer.js
-    │   ├── Navbars
-    │   │   └── AdminNavbar.js
-    │   └── Sidebar
-    │       └── Sidebar.js
-    └── views
-        ├── Dashboard.js
-        ├── Icons.js
-        ├── Maps.js
-        ├── Notifications.js
-        ├── TableList.js
-        ├── Typography.js
-        ├── Upgrade.js
-        └── UserProfile.js
+└── README.md                    # This file
 ```
 
-## Browser Support
+## 🎨 Key Features
 
-At present, we officially aim to support the last two versions of the following browsers:
+### 1. User Management
+- Create users with roles (Admin, User, Viewer)
+- Update user information (name, role, country, city, phone)
+- Delete users with confirmation
+- Reset user passwords via email
+- Search users by name or email
+- Required fields: Name, Email, Role, Country, City, Phone
 
-<img src="https://s3.amazonaws.com/creativetim_bucket/github/browser/chrome.png" width="64" height="64"> <img src="https://s3.amazonaws.com/creativetim_bucket/github/browser/firefox.png" width="64" height="64"> <img src="https://s3.amazonaws.com/creativetim_bucket/github/browser/edge.png" width="64" height="64"> <img src="https://s3.amazonaws.com/creativetim_bucket/github/browser/safari.png" width="64" height="64"> <img src="https://s3.amazonaws.com/creativetim_bucket/github/browser/opera.png" width="64" height="64">
+### 2. Consumer Management
+- Create consumers with trial periods
+- Update consumer information
+- **Account Status Management**:
+  - Active: Extends trial by 30 days (or custom)
+  - Deactive: Maintains current trial period
+  - Expired Subscription: Sets trial expiry to current date
+- **Trial Extension**: Choose 1, 2, or 3 days to extend trial
+- **Conditional Trial Extension**: Show extension option only if trial ≤ 2 days
+- Search consumers by name or email
+- Filter by account status (All, Active, Deactive, Expired)
+- Assign consumers to resellers
+- Color-coded status badges
+- Debounced search (1.5 seconds)
 
-## Resources
+### 3. Reseller Management
+- Create and manage resellers
+- View referred consumer count
+- **Hover Tooltips**: View referred consumer details on hover
+  - Shows up to 5 consumers
+  - Display consumer name, email, account status
+  - "View More" button for additional consumers
+- Search resellers by name or email
+- Update reseller information
+- Delete resellers with confirmation
 
-- Demo: https://demos.creative-tim.com/light-bootstrap-dashboard-react/#/admin/dashboard?ref=lbdr-readme
-- Download Page: https://www.creative-tim.com/product/light-bootstrap-dashboard-react?ref=lbdr-readme
-- Documentation: https://demos.creative-tim.com/light-bootstrap-dashboard-react/#/documentation/tutorial?ref=lbdr-readme
-- License Agreement: https://www.creative-tim.com/license?ref=lbdr-readme
-- Support: https://www.creative-tim.com/contact-us?ref=lbdr-readme
-- Issues: [Github Issues Page](https://github.com/creativetimofficial/light-bootstrap-dashboard-react/issues)
+### 4. Country & Phone Management
+- Comprehensive country list with flags and phone codes
+- Automatic phone code prepending
+- Smart country dropdown with search
+- Click-to-clear country selection
+- Phone number validation
+- Format: `+XX XXXXXXXXXX`
 
-## Reporting Issues
+### 5. Search & Filtering
+- **Debounced Search**: 1.5-2 second delay for optimal performance
+- **Real-time Results**: Auto-updates as you type
+- **Multiple Filters**: Status, role, and text-based filters
+- **Clear Filters**: One-click filter reset
+- **Results Count**: Display number of matching records
 
-We use GitHub Issues as the official bug tracker for the Light Bootstrap Dashboard React. Here are some advices for our users that want to report an issue:
+### 6. Responsive Design
+- Mobile-friendly tables and forms
+- Adaptive navigation
+- Touch-optimized buttons and inputs
+- Responsive modals
+- Flexible layouts for all screen sizes
 
-1. Make sure that you are using the latest version of the Light Bootstrap Dashboard React. Check the CHANGELOG from your dashboard on our [website](https://www.creative-tim.com/?ref=lbdr-readme).
-2. Providing us reproducible steps for the issue will shorten the time it takes for it to be fixed.
-3. Some issues may be browser specific, so specifying in what browser you encountered the issue might help.
+## 🔧 Configuration
 
-## Technical Support or Questions
+### API Client (`src/services/apiClient.js`)
+- Base URL: `http://localhost:5000/api`
+- Request interceptor adds authorization headers
+- Response interceptor handles errors
+- Axios instance with custom configuration
 
-If you have questions or need help integrating the product please [contact us](https://www.creative-tim.com/contact-us?ref=lbdr-readme) instead of opening an issue.
+### Supabase Configuration (`src/lib/supabase/Production/client.js`)
+- Custom storage adapter for localStorage + cookies
+- Automatic token refresh
+- Cross-tab session synchronization
+- Storage key: `sb-auth-token`
 
-## Licensing
+## 📡 API Integration
 
-- Copyright 2022 Creative Tim (https://www.creative-tim.com?ref=lbdr-readme)
-- Licensed under MIT (https://github.com/creativetimofficial/light-bootstrap-dashboard-react/blob/master/LICENSE.md)
+The frontend communicates with the backend API at `http://localhost:5000/api`
 
-## Useful Links
+### Available API Modules:
 
-More products from Creative Tim: <https://www.creative-tim.com/products?ref=lbdr-readme>
+#### Users API (`/api/users`)
+- `getAdminUsers({ search })` - Get all users with optional search
+- `createUser(userData)` - Create new user
+- `updateUser(userId, updateData)` - Update user
+- `deleteUser(userId)` - Delete user
+- `resetUserPassword(userId)` - Reset user password
 
-Tutorials: <https://www.youtube.com/channel/UCVyTG4sCw-rOvB9oHkzZD1w>
+#### Consumers API (`/api/consumers`)
+- `getConsumers({ account_status, search })` - Get consumers with filters
+- `getConsumerById(id)` - Get single consumer
+- `createConsumer(consumerData)` - Create consumer
+- `updateConsumer(id, updateData)` - Update consumer
+- `updateConsumerAccountStatus(id, status, trialDate)` - Update account status
+- `deleteConsumer(id)` - Delete consumer
+- `resetConsumerPassword(id)` - Reset consumer password
 
-Freebies: <https://www.creative-tim.com/products?ref=lbdr-readme>
+#### Resellers API (`/api/resellers`)
+- `getResellers({ search })` - Get resellers with search
+- `getResellerById(id)` - Get single reseller
+- `createReseller(resellerData)` - Create reseller
+- `updateReseller(id, updateData)` - Update reseller
+- `deleteReseller(id)` - Delete reseller
+- `getReferredConsumers(id)` - Get reseller's referred consumers
 
-Affiliate Program (earn money): <https://www.creative-tim.com/affiliates/new?ref=lbdr-readme>
+## 🎭 Component Details
 
-Social Media:
+### Protected Route
+```jsx
+<ProtectedRoute>
+  <AdminLayout />
+</ProtectedRoute>
+```
+- Checks if user is authenticated and is admin
+- Shows loading spinner during auth check
+- Redirects to `/login` if not authenticated or not admin
 
-Twitter: <https://twitter.com/CreativeTim>
+### Update Modals
+All update modals include:
+- Auto-populated form fields
+- Country selection with search
+- Phone number with country code
+- Validation with error messages
+- Success/error toast notifications
 
-Facebook: <https://www.facebook.com/CreativeTim>
+### Account Status Update (Consumers)
+- Dropdown with three status options
+- Confirmation modal before update
+- Conditional trial extension dropdown
+- Automatic trial period calculation
+- Status badge with color coding
 
-Dribbble: <https://dribbble.com/creativetim>
+## 🔨 Available Scripts
 
-Google+: <https://plus.google.com/+CreativetimPage>
+| Script | Description |
+|--------|-------------|
+| `npm start` | Start development server (port 3000) |
+| `npm run build` | Build for production |
+| `npm test` | Run tests |
+| `npm run eject` | Eject from Create React App |
 
-Instagram: <https://instagram.com/creativetimofficial>
+## 🛡️ Security Features
+
+- **Admin-Only Access**: Non-admin users cannot access the application
+- **Protected Routes**: All routes require admin authentication
+- **Automatic Token Management**: Tokens stored securely in localStorage and cookies
+- **Session Validation**: Continuous validation of user session
+- **Auto Sign-Out**: Non-admin users are automatically signed out
+- **CSRF Protection**: Implemented via Supabase
+- **XSS Protection**: React's built-in XSS protection
+
+## 📱 Responsive Breakpoints
+
+```css
+/* Mobile */
+@media (max-width: 768px) {
+  /* Mobile-specific styles */
+}
+
+/* Tablet */
+@media (min-width: 769px) and (max-width: 1024px) {
+  /* Tablet-specific styles */
+}
+
+/* Desktop */
+@media (min-width: 1025px) {
+  /* Desktop-specific styles */
+}
+```
+
+## 🎨 UI/UX Features
+
+- **Toast Notifications**: Real-time feedback using `react-hot-toast`
+- **Loading States**: Spinners for async operations
+- **Confirmation Modals**: Prevent accidental deletions
+- **Hover Effects**: Visual feedback on interactive elements
+- **Color-Coded Status**: Visual distinction for different statuses
+- **Icon Library**: Lucide React icons throughout
+- **Smooth Animations**: CSS transitions for better UX
+
+## 🔍 Search & Filter Implementation
+
+### Debounced Search
+```javascript
+useEffect(() => {
+  const debounceTimer = setTimeout(() => {
+    setSearchQuery(searchInput);
+  }, 1500); // 1.5 second delay
+
+  return () => clearTimeout(debounceTimer);
+}, [searchInput]);
+```
+
+### Status Filter
+```javascript
+const handleFilterChange = (e) => {
+  setAccountStatusFilter(e.target.value);
+  setCurrentPage(1); // Reset to first page
+};
+```
+
+## 🐛 Debugging
+
+### Enable Console Logs
+All unnecessary console.logs have been removed from production code. Only error logs remain for debugging:
+- `console.error()` - For error tracking
+- No `console.log()` in production code
+
+### Common Issues
+
+1. **401 Unauthorized**
+   - Check if backend is running
+   - Verify Supabase credentials
+   - Ensure user is authenticated
+
+2. **Form not populating**
+   - Verify data structure matches expected format
+   - Check console for errors
+   - Ensure all required fields are passed
+
+3. **Search not working**
+   - Wait for debounce delay (1.5 seconds)
+   - Check network tab for API calls
+   - Verify search parameter in backend
+
+## 📦 Key Dependencies
+
+- **react** (^17.0.2): UI framework
+- **react-router-dom** (^5.2.0): Routing
+- **@supabase/supabase-js**: Supabase client
+- **axios**: HTTP client
+- **react-hot-toast**: Toast notifications
+- **lucide-react**: Icon library
+- **react-bootstrap**: UI components
+
+## 🚀 Deployment
+
+1. Update API base URL in `src/services/apiClient.js`
+2. Update Supabase configuration in `src/lib/supabase/Production/`
+3. Build the application:
+```bash
+npm run build
+```
+4. Deploy the `build/` folder to your hosting service
+
+### Recommended Hosting
+- Vercel
+- Netlify
+- AWS S3 + CloudFront
+- Azure Static Web Apps
+
+## 🔄 Version History
+
+### Current Version
+- Admin-only authentication
+- Complete CRUD for users, consumers, resellers
+- Account status management
+- Trial extension features
+- Search and filtering
+- Responsive design
+- Hover tooltips for reseller consumers
+
+## 📄 License
+
+ISC
+
+## 🤝 Contributing
+
+1. Create a feature branch
+2. Make your changes
+3. Test thoroughly
+4. Submit a pull request
+
+---
+
+Built with ❤️ using React, Supabase, and Modern Web Technologies

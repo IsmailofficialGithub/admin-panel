@@ -6,12 +6,29 @@
 import apiClient from '../../services/apiClient';
 
 /**
- * Get all consumers
+ * Get all consumers with optional filters
+ * @param {Object} filters - Filter options
+ * @param {string} filters.account_status - Account status filter (active, deactive, expired_subscription, all)
+ * @param {string} filters.search - Search term for name/email
  * @returns {Promise<Array>} List of consumers
  */
-export const getConsumers = async () => {
+export const getConsumers = async (filters = {}) => {
   try {
-    const response = await apiClient.consumers.getAll();
+    const { account_status, search } = filters;
+    const params = new URLSearchParams();
+    
+    if (account_status && account_status !== 'all') {
+      params.append('account_status', account_status);
+    }
+    
+    if (search && search.trim() !== '') {
+      params.append('search', search.trim());
+    }
+    
+    const queryString = params.toString();
+    const url = queryString ? `/consumers?${queryString}` : '/consumers';
+    
+    const response = await apiClient.consumers.getAll(queryString ? `?${queryString}` : '');
     // Backend returns { success: true, count: X, data: [...] }
     // Extract the consumers array from response.data
     return response.data || [];
@@ -42,17 +59,21 @@ export const getConsumerById = async (consumerId) => {
  * @param {string} consumerData.email - Consumer email
  * @param {string} consumerData.password - Consumer password
  * @param {string} consumerData.full_name - Consumer full name
+ * @param {string} consumerData.country - Consumer country (required)
+ * @param {string} consumerData.city - Consumer city (required)
  * @param {string} consumerData.phone - Consumer phone (optional)
  * @param {string} consumerData.trial_expiry_date - Trial expiry date (optional)
  * @returns {Promise<Object>} Created consumer data
  */
 export const createConsumer = async (consumerData) => {
   try {
-    // Use the resalers endpoint for creating consumers
-    const response = await apiClient.resalers.createConsumer({
+    // Use the resellers endpoint for creating consumers
+    const response = await apiClient.resellers.createConsumer({
       email: consumerData.email,
       password: consumerData.password,
       full_name: consumerData.full_name,
+      country: consumerData.country,
+      city: consumerData.city,
       phone: consumerData.phone || null,
       trial_expiry_date: consumerData.trial_expiry_date || null,
       role: 'consumer'
@@ -77,13 +98,25 @@ export const createConsumer = async (consumerData) => {
  * Update consumer
  * @param {string} consumerId - Consumer ID
  * @param {Object} updateData - Data to update
- * @param {string} updateData.full_name - Full name
- * @param {string} updateData.phone - Phone number
+ * @param {string} updateData.full_name - Full name (optional)
+ * @param {string} updateData.country - Country (optional)
+ * @param {string} updateData.city - City (optional)
+ * @param {string} updateData.phone - Phone number (optional)
+ * @param {string} updateData.trial_expiry_date - Trial expiry date (optional)
  * @returns {Promise<Object>} Updated consumer data
  */
 export const updateConsumer = async (consumerId, updateData) => {
   try {
-    const response = await apiClient.consumers.update(consumerId, updateData);
+    // Clean up the update data - only send fields that are provided
+    const cleanedData = {};
+    
+    if (updateData.full_name !== undefined) cleanedData.full_name = updateData.full_name;
+    if (updateData.country !== undefined) cleanedData.country = updateData.country;
+    if (updateData.city !== undefined) cleanedData.city = updateData.city;
+    if (updateData.phone !== undefined) cleanedData.phone = updateData.phone;
+    if (updateData.trial_expiry_date !== undefined) cleanedData.trial_expiry_date = updateData.trial_expiry_date;
+    
+    const response = await apiClient.consumers.update(consumerId, cleanedData);
     
     if (response.success) {
       return {
@@ -146,12 +179,38 @@ export const resetConsumerPassword = async (consumerId) => {
   }
 };
 
+/**
+ * Update consumer account status
+ * @param {string} consumerId - Consumer ID
+ * @param {string} accountStatus - New account status (active, deactive, expired_subscription)
+ * @returns {Promise<Object>} Success status
+ */
+export const updateConsumerAccountStatus = async (consumerId, accountStatus, trialExpiryDate = null) => {
+  try {
+    const response = await apiClient.consumers.updateAccountStatus(consumerId, accountStatus, trialExpiryDate);
+    
+    if (response.success) {
+      return {
+        success: true,
+        message: response.message,
+        data: response.data
+      };
+    }
+    
+    return { error: 'Failed to update account status' };
+  } catch (error) {
+    console.error('updateConsumerAccountStatus Error:', error);
+    return { error: error.message };
+  }
+};
+
 export default {
   getConsumers,
   getConsumerById,
   createConsumer,
   updateConsumer,
   deleteConsumer,
-  resetConsumerPassword
+  resetConsumerPassword,
+  updateConsumerAccountStatus
 };
 

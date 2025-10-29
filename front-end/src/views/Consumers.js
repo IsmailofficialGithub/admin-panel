@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus } from 'lucide-react';
+import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, CheckCircle, Search, Filter } from 'lucide-react';
 import toast from 'react-hot-toast';
 // ✅ Using backend API instead of direct Supabase calls
 import { 
@@ -7,14 +7,14 @@ import {
   createConsumer, 
   updateConsumer, 
   deleteConsumer,
-  resetConsumerPassword
+  resetConsumerPassword,
+  updateConsumerAccountStatus
 } from '../api/backend';
 import CreateConsumerModal from '../components/ui/createConsumerModel';
 import UpdateConsumerModal from '../components/ui/updateConsumerModel';
 import DeleteModal from '../components/ui/deleteModel';
 
 const Consumers = () => {
-  console.log('👥 Consumers component rendering...');
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -26,24 +26,42 @@ const Consumers = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteUserData, setDeleteUserData] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [statusUpdateData, setStatusUpdateData] = useState(null);
+  const [showStatusConfirmModal, setShowStatusConfirmModal] = useState(false);
+  const [selectedStatus, setSelectedStatus] = useState('');
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [extendDays, setExtendDays] = useState('');
+  const [accountStatusFilter, setAccountStatusFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const usersPerPage = 20;
 
-  // Fetch consumers from backend API
+  // Debounce search input
   useEffect(() => {
-    console.log('🔄 Consumers component mounted - Fetching consumers...');
+    const debounceTimer = setTimeout(() => {
+      setSearchQuery(searchInput);
+    }, 1500); // 2 seconds delay
+
+    return () => clearTimeout(debounceTimer);
+  }, [searchInput]);
+
+  // Fetch consumers from backend API with filters
+  useEffect(() => {
     const fetchConsumers = async () => {
       try {
         setLoading(true);
-        console.log('🔄 Calling getConsumers API...');
-        const result = await getConsumers();
-        console.log('✅ getConsumers result:', result);
+        const result = await getConsumers({
+          account_status: accountStatusFilter,
+          search: searchQuery
+        });
         
         if (result?.error) {
           setError(result.error);
           console.error('❌ Error fetching consumers:', result.error);
         } else {
           setUsers(result || []); // Backend returns array directly
-          console.log('✅ Consumers loaded successfully:', result.length, 'consumers');
+          setCurrentPage(1); // Reset to first page when filters change
         }
       } catch (err) {
         setError(err.message);
@@ -54,7 +72,7 @@ const Consumers = () => {
     };
 
     fetchConsumers();
-  }, []);
+  }, [accountStatusFilter, searchQuery]);
 
   const indexOfLastUser = currentPage * usersPerPage;
   const indexOfFirstUser = indexOfLastUser - usersPerPage;
@@ -73,6 +91,8 @@ const Consumers = () => {
           full_name: consumer.full_name,
           email: consumer.email,
           phone: consumer.phone,
+          country: consumer.country,
+          city: consumer.city,
           trial_expiry: consumer.trial_expiry,
           trial_expiry_date: consumer.trial_expiry,
           created_at: consumer.created_at
@@ -82,6 +102,12 @@ const Consumers = () => {
     } else if (action === 'Delete') {
       setDeleteUserData({ id: userId, name: userName });
       setShowDeleteModal(true);
+    } else if (action === 'Update Status') {
+      const consumer = users.find(u => u.user_id === userId);
+      if (consumer) {
+        setStatusUpdateData({ id: userId, name: userName, currentStatus: consumer.account_status });
+        setShowStatusDropdown(true);
+      }
     } else if (action === 'Reset Password') {
       // Handle reset password
       const loadingToast = toast.loading(`Resetting password for ${userName}...`);
@@ -127,8 +153,6 @@ const Consumers = () => {
       
       setUsers(prevUsers => [newConsumer, ...prevUsers]);
       
-      console.log('Consumer created successfully:', result.user);
-      
       return { success: true };
     } catch (err) {
       console.error('Error creating consumer:', err);
@@ -168,7 +192,6 @@ const Consumers = () => {
       );
       
       toast.success('Consumer updated successfully!');
-      console.log('Consumer updated successfully:', result.user);
       
       // Close modal
       setIsUpdateModalOpen(false);
@@ -200,7 +223,6 @@ const Consumers = () => {
         prevUsers.filter(user => user.user_id !== deleteUserData.id)
       );
       
-      console.log('Consumer deleted successfully:', result);
       toast.success('Consumer deleted successfully!');
       
       // Close modal
@@ -211,6 +233,80 @@ const Consumers = () => {
       console.error('Error deleting consumer:', err);
       toast.error('Failed to delete consumer. Please try again.');
       setIsDeleting(false);
+    }
+  };
+
+  const handleStatusSelect = (status) => {
+    setSelectedStatus(status);
+    setShowStatusDropdown(false);
+    setExtendDays('');
+    setShowStatusConfirmModal(true);
+  };
+
+  const handleConfirmStatusUpdate = async () => {
+    try {
+      if (!statusUpdateData || !selectedStatus) return;
+
+      setIsUpdatingStatus(true);
+
+      // Calculate trial_expiry_date if extend days is selected
+      let trialExpiryDate = null;
+      if (extendDays && parseInt(extendDays) > 0) {
+        const days = parseInt(extendDays);
+        const expiryDate = new Date();
+        expiryDate.setDate(expiryDate.getDate() + days);
+        trialExpiryDate = expiryDate.toISOString();
+      }
+
+      // Call backend API to update account status with optional trial_expiry_date
+      const result = await updateConsumerAccountStatus(statusUpdateData.id, selectedStatus, trialExpiryDate);
+      
+      if (result.error) {
+        toast.error(`Error updating status: ${result.error}`);
+        console.error('Update status error:', result.error);
+        setIsUpdatingStatus(false);
+        return;
+      }
+      
+      // Update consumer status and trial_expiry in the local state
+      setUsers(prevUsers => 
+        prevUsers.map(user => {
+          if (user.user_id === statusUpdateData.id) {
+            return {
+              ...user,
+              account_status: selectedStatus,
+              // Update trial_expiry from backend response
+              trial_expiry: result.data?.trial_expiry || user.trial_expiry
+            };
+          }
+          return user;
+        })
+      );
+      
+      // Show appropriate success message based on status
+      let successMessage = `Account status updated to ${selectedStatus}!`;
+      if (selectedStatus === 'expired_subscription') {
+        successMessage = 'Account marked as expired!';
+      } else if (selectedStatus === 'active') {
+        if (extendDays) {
+          successMessage = `Account activated and trial extended by ${extendDays} day(s)!`;
+        } else {
+          successMessage = 'Account activated and trial extended!';
+        }
+      }
+      
+      toast.success(successMessage);
+      
+      // Close modal
+      setShowStatusConfirmModal(false);
+      setStatusUpdateData(null);
+      setSelectedStatus('');
+      setExtendDays('');
+      setIsUpdatingStatus(false);
+    } catch (err) {
+      console.error('Error updating status:', err);
+      toast.error('Failed to update status. Please try again.');
+      setIsUpdatingStatus(false);
     }
   };
 
@@ -227,6 +323,41 @@ const Consumers = () => {
     return colors[role] || '#6c757d';
   };
 
+  // Get account status badge style
+  const getAccountStatusStyle = (status) => {
+    if (!status) {
+      return {
+        backgroundColor: '#f8f9fa',
+        color: '#6c757d',
+        text: 'No Status'
+      };
+    }
+
+    const styles = {
+      active: {
+        backgroundColor: '#d4edda',
+        color: '#28a745',
+        text: 'Active'
+      },
+      deactive: {
+        backgroundColor: '#fff3cd',
+        color: '#ffc107',
+        text: 'Deactive'
+      },
+      expired_subscription: {
+        backgroundColor: '#f8d7da',
+        color: '#dc3545',
+        text: 'Expired'
+      }
+    };
+
+    return styles[status] || {
+      backgroundColor: '#f8f9fa',
+      color: '#6c757d',
+      text: status
+    };
+  };
+
   const toggleDropdown = (userId) => {
     setOpenDropdown(openDropdown === userId ? null : userId);
   };
@@ -235,6 +366,21 @@ const Consumers = () => {
     if (pageNumber >= 1 && pageNumber <= totalPages) {
       setCurrentPage(pageNumber);
     }
+  };
+
+  const handleSearchChange = (e) => {
+    setSearchInput(e.target.value);
+    // Debounce will automatically trigger search after 2 seconds
+  };
+
+  const handleFilterChange = (status) => {
+    setAccountStatusFilter(status);
+  };
+
+  const handleClearFilters = () => {
+    setAccountStatusFilter('all');
+    setSearchQuery('');
+    setSearchInput('');
   };
 
   // Calculate trial status
@@ -284,6 +430,40 @@ const Consumers = () => {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
           }
+          
+          @media (max-width: 768px) {
+            .consumer-table-wrapper {
+              overflow-x: auto;
+              -webkit-overflow-scrolling: touch;
+            }
+            
+            .consumer-header-actions {
+              flex-direction: column;
+              align-items: stretch !important;
+            }
+            
+            .consumer-filters {
+              flex-direction: column;
+            }
+            
+            .consumer-search,
+            .consumer-filter {
+              flex: 1 1 100% !important;
+              min-width: 100% !important;
+            }
+          }
+          
+          @media (max-width: 480px) {
+            .consumer-pagination {
+              flex-direction: column;
+              gap: 12px;
+            }
+            
+            .consumer-pagination-buttons {
+              width: 100%;
+              justify-content: center;
+            }
+          }
         `}
       </style>
     <div style={{ 
@@ -315,19 +495,25 @@ const Consumers = () => {
           <div style={{ 
             padding: '20px 24px',
             borderBottom: '2px solid #f0f0f0',
-              flexShrink: 0,
+            flexShrink: 0
+          }}>
+            {/* Title and Create Button Row */}
+            <div className="consumer-header-actions" style={{
               display: 'flex',
               justifyContent: 'space-between',
-              alignItems: 'center'
-          }}>
+              alignItems: 'center',
+              marginBottom: '16px',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
               <div>
-            <h4 style={{ margin: '0 0 8px 0', color: '#333', fontWeight: '600', fontSize: '20px' }}>
-              Consumers Management
-            </h4>
-            <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>
-              Manage your consumers and their permissions
-            </p>
-          </div>
+                <h4 style={{ margin: '0 0 8px 0', color: '#333', fontWeight: '600', fontSize: '20px' }}>
+                  Consumers Management
+                </h4>
+                <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>
+                  Manage your consumers and their permissions
+                </p>
+              </div>
               <button
                 onClick={() => setIsCreateModalOpen(true)}
                 title="Create New Consumer"
@@ -358,6 +544,156 @@ const Consumers = () => {
                 <UserPlus size={20} />
               </button>
             </div>
+
+            {/* Filters and Search Row */}
+            <div className="consumer-filters" style={{
+              display: 'flex',
+              gap: '12px',
+              flexWrap: 'wrap',
+              alignItems: 'center'
+            }}>
+              {/* Search Bar */}
+              <div className="consumer-search" style={{ flex: '1 1 300px', minWidth: '200px' }}>
+                <div style={{ position: 'relative' }}>
+                  <div style={{
+                    position: 'absolute',
+                    left: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#9ca3af'
+                  }}>
+                    <Search size={18} />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search by name or email... "
+                    value={searchInput}
+                    onChange={handleSearchChange}
+                    style={{
+                      width: '100%',
+                      padding: '10px 100px 10px 40px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#d1d5db';
+                      e.target.style.boxShadow = 'none';
+                    }}
+                  />
+                  {searchInput && searchInput !== searchQuery && (
+                    <div style={{
+                      position: 'absolute',
+                      right: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      fontSize: '12px',
+                      color: '#9ca3af',
+                      fontStyle: 'italic'
+                    }}>
+                      Searching...
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Status Filter Dropdown */}
+              <div className="consumer-filter" style={{ position: 'relative', flex: '0 1 200px', minWidth: '180px' }}>
+                <div style={{
+                  position: 'absolute',
+                  left: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#9ca3af',
+                  pointerEvents: 'none',
+                  zIndex: 1
+                }}>
+                  <Filter size={18} />
+                </div>
+                <select
+                  value={accountStatusFilter}
+                  onChange={(e) => handleFilterChange(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px 10px 40px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    outline: 'none',
+                    transition: 'all 0.2s',
+                    boxSizing: 'border-box',
+                    backgroundColor: 'white',
+                    cursor: 'pointer',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                    MozAppearance: 'none'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = '#d1d5db';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                >
+                  <option value="all">All Status</option>
+                  <option value="active">Active</option>
+                  <option value="deactive">Deactive</option>
+                  <option value="expired_subscription">Expired</option>
+                </select>
+              </div>
+
+              {/* Clear Filters Button */}
+              {(accountStatusFilter !== 'all' || searchQuery !== '') && (
+                <button
+                  onClick={handleClearFilters}
+                  style={{
+                    padding: '10px 16px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    backgroundColor: 'white',
+                    color: '#666',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    whiteSpace: 'nowrap'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#f9fafb';
+                    e.currentTarget.style.borderColor = '#9ca3af';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'white';
+                    e.currentTarget.style.borderColor = '#d1d5db';
+                  }}
+                >
+                  Clear Filters
+                </button>
+              )}
+
+              {/* Results Count */}
+              <div style={{
+                padding: '10px 16px',
+                backgroundColor: '#f9fafb',
+                borderRadius: '8px',
+                fontSize: '14px',
+                color: '#666',
+                fontWeight: '500',
+                whiteSpace: 'nowrap'
+              }}>
+                {users.length} {users.length === 1 ? 'result' : 'results'}
+              </div>
+            </div>
+          </div>
 
             {/* Loading State */}
             {loading && (
@@ -428,7 +764,7 @@ const Consumers = () => {
 
           {/* Table - Scrollable */}
             {!loading && !error && users.length > 0 && (
-          <div style={{ 
+          <div className="consumer-table-wrapper" style={{ 
             overflowY: 'auto',
             overflowX: 'auto',
             flex: 1
@@ -481,6 +817,15 @@ const Consumers = () => {
                     textTransform: 'uppercase',
                     letterSpacing: '0.5px'
                   }}>ROLE</th>
+                  <th style={{ 
+                    padding: '15px 24px', 
+                    textAlign: 'left',
+                    color: '#555', 
+                    fontWeight: '600', 
+                    fontSize: '13px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>ACCOUNT STATUS</th>
                   <th style={{ 
                     padding: '15px 24px', 
                     textAlign: 'left',
@@ -545,6 +890,25 @@ const Consumers = () => {
                       }}>
                         {user.role}
                       </span>
+                    </td>
+                    <td style={{ padding: '15px 24px' }}>
+                      {(() => {
+                        const accountStatus = getAccountStatusStyle(user.account_status);
+                        return (
+                          <span style={{
+                            backgroundColor: accountStatus.backgroundColor,
+                            color: accountStatus.color,
+                            padding: '4px 12px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            fontWeight: '500',
+                            display: 'inline-block',
+                            border: `1px solid ${accountStatus.color}20`
+                          }}>
+                            {accountStatus.text}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td style={{ padding: '15px 24px' }}>
                       {(() => {
@@ -634,6 +998,28 @@ const Consumers = () => {
                             Update
                           </button>
                           <button
+                            onClick={() => handleAction('Update Status', userId, user.full_name)}
+                            style={{
+                              width: '100%',
+                              padding: '10px 16px',
+                              border: 'none',
+                              backgroundColor: 'transparent',
+                              textAlign: 'left',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              color: '#333',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              transition: 'background-color 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                          >
+                            <CheckCircle size={16} />
+                            Update Status
+                          </button>
+                          <button
                             onClick={() => handleAction('Reset Password', userId, user.full_name)}
                             style={{
                               width: '100%',
@@ -695,7 +1081,7 @@ const Consumers = () => {
 
           {/* Footer with Pagination - Fixed */}
           {!loading && !error && users.length > 0 && (
-          <div style={{ 
+          <div className="consumer-pagination" style={{ 
             padding: '16px 24px',
             borderTop: '2px solid #f0f0f0',
             display: 'flex',
@@ -710,7 +1096,7 @@ const Consumers = () => {
               Showing {indexOfFirstUser + 1} to {Math.min(indexOfLastUser, users.length)} of {users.length} users
             </div>
             
-            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+            <div className="consumer-pagination-buttons" style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
               <button
                 onClick={() => paginate(currentPage - 1)}
                 disabled={currentPage === 1}
@@ -832,6 +1218,407 @@ const Consumers = () => {
         userId={deleteUserData?.id}
         isDeleting={isDeleting}
       />
+
+      {/* Status Dropdown Modal */}
+      {showStatusDropdown && statusUpdateData && (
+        <>
+          <div
+            onClick={() => {
+              setShowStatusDropdown(false);
+              setStatusUpdateData(null);
+            }}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 9998,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}
+          />
+          <div style={{
+            position: 'fixed',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+            zIndex: 9999,
+            minWidth: '400px',
+            maxWidth: '500px'
+          }}>
+            <div style={{
+              padding: '24px',
+              borderBottom: '1px solid #e0e0e0'
+            }}>
+              <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '600', color: '#333' }}>
+                Update Account Status
+              </h3>
+              <p style={{ margin: '8px 0 0 0', fontSize: '14px', color: '#666' }}>
+                Select new status for <strong>{statusUpdateData.name}</strong>
+              </p>
+              {statusUpdateData.currentStatus && (
+                <p style={{ margin: '8px 0 0 0', fontSize: '13px', color: '#999' }}>
+                  Current status: <span style={{ 
+                    color: '#007bff', 
+                    fontWeight: '500',
+                    textTransform: 'capitalize'
+                  }}>{statusUpdateData.currentStatus.replace('_', ' ')}</span>
+                </p>
+              )}
+            </div>
+            <div style={{ padding: '16px' }}>
+              <div style={{ marginBottom: '16px' }}>
+                <button
+                  onClick={() => handleStatusSelect('active')}
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    marginBottom: '8px',
+                    border: '2px solid #28a745',
+                    borderRadius: '8px',
+                    backgroundColor: 'white',
+                    color: '#28a745',
+                    fontSize: '15px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#28a745';
+                    e.currentTarget.style.color = 'white';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'white';
+                    e.currentTarget.style.color = '#28a745';
+                  }}
+                >
+                  <CheckCircle size={18} />
+                  Active
+                </button>
+                <p style={{ margin: '0 0 16px 8px', fontSize: '12px', color: '#666', fontStyle: 'italic' }}>
+                  Trial will be extended by 30 days
+                </p>
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <button
+                  onClick={() => handleStatusSelect('deactive')}
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    marginBottom: '8px',
+                    border: '2px solid #ffc107',
+                    borderRadius: '8px',
+                    backgroundColor: 'white',
+                    color: '#ffc107',
+                    fontSize: '15px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#ffc107';
+                    e.currentTarget.style.color = 'white';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'white';
+                    e.currentTarget.style.color = '#ffc107';
+                  }}
+                >
+                  <CheckCircle size={18} />
+                  Deactive
+                </button>
+                <p style={{ margin: '0 0 16px 8px', fontSize: '12px', color: '#666', fontStyle: 'italic' }}>
+                  Trial date will remain unchanged
+                </p>
+              </div>
+
+              <div>
+                <button
+                  onClick={() => handleStatusSelect('expired_subscription')}
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    marginBottom: '8px',
+                    border: '2px solid #dc3545',
+                    borderRadius: '8px',
+                    backgroundColor: 'white',
+                    color: '#dc3545',
+                    fontSize: '15px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#dc3545';
+                    e.currentTarget.style.color = 'white';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'white';
+                    e.currentTarget.style.color = '#dc3545';
+                  }}
+                >
+                  <CheckCircle size={18} />
+                  Expired Subscription
+                </button>
+                <p style={{ margin: '0 0 0 8px', fontSize: '12px', color: '#666', fontStyle: 'italic' }}>
+                  Trial will be set to today (expired)
+                </p>
+              </div>
+            </div>
+            <div style={{
+              padding: '16px 24px',
+              borderTop: '1px solid #e0e0e0',
+              display: 'flex',
+              justifyContent: 'flex-end'
+            }}>
+              <button
+                onClick={() => {
+                  setShowStatusDropdown(false);
+                  setStatusUpdateData(null);
+                }}
+                style={{
+                  padding: '10px 24px',
+                  border: '1px solid #e0e0e0',
+                  borderRadius: '6px',
+                  backgroundColor: 'white',
+                  color: '#666',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Status Confirmation Modal */}
+      {showStatusConfirmModal && statusUpdateData && selectedStatus && (
+        <>
+          <div
+            onClick={() => {
+              if (!isUpdatingStatus) {
+                setShowStatusConfirmModal(false);
+                setStatusUpdateData(null);
+                setSelectedStatus('');
+                setExtendDays('');
+              }
+            }}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 9998,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}
+          />
+          <div style={{
+            position: 'fixed',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+            zIndex: 9999,
+            minWidth: '400px',
+            maxWidth: '500px'
+          }}>
+            <div style={{
+              padding: '24px',
+              borderBottom: '1px solid #e0e0e0'
+            }}>
+              <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '600', color: '#333' }}>
+                Confirm Status Update
+              </h3>
+            </div>
+            <div style={{ padding: '24px' }}>
+              <p style={{ margin: '0 0 16px 0', fontSize: '15px', color: '#666', lineHeight: '1.6' }}>
+                Are you sure you want to update the account status for <strong>{statusUpdateData.name}</strong> to{' '}
+                <span style={{ 
+                  color: selectedStatus === 'active' ? '#28a745' : selectedStatus === 'deactive' ? '#ffc107' : '#dc3545',
+                  fontWeight: '600',
+                  textTransform: 'capitalize'
+                }}>
+                  {selectedStatus.replace('_', ' ')}
+                </span>?
+              </p>
+
+              {/* Show extend trial dropdown if trial expires within 2 days or less */}
+              {(() => {
+                const consumer = users.find(u => u.user_id === statusUpdateData.id);
+                if (!consumer || !consumer.trial_expiry) return null;
+
+                const trialExpiry = new Date(consumer.trial_expiry);
+                const now = new Date();
+                const daysRemaining = Math.ceil((trialExpiry - now) / (1000 * 60 * 60 * 24));
+
+                if (daysRemaining <= 2) {
+                  return (
+                    <div style={{
+                      backgroundColor: '#fff3cd',
+                      border: '1px solid #ffc107',
+                      borderRadius: '8px',
+                      padding: '16px',
+                      marginTop: '16px'
+                    }}>
+                      <div style={{
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#856404',
+                        marginBottom: '8px'
+                      }}>
+                        ⚠️ Trial expires in {daysRemaining} day{daysRemaining !== 1 ? 's' : ''}
+                      </div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: '#666',
+                        marginBottom: '8px'
+                      }}>
+                        Extend trial by:
+                      </label>
+                      <select
+                        value={extendDays}
+                        onChange={(e) => setExtendDays(e.target.value)}
+                        disabled={isUpdatingStatus}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '14px',
+                          outline: 'none',
+                          cursor: isUpdatingStatus ? 'not-allowed' : 'pointer',
+                          backgroundColor: 'white',
+                          color: extendDays ? '#374151' : '#9ca3af'
+                        }}
+                      >
+                        <option value="">Don't extend</option>
+                        <option value="1">1 Day</option>
+                        <option value="2">2 Days</option>
+                        <option value="3">3 Days</option>
+                      </select>
+                      {extendDays && (
+                        <p style={{
+                          marginTop: '8px',
+                          marginBottom: 0,
+                          fontSize: '12px',
+                          color: '#666'
+                        }}>
+                          ℹ️ New expiry: {(() => {
+                            const newExpiry = new Date();
+                            newExpiry.setDate(newExpiry.getDate() + parseInt(extendDays));
+                            return newExpiry.toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric'
+                            });
+                          })()}
+                        </p>
+                      )}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+            <div style={{
+              padding: '16px 24px',
+              borderTop: '1px solid #e0e0e0',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '12px'
+            }}>
+              <button
+                onClick={() => {
+                  if (!isUpdatingStatus) {
+                    setShowStatusConfirmModal(false);
+                    setStatusUpdateData(null);
+                    setSelectedStatus('');
+                    setExtendDays('');
+                  }
+                }}
+                disabled={isUpdatingStatus}
+                style={{
+                  padding: '10px 24px',
+                  border: '1px solid #e0e0e0',
+                  borderRadius: '6px',
+                  backgroundColor: 'white',
+                  color: '#666',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: isUpdatingStatus ? 'not-allowed' : 'pointer',
+                  opacity: isUpdatingStatus ? 0.5 : 1
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmStatusUpdate}
+                disabled={isUpdatingStatus}
+                style={{
+                  padding: '10px 24px',
+                  border: 'none',
+                  borderRadius: '6px',
+                  backgroundColor: '#007bff',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: isUpdatingStatus ? 'not-allowed' : 'pointer',
+                  opacity: isUpdatingStatus ? 0.7 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                {isUpdatingStatus ? (
+                  <>
+                    <div style={{
+                      width: '14px',
+                      height: '14px',
+                      border: '2px solid white',
+                      borderTop: '2px solid transparent',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite'
+                    }} />
+                    Updating...
+                  </>
+                ) : (
+                  'Confirm'
+                )}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
     </>
   );

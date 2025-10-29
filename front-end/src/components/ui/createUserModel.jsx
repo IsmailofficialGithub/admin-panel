@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, User, Mail, Shield, Lock, Phone, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { X, User, Mail, Shield, Lock, Phone, CheckCircle, AlertCircle, RefreshCw, MapPin, Globe, ChevronDown, Search, Eye, EyeOff } from 'lucide-react';
 import { generatePassword } from '../../utils/passwordGenerator';
+import { countries, searchCountries } from '../../utils/countryData';
 
 const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
   const [formData, setFormData] = useState({
@@ -9,8 +10,17 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
     password: '',
     confirmPassword: '',
     role: 'user',
-    phone: ''
+    phone: '',
+    country: '',
+    city: ''
   });
+  
+  const [countrySearch, setCountrySearch] = useState('');
+  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
+  const [selectedCountry, setSelectedCountry] = useState(null);
+  const [showRoleDropdown, setShowRoleDropdown] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -34,6 +44,60 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
       setSubmitMessage({ type: '', text: '' });
     }
   };
+
+  const handlePhoneChange = (e) => {
+    const value = e.target.value;
+    // Only allow numbers
+    const numericValue = value.replace(/\D/g, '');
+    
+    setFormData(prev => ({ ...prev, phone: numericValue }));
+    
+    // Clear phone error
+    if (errors.phone) {
+      setErrors(prev => ({ ...prev, phone: '' }));
+    }
+  };
+
+  const handleCountrySelect = (country) => {
+    setSelectedCountry(country);
+    setFormData(prev => ({
+      ...prev,
+      country: country.name,
+      // Keep only the number part without any country code
+      phone: prev.phone ? prev.phone.replace(/^\+?\d+\s*/, '').trim() : ''
+    }));
+    setCountrySearch(''); // Clear search after selection
+    setShowCountryDropdown(false);
+    if (errors.country) {
+      setErrors(prev => ({ ...prev, country: '' }));
+    }
+  };
+
+  const handleCountryInputChange = (e) => {
+    const value = e.target.value;
+    setCountrySearch(value);
+    setSelectedCountry(null); // Clear selection when user types
+    setFormData(prev => ({ ...prev, country: '' }));
+    setShowCountryDropdown(true);
+  };
+
+  const handleCountryInputFocus = () => {
+    setShowCountryDropdown(true);
+  };
+
+  const handleCountryInputClick = () => {
+    // If a country is selected and user clicks to edit, clear it for searching
+    if (selectedCountry) {
+      setSelectedCountry(null);
+      setCountrySearch('');
+      setFormData(prev => ({ ...prev, country: '' }));
+      setShowCountryDropdown(true);
+    }
+  };
+  
+  const filteredCountries = countrySearch 
+    ? searchCountries(countrySearch)
+    : countries;
 
   const handleGeneratePassword = () => {
     const newPassword = generatePassword(12);
@@ -88,6 +152,16 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
       newErrors.role = 'Role is required';
     }
     
+    // Country validation
+    if (!formData.country.trim()) {
+      newErrors.country = 'Country is required';
+    }
+    
+    // City validation
+    if (!formData.city.trim()) {
+      newErrors.city = 'City is required';
+    }
+    
     // Phone validation (optional but must be valid if provided)
     if (formData.phone && !/^[\d\s\-\+\(\)]+$/.test(formData.phone)) {
       newErrors.phone = 'Please enter a valid phone number';
@@ -107,12 +181,19 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
     setSubmitMessage({ type: '', text: '' });
 
     try {
+      // Combine country code with phone number
+      const fullPhone = selectedCountry && formData.phone 
+        ? `${selectedCountry.phoneCode} ${formData.phone.trim()}`
+        : formData.phone.trim() || null;
+
       const result = await onCreate({
         email: formData.email.trim(),
         password: formData.password,
         full_name: formData.full_name.trim(),
         role: formData.role.toLowerCase(),
-        phone: formData.phone.trim() || null
+        phone: fullPhone,
+        country: formData.country.trim() || null,
+        city: formData.city.trim() || null
       });
 
       if (result.success) {
@@ -125,8 +206,14 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
             password: '',
             confirmPassword: '',
             role: 'user',
-            phone: ''
+            phone: '',
+            country: '',
+            city: ''
           });
+          setSelectedCountry(null);
+          setCountrySearch('');
+          setShowPassword(false);
+          setShowConfirmPassword(false);
           setSubmitMessage({ type: '', text: '' });
           onClose();
         }, 1500);
@@ -148,8 +235,14 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
         password: '',
         confirmPassword: '',
         role: 'user',
-        phone: ''
+        phone: '',
+        country: '',
+        city: ''
       });
+      setSelectedCountry(null);
+      setCountrySearch('');
+      setShowPassword(false);
+      setShowConfirmPassword(false);
       setErrors({});
       setSubmitMessage({ type: '', text: '' });
       onClose();
@@ -397,15 +490,50 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
 
           {/* Password Field */}
           <div style={{ marginBottom: '20px' }}>
-            <label style={{
-              display: 'block',
-              fontSize: '14px',
-              fontWeight: '500',
-              color: '#374151',
-              marginBottom: '8px'
-            }}>
-              Password <span style={{ color: '#ef4444' }}>*</span>
-            </label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <label style={{
+                fontSize: '14px',
+                fontWeight: '500',
+                color: '#374151'
+              }}>
+                Password <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <button
+                type="button"
+                onClick={handleGeneratePassword}
+                disabled={isSubmitting}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  color: '#3b82f6',
+                  backgroundColor: '#eff6ff',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: '6px',
+                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s',
+                  opacity: isSubmitting ? 0.5 : 1
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSubmitting) {
+                    e.currentTarget.style.backgroundColor = '#dbeafe';
+                    e.currentTarget.style.borderColor = '#93c5fd';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSubmitting) {
+                    e.currentTarget.style.backgroundColor = '#eff6ff';
+                    e.currentTarget.style.borderColor = '#bfdbfe';
+                  }
+                }}
+              >
+                <RefreshCw size={14} />
+                Generate
+              </button>
+            </div>
             <div style={{ position: 'relative' }}>
               <div style={{
                 position: 'absolute',
@@ -417,7 +545,7 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
                 <Lock size={18} />
               </div>
               <input
-                type="password"
+                type={showPassword ? "text" : "password"}
                 name="password"
                 value={formData.password}
                 onChange={handleChange}
@@ -425,7 +553,7 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
                 disabled={isSubmitting}
                 style={{
                   width: '100%',
-                  padding: '10px 12px 10px 40px',
+                  padding: '10px 40px 10px 40px',
                   border: errors.password ? '1px solid #ef4444' : '1px solid #d1d5db',
                   borderRadius: '8px',
                   fontSize: '14px',
@@ -445,6 +573,26 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
                   e.target.style.boxShadow = 'none';
                 }}
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                disabled={isSubmitting}
+                style={{
+                  position: 'absolute',
+                  right: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: '#9ca3af'
+                }}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
             {errors.password && (
               <p style={{
@@ -480,7 +628,7 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
                 <Lock size={18} />
               </div>
               <input
-                type="password"
+                type={showConfirmPassword ? "text" : "password"}
                 name="confirmPassword"
                 value={formData.confirmPassword}
                 onChange={handleChange}
@@ -488,7 +636,7 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
                 disabled={isSubmitting}
                 style={{
                   width: '100%',
-                  padding: '10px 12px 10px 40px',
+                  padding: '10px 40px 10px 40px',
                   border: errors.confirmPassword ? '1px solid #ef4444' : '1px solid #d1d5db',
                   borderRadius: '8px',
                   fontSize: '14px',
@@ -508,6 +656,26 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
                   e.target.style.boxShadow = 'none';
                 }}
               />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                disabled={isSubmitting}
+                style={{
+                  position: 'absolute',
+                  right: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: '#9ca3af'
+                }}
+              >
+                {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
             {errors.confirmPassword && (
               <p style={{
@@ -547,10 +715,12 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
                 name="role"
                 value={formData.role}
                 onChange={handleChange}
+                onFocus={() => setShowRoleDropdown(true)}
+                onBlur={() => setShowRoleDropdown(false)}
                 disabled={isSubmitting}
                 style={{
                   width: '100%',
-                  padding: '10px 12px 10px 40px',
+                  padding: '10px 40px 10px 40px',
                   border: errors.role ? '1px solid #ef4444' : '1px solid #d1d5db',
                   borderRadius: '8px',
                   fontSize: '14px',
@@ -560,20 +730,16 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
                   cursor: isSubmitting ? 'not-allowed' : 'pointer',
                   boxSizing: 'border-box',
                   appearance: 'none',
-                  backgroundImage: 'url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%236b7280\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3e%3cpolyline points=\'6 9 12 15 18 9\'%3e%3c/polyline%3e%3c/svg%3e")',
-                  backgroundRepeat: 'no-repeat',
-                  backgroundPosition: 'right 12px center',
-                  backgroundSize: '16px',
                   paddingRight: '40px',
                   opacity: isSubmitting ? 0.6 : 1
                 }}
-                onFocus={(e) => {
+                onFocusCapture={(e) => {
                   if (!errors.role && !isSubmitting) {
                     e.target.style.borderColor = '#3b82f6';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
-                onBlur={(e) => {
+                onBlurCapture={(e) => {
                   e.target.style.borderColor = errors.role ? '#ef4444' : '#d1d5db';
                   e.target.style.boxShadow = 'none';
                 }}
@@ -583,6 +749,17 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
                 <option value="editor">Editor</option>
                 <option value="viewer">Viewer</option>
               </select>
+              <div style={{
+                position: 'absolute',
+                right: '12px',
+                top: '50%',
+                transform: `translateY(-50%) rotate(${showRoleDropdown ? '180deg' : '0deg'})`,
+                color: '#9ca3af',
+                pointerEvents: 'none',
+                transition: 'transform 0.2s ease'
+              }}>
+                <ChevronDown size={18} />
+              </div>
             </div>
             {errors.role && (
               <p style={{
@@ -592,6 +769,260 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
                 marginBottom: 0
               }}>
                 {errors.role}
+              </p>
+            )}
+          </div>
+
+          {/* Country Field */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              Country <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <div style={{ position: 'relative' }}>
+              <div style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#9ca3af',
+                zIndex: 1
+              }}>
+                <Globe size={18} />
+              </div>
+              <input
+                type="text"
+                value={selectedCountry ? `${selectedCountry.flag} ${selectedCountry.name}` : countrySearch}
+                onChange={handleCountryInputChange}
+                onFocus={handleCountryInputFocus}
+                onClick={handleCountryInputClick}
+                placeholder="Search country..."
+                disabled={isSubmitting}
+                readOnly={false}
+                style={{
+                  width: '100%',
+                  padding: '10px 40px 10px 40px',
+                  border: errors.country ? '1px solid #ef4444' : '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.2s',
+                  boxSizing: 'border-box',
+                  opacity: isSubmitting ? 0.6 : 1,
+                  cursor: selectedCountry ? 'pointer' : 'text',
+                  backgroundColor: selectedCountry ? '#f9fafb' : 'white'
+                }}
+                onFocusCapture={(e) => {
+                  if (!errors.country && !isSubmitting) {
+                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                  }
+                }}
+                onBlur={(e) => {
+                  setTimeout(() => setShowCountryDropdown(false), 200);
+                  e.target.style.borderColor = errors.country ? '#ef4444' : '#d1d5db';
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+              {selectedCountry ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedCountry(null);
+                    setCountrySearch('');
+                    setFormData(prev => ({ ...prev, country: '', phone: '' }));
+                    setShowCountryDropdown(true);
+                  }}
+                  disabled={isSubmitting}
+                  style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    color: '#9ca3af',
+                    borderRadius: '4px',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#e5e7eb';
+                    e.currentTarget.style.color = '#374151';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = '#9ca3af';
+                  }}
+                >
+                  <X size={16} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowCountryDropdown(!showCountryDropdown);
+                  }}
+                  disabled={isSubmitting}
+                  style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: `translateY(-50%) rotate(${showCountryDropdown ? '180deg' : '0deg'})`,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    color: '#9ca3af',
+                    borderRadius: '4px',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#e5e7eb';
+                    e.currentTarget.style.color = '#374151';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = '#9ca3af';
+                  }}
+                >
+                  <ChevronDown size={18} />
+                </button>
+              )}
+              
+              {/* Country Dropdown */}
+              {showCountryDropdown && !isSubmitting && !selectedCountry && (
+                <div style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 4px)',
+                  left: 0,
+                  right: 0,
+                  maxHeight: '200px',
+                  overflowY: 'auto',
+                  backgroundColor: 'white',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                  zIndex: 1000
+                }}>
+                  {filteredCountries.length > 0 ? (
+                    filteredCountries.map((country) => (
+                      <div
+                        key={country.code}
+                        onClick={() => handleCountrySelect(country)}
+                        style={{
+                          padding: '10px 12px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          borderBottom: '1px solid #f3f4f6',
+                          transition: 'background-color 0.15s'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                      >
+                        <span style={{ fontSize: '20px' }}>{country.flag}</span>
+                        <span style={{ fontSize: '14px', color: '#374151', flex: 1 }}>{country.name}</span>
+                        <span style={{ fontSize: '12px', color: '#9ca3af' }}>{country.phoneCode}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{
+                      padding: '12px',
+                      textAlign: 'center',
+                      color: '#9ca3af',
+                      fontSize: '14px'
+                    }}>
+                      No countries found
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            {errors.country && (
+              <p style={{
+                color: '#ef4444',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                {errors.country}
+              </p>
+            )}
+          </div>
+
+          {/* City Field */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              City <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <div style={{ position: 'relative' }}>
+              <div style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#9ca3af'
+              }}>
+                <MapPin size={18} />
+              </div>
+              <input
+                type="text"
+                name="city"
+                value={formData.city}
+                onChange={handleChange}
+                placeholder="Enter city"
+                disabled={isSubmitting}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px 10px 40px',
+                  border: errors.city ? '1px solid #ef4444' : '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.2s',
+                  boxSizing: 'border-box',
+                  opacity: isSubmitting ? 0.6 : 1
+                }}
+                onFocus={(e) => {
+                  if (!errors.city && !isSubmitting) {
+                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                  }
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = errors.city ? '#ef4444' : '#d1d5db';
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+            </div>
+            {errors.city && (
+              <p style={{
+                color: '#ef4444',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                {errors.city}
               </p>
             )}
           </div>
@@ -607,45 +1038,76 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
             }}>
               Phone Number <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
             </label>
-            <div style={{ position: 'relative' }}>
-              <div style={{
-                position: 'absolute',
-                left: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: '#9ca3af'
-              }}>
-                <Phone size={18} />
-              </div>
-              <input
-                type="tel"
-                name="phone"
-                value={formData.phone}
-                onChange={handleChange}
-                placeholder="Enter phone number"
-                disabled={isSubmitting}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px 10px 40px',
-                  border: errors.phone ? '1px solid #ef4444' : '1px solid #d1d5db',
+            <div style={{ position: 'relative', display: 'flex', gap: '8px' }}>
+              {selectedCountry && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '10px 12px',
+                  border: '1px solid #d1d5db',
                   borderRadius: '8px',
+                  backgroundColor: '#f9fafb',
                   fontSize: '14px',
-                  outline: 'none',
-                  transition: 'all 0.2s',
-                  boxSizing: 'border-box',
-                  opacity: isSubmitting ? 0.6 : 1
-                }}
-                onFocus={(e) => {
-                  if (!errors.phone && !isSubmitting) {
-                    e.target.style.borderColor = '#3b82f6';
-                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                  }
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = errors.phone ? '#ef4444' : '#d1d5db';
-                  e.target.style.boxShadow = 'none';
-                }}
-              />
+                  fontWeight: '500',
+                  color: '#374151',
+                  minWidth: '80px',
+                  justifyContent: 'center'
+                }}>
+                  {selectedCountry.phoneCode}
+                </div>
+              )}
+              <div style={{ position: 'relative', flex: 1 }}>
+                <div style={{
+                  position: 'absolute',
+                  left: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#9ca3af'
+                }}>
+                  <Phone size={18} />
+                </div>
+                <input
+                  type="tel"
+                  name="phone"
+                  value={formData.phone}
+                  onChange={handlePhoneChange}
+                  placeholder={selectedCountry ? "Enter phone number" : "Select country first"}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  disabled={isSubmitting}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px 10px 40px',
+                    border: errors.phone ? '1px solid #ef4444' : '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    outline: 'none',
+                    transition: 'all 0.2s',
+                    boxSizing: 'border-box',
+                    opacity: isSubmitting ? 0.6 : 1
+                  }}
+                  onFocus={(e) => {
+                    // If no country is selected, open the country dropdown
+                    if (!selectedCountry && !isSubmitting) {
+                      setShowCountryDropdown(true);
+                      e.target.blur(); // Remove focus from phone field
+                      // Scroll to country field
+                      const countrySection = document.querySelector('input[placeholder*="Search country"]');
+                      if (countrySection) {
+                        countrySection.focus();
+                        countrySection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }
+                    } else if (!errors.phone && !isSubmitting) {
+                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                    }
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = errors.phone ? '#ef4444' : '#d1d5db';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                />
+              </div>
             </div>
             {errors.phone && (
               <p style={{

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus } from 'lucide-react';
+import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 // ✅ Using backend API instead of direct Supabase calls
 import { 
@@ -15,7 +15,6 @@ import ForgetPasswordConfirmPopup from '../components/ui/forgetPasswordComformPo
 import DeleteModal from '../components/ui/deleteModel';
 
 const User = () => {
-  console.log('👤 User component rendering...');
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -29,24 +28,32 @@ const User = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteUserData, setDeleteUserData] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const usersPerPage = 20;
 
-  // Fetch users from database
+  // Debounce search input
   useEffect(() => {
-    console.log('🔄 Users component mounted - Fetching users...');
+    const debounceTimer = setTimeout(() => {
+      setSearchQuery(searchInput);
+    }, 1500);
+
+    return () => clearTimeout(debounceTimer);
+  }, [searchInput]);
+
+  // Fetch users from database with search
+  useEffect(() => {
     const fetchUsers = async () => {
       try {
         setLoading(true);
-        console.log('🔄 Calling getAdminUsers API...');
-        const result = await getAdminUsers();
-        console.log('✅ getAdminUsers result:', result);
+        const result = await getAdminUsers({ search: searchQuery });
         
         if (result?.error) {
           setError(result.error);
           console.error('❌ Error fetching users:', result.error);
         } else {
           setUsers(result || []);
-          console.log('✅ Users loaded successfully:', result.length, 'users');
+          setCurrentPage(1);
         }
       } catch (err) {
         setError(err.message);
@@ -57,7 +64,7 @@ const User = () => {
     };
 
     fetchUsers();
-  }, []);
+  }, [searchQuery]);
 
   const indexOfLastUser = currentPage * usersPerPage;
   const indexOfFirstUser = indexOfLastUser - usersPerPage;
@@ -65,7 +72,6 @@ const User = () => {
   const totalPages = Math.ceil(users.length / usersPerPage);
 
   const handleAction = (action, userId, userName) => {
-    console.log('🔄 Action triggered:', action, 'for user:', userId, userName);
     setOpenDropdown(null);
     
     if (action === 'Update') {
@@ -73,15 +79,19 @@ const User = () => {
       if (user) {
         setSelectedUser({
           id: userId,
+          user_id: userId,
           name: user.name || user.full_name || user.username,
+          full_name: user.name || user.full_name || user.username,
           email: user.email,
           role: user.role,
+          country: user.country,
+          city: user.city,
+          phone: user.phone,
           createdAt: user.created_at
         });
         setIsModalOpen(true);
       }
     } else if (action === 'Reset Password') {
-      console.log('🔑 Opening reset password popup for:', userName, 'ID:', userId);
       setResetUser({ id: userId, name: userName });
       setShowResetPopup(true);
     } else if (action === 'Delete') {
@@ -94,11 +104,16 @@ const User = () => {
 
   const handleUpdateUser = async (updatedUser) => {
     try {
-      // Call API to update user role and optionally full name in database
+      // Call API to update user with all fields including country, city, and phone
       const result = await updateUserRole(
         updatedUser.id, 
-        updatedUser.role, 
-        updatedUser.name || null
+        {
+          full_name: updatedUser.full_name,
+          role: updatedUser.role,
+          country: updatedUser.country,
+          city: updatedUser.city,
+          phone: updatedUser.phone
+        }
       );
       
       if (result.error) {
@@ -114,10 +129,13 @@ const User = () => {
           if (userId === updatedUser.id) {
             return {
               ...user,
-              name: updatedUser.name,
-              full_name: updatedUser.name,
+              name: updatedUser.full_name,
+              full_name: updatedUser.full_name,
               email: updatedUser.email,
-              role: updatedUser.role
+              role: updatedUser.role,
+              country: updatedUser.country,
+              city: updatedUser.city,
+              phone: updatedUser.phone
             };
           }
           return user;
@@ -125,7 +143,6 @@ const User = () => {
       );
       
       toast.success('User updated successfully!');
-      console.log('User updated successfully:', result.user);
       
       // Close modal
       setIsModalOpen(false);
@@ -138,19 +155,13 @@ const User = () => {
 
   const handleConfirmReset = async () => {
     try {
-      console.log('🔄 Reset password clicked for user:', resetUser);
-      
       if (!resetUser) {
         console.error('❌ No resetUser found');
         return;
       }
-
-      console.log('🔄 Calling reset password API for user ID:', resetUser.id);
       
       // Call API to reset user password
       const result = await resetUserPassword(resetUser.id);
-      
-      console.log('✅ Reset password result:', result);
       
       if (result.error) {
         toast.error(`Error resetting password: ${result.error}`);
@@ -162,7 +173,6 @@ const User = () => {
       toast.success(`Password reset successfully! An email has been sent to ${result.email || 'the user'} with the new password.`, {
         duration: 5000,
       });
-      console.log('✅ Password reset successfully:', result);
       
       // Close popup
       setShowResetPopup(false);
@@ -195,8 +205,6 @@ const User = () => {
       
       setUsers(prevUsers => [newUser, ...prevUsers]);
       
-      console.log('User created successfully:', result.user);
-      
       return { success: true };
     } catch (err) {
       console.error('Error creating user:', err);
@@ -228,7 +236,6 @@ const User = () => {
         })
       );
       
-      console.log('User deleted successfully:', result);
       toast.success('User deleted successfully!');
       
       // Close modal
@@ -304,48 +311,127 @@ const User = () => {
           <div style={{ 
             padding: '20px 24px',
             borderBottom: '2px solid #f0f0f0',
-            flexShrink: 0,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center'
+            flexShrink: 0
           }}>
-            <div>
-              <h4 style={{ margin: '0 0 8px 0', color: '#333', fontWeight: '600', fontSize: '20px' }}>
-                User Management
-              </h4>
-              <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>
-                Manage your users and their permissions
-              </p>
+            {/* Title and Create Button Row */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '16px',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
+              <div>
+                <h4 style={{ margin: '0 0 8px 0', color: '#333', fontWeight: '600', fontSize: '20px' }}>
+                  User Management
+                </h4>
+                <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>
+                  Manage your users and their permissions
+                </p>
+              </div>
+              <button
+                onClick={() => setIsCreateModalOpen(true)}
+                title="Create New User"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '12px',
+                  backgroundColor: '#007bff',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  boxShadow: '0 2px 4px rgba(0,123,255,0.2)'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#0056b3';
+                  e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,123,255,0.3)';
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#007bff';
+                  e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,123,255,0.2)';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
+              >
+                <UserPlus size={20} />
+              </button>
             </div>
-            <button
-              onClick={() => setIsCreateModalOpen(true)}
-              title="Create New User"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '12px',
-                backgroundColor: '#007bff',
-                color: 'white',
-                border: 'none',
+
+            {/* Search Row */}
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'center'
+            }}>
+              {/* Search Bar */}
+              <div style={{ flex: '1 1 300px', minWidth: '200px' }}>
+                <div style={{ position: 'relative' }}>
+                  <div style={{
+                    position: 'absolute',
+                    left: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#9ca3af'
+                  }}>
+                    <Search size={18} />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search by name or email... "
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '10px 100px 10px 40px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#d1d5db';
+                      e.target.style.boxShadow = 'none';
+                    }}
+                  />
+                  {searchInput && searchInput !== searchQuery && (
+                    <div style={{
+                      position: 'absolute',
+                      right: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      fontSize: '12px',
+                      color: '#9ca3af',
+                      fontStyle: 'italic'
+                    }}>
+                      Searching...
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Results Count */}
+              <div style={{
+                padding: '10px 16px',
+                backgroundColor: '#f9fafb',
                 borderRadius: '8px',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                boxShadow: '0 2px 4px rgba(0,123,255,0.2)'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#0056b3';
-                e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,123,255,0.3)';
-                e.currentTarget.style.transform = 'translateY(-1px)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#007bff';
-                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,123,255,0.2)';
-                e.currentTarget.style.transform = 'translateY(0)';
-              }}
-            >
-              <UserPlus size={20} />
-            </button>
+                fontSize: '14px',
+                color: '#666',
+                fontWeight: '500',
+                whiteSpace: 'nowrap'
+              }}>
+                {users.length} {users.length === 1 ? 'result' : 'results'}
+              </div>
+            </div>
           </div>
 
           {/* Loading State */}

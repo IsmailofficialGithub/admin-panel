@@ -1,15 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Phone, Calendar, Globe, MapPin, ChevronDown } from 'lucide-react';
+import { X, User, Phone, Globe, MapPin, ChevronDown } from 'lucide-react';
 import { countries, searchCountries } from '../../utils/countryData';
 
-const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
+const UpdateResellerModal = ({ isOpen, onClose, reseller, onUpdate }) => {
   const [formData, setFormData] = useState({
     full_name: '',
     phone: '',
-    trial_expiry_date: '',
     country: '',
-    city: '',
-    extend_days: ''
+    city: ''
   });
 
   const [countrySearch, setCountrySearch] = useState('');
@@ -18,39 +16,24 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
   const [errors, setErrors] = useState({});
 
   useEffect(() => {
-    if (consumer) {
-      // Format date for input field (YYYY-MM-DD)
-      let trialDate = '';
-      if (consumer.trial_expiry || consumer.trial_expiry_date) {
-        const dateStr = consumer.trial_expiry || consumer.trial_expiry_date;
-        try {
-          const date = new Date(dateStr);
-          if (!isNaN(date.getTime())) {
-            trialDate = date.toISOString().split('T')[0];
-          }
-        } catch (e) {
-          console.warn('Invalid trial date:', dateStr);
-        }
-      }
-      
+    if (reseller) {
+
       setFormData({
-        full_name: consumer.full_name || consumer.name || '',
+        full_name: reseller.full_name || reseller.name || '',
         phone: '',
-        trial_expiry_date: trialDate,
-        country: consumer.country || '',
-        city: consumer.city || '',
-        extend_days: ''
+        country: reseller.country || '',
+        city: reseller.city || ''
       });
       
-      // If consumer has a country, find and set it
-      if (consumer.country) {
-        const country = countries.find(c => c.name === consumer.country);
+      // If reseller has a country, find and set it
+      if (reseller.country) {
+        const country = countries.find(c => c.name === reseller.country);
         if (country) {
           setSelectedCountry(country);
           // Remove country code from phone if it exists
-          if (consumer.phone) {
+          if (reseller.phone) {
             // Extract just the number part (remove country code)
-            const phoneStr = String(consumer.phone).trim();
+            const phoneStr = String(reseller.phone).trim();
             // Remove the country code if it's at the start
             let phoneWithoutCode = phoneStr;
             if (phoneStr.startsWith(country.phoneCode)) {
@@ -61,22 +44,22 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         } else {
           setSelectedCountry(null);
           // If country name doesn't match, just set phone as is
-          if (consumer.phone) {
-            setFormData(prev => ({ ...prev, phone: String(consumer.phone).trim() }));
+          if (reseller.phone) {
+            setFormData(prev => ({ ...prev, phone: String(reseller.phone).trim() }));
           }
         }
       } else {
         setSelectedCountry(null);
         // If no country but has phone, just set the phone as is
-        if (consumer.phone) {
-          setFormData(prev => ({ ...prev, phone: String(consumer.phone).trim() }));
+        if (reseller.phone) {
+          setFormData(prev => ({ ...prev, phone: String(reseller.phone).trim() }));
         }
       }
       
       setCountrySearch('');
       setErrors({});
     }
-  }, [consumer]);
+  }, [reseller]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -88,26 +71,6 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
       setErrors(prev => ({
         ...prev,
         [name]: ''
-      }));
-    }
-  };
-
-  const handleExtendDaysChange = (e) => {
-    const days = e.target.value;
-    setFormData(prev => ({
-      ...prev,
-      extend_days: days
-    }));
-
-    // If days are selected, calculate and update trial_expiry_date
-    if (days) {
-      const currentDate = new Date();
-      currentDate.setDate(currentDate.getDate() + parseInt(days));
-      const newTrialDate = currentDate.toISOString().split('T')[0];
-      setFormData(prev => ({
-        ...prev,
-        trial_expiry_date: newTrialDate,
-        extend_days: days
       }));
     }
   };
@@ -202,10 +165,9 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         : formData.phone.trim() || null;
 
       onUpdate({
-        ...consumer,
+        ...reseller,
         full_name: formData.full_name.trim(),
         phone: fullPhone,
-        trial_expiry_date: formData.trial_expiry_date || null,
         country: formData.country.trim() || null,
         city: formData.city.trim() || null
       });
@@ -259,7 +221,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
             fontWeight: '600',
             color: '#111827'
           }}>
-            Update Consumer
+            Update Reseller
           </h2>
           <button
             onClick={onClose}
@@ -310,7 +272,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                 textTransform: 'uppercase',
                 letterSpacing: '0.5px'
               }}>
-                Consumer ID
+                Reseller ID
               </div>
               <div style={{
                 fontSize: '14px',
@@ -319,7 +281,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                 marginTop: '4px',
                 fontFamily: 'monospace'
               }}>
-                #{consumer?.id?.toString().slice(0, 8) || consumer?.user_id?.toString().slice(0, 8) || '-'}
+                #{reseller?.id?.toString().slice(0, 8) || reseller?.user_id?.toString().slice(0, 8) || '-'}
               </div>
             </div>
           </div>
@@ -724,85 +686,6 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
             )}
           </div>
 
-          {/* Extend Trial Dropdown */}
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '14px',
-              fontWeight: '500',
-              color: '#374151',
-              marginBottom: '8px'
-            }}>
-              <Calendar size={16} style={{ color: '#6b7280' }} />
-              Extend Trial <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
-            </label>
-            <div style={{ position: 'relative' }}>
-              <select
-                value={formData.extend_days}
-                onChange={handleExtendDaysChange}
-                style={{
-                  width: '100%',
-                  padding: '10px 40px 10px 14px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  outline: 'none',
-                  transition: 'all 0.2s',
-                  boxSizing: 'border-box',
-                  backgroundColor: 'white',
-                  cursor: 'pointer',
-                  color: formData.extend_days ? '#374151' : '#9ca3af',
-                  appearance: 'none',
-                  WebkitAppearance: 'none',
-                  MozAppearance: 'none'
-                }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = '#3b82f6';
-                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = '#d1d5db';
-                  e.target.style.boxShadow = 'none';
-                }}
-              >
-                <option value="">Select days to extend</option>
-                <option value="1">Extend by 1 day</option>
-                <option value="2">Extend by 2 days</option>
-                <option value="3">Extend by 3 days</option>
-              </select>
-              <div style={{
-                position: 'absolute',
-                right: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                pointerEvents: 'none',
-                color: '#9ca3af'
-              }}>
-                <ChevronDown size={18} />
-              </div>
-            </div>
-            {formData.extend_days && (
-              <p style={{
-                color: '#3b82f6',
-                fontSize: '12px',
-                marginTop: '6px',
-                marginBottom: 0,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}>
-                <span style={{ fontSize: '16px' }}>✅</span>
-                Trial will be extended by {formData.extend_days} day{formData.extend_days > 1 ? 's' : ''} (New expiry: {new Date(formData.trial_expiry_date).toLocaleDateString('en-US', {
-                  year: 'numeric',
-                  month: 'short',
-                  day: 'numeric'
-                })})
-              </p>
-            )}
-          </div>
-
           {/* Email Display (Read-only) */}
           <div style={{
             backgroundColor: '#f9fafb',
@@ -823,26 +706,31 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
               color: '#111827',
               fontWeight: '500'
             }}>
-              {consumer?.email || 'No email'}
+              {reseller?.email || 'No email'}
             </div>
           </div>
 
           {/* Created At Display */}
-          {consumer?.created_at && (
+          {reseller?.created_at && (
             <div style={{
               backgroundColor: '#f9fafb',
               padding: '12px 16px',
-              borderRadius: '8px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px'
+              borderRadius: '8px'
             }}>
-              <Calendar size={16} style={{ color: '#6b7280' }} />
               <div style={{
-                fontSize: '13px',
-                color: '#6b7280'
+                fontSize: '12px',
+                color: '#6b7280',
+                fontWeight: '500',
+                marginBottom: '4px'
               }}>
-                Created on {new Date(consumer.created_at).toLocaleDateString('en-US', {
+                Created Date
+              </div>
+              <div style={{
+                fontSize: '14px',
+                color: '#111827',
+                fontWeight: '500'
+              }}>
+                {new Date(reseller.created_at).toLocaleDateString('en-US', {
                   year: 'numeric',
                   month: 'long',
                   day: 'numeric'
@@ -904,7 +792,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
               e.currentTarget.style.backgroundColor = '#3b82f6';
             }}
           >
-            Update Consumer
+            Update Reseller
           </button>
         </div>
       </div>
@@ -912,5 +800,5 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
   );
 };
 
-export default UpdateConsumerModal;
+export default UpdateResellerModal;
 

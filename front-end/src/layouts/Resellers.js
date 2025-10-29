@@ -23,11 +23,11 @@ import Footer from "components/Footer/Footer";
 import Sidebar from "components/Sidebar/Sidebar";
 import FixedPlugin from "components/FixedPlugin/FixedPlugin.js";
 
-import resalerRoutes from "routes/resalerRoutes.js";
+import resellerRoutes from "routes/resellerRoutes.js";
 
 import sidebarImage from "assets/img/sidebar-3.jpg";
 
-function Resaler() {
+function Reseller() {
   const [image, setImage] = React.useState(sidebarImage);
   const [color, setColor] = React.useState("black");
   const [hasImage, setHasImage] = React.useState(true);
@@ -35,7 +35,7 @@ function Resaler() {
   const mainPanel = React.useRef(null);
   const getRoutes = (routes) => {
     return routes.map((prop, key) => {
-      if (prop.layout === "/resalers") {
+      if (prop.layout === "/resellers") {
         return (
           <Route
             path={prop.layout + prop.path}
@@ -64,11 +64,11 @@ function Resaler() {
   return (
     <>
       <div className="wrapper">
-        <Sidebar color={color} image={hasImage ? image : ""} routes={resalerRoutes} />
+        <Sidebar color={color} image={hasImage ? image : ""} routes={resellerRoutes} />
         <div className="main-panel" ref={mainPanel}>
           <AdminNavbar />
           <div className="content">
-            <Switch>{getRoutes(resalerRoutes)}</Switch>
+            <Switch>{getRoutes(resellerRoutes)}</Switch>
           </div>
           <Footer />
         </div>
@@ -85,5 +85,5 @@ function Resaler() {
   );
 }
 
-export default Resaler;
+export default Reseller;
 

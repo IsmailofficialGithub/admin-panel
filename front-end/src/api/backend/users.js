@@ -6,12 +6,22 @@
 import apiClient from '../../services/apiClient';
 
 /**
- * Get all admin users
+ * Get all admin users with optional search
+ * @param {Object} filters - Filter options
+ * @param {string} filters.search - Search term for name/email
  * @returns {Promise<Array>} List of users
  */
-export const getAdminUsers = async () => {
+export const getAdminUsers = async (filters = {}) => {
   try {
-    const response = await apiClient.users.getAll();
+    const { search } = filters;
+    const params = new URLSearchParams();
+    
+    if (search && search.trim() !== '') {
+      params.append('search', search.trim());
+    }
+    
+    const queryString = params.toString();
+    const response = await apiClient.users.getAll(queryString ? `?${queryString}` : '');
     // Backend returns { success: true, count: X, data: [...] }
     // Extract the users array from response.data
     return response.data || [];
@@ -43,11 +53,22 @@ export const getUserById = async (userId) => {
  * @param {string} userData.password - User password
  * @param {string} userData.full_name - User full name
  * @param {string} userData.role - User role (admin, user, viewer, consumer)
+ * @param {string} userData.country - User country (optional)
+ * @param {string} userData.city - User city (optional)
+ * @param {string} userData.phone - User phone (optional)
  * @returns {Promise<Object>} Created user data
  */
 export const createUser = async (userData) => {
   try {
-    const response = await apiClient.users.create(userData);
+    const response = await apiClient.users.create({
+      email: userData.email,
+      password: userData.password,
+      full_name: userData.full_name,
+      role: userData.role,
+      country: userData.country || null,
+      city: userData.city || null,
+      phone: userData.phone || null
+    });
     
     if (response.success) {
       return {
@@ -65,20 +86,28 @@ export const createUser = async (userData) => {
 };
 
 /**
- * Update user role and optionally full name
+ * Update user - supports role, full name, country, city, and phone
  * @param {string} userId - User ID
- * @param {string} role - New role
- * @param {string} fullName - New full name (optional)
+ * @param {Object} updateData - Data to update
+ * @param {string} updateData.role - New role (optional)
+ * @param {string} updateData.full_name - New full name (optional)
+ * @param {string} updateData.country - New country (optional)
+ * @param {string} updateData.city - New city (optional)
+ * @param {string} updateData.phone - New phone (optional)
  * @returns {Promise<Object>} Updated user data
  */
-export const updateUserRole = async (userId, role, fullName = null) => {
+export const updateUserRole = async (userId, updateData) => {
   try {
-    const updateData = { role };
-    if (fullName) {
-      updateData.full_name = fullName;
-    }
+    // Clean up the update data - only send fields that are provided
+    const cleanedData = {};
+    
+    if (updateData.role !== undefined) cleanedData.role = updateData.role;
+    if (updateData.full_name !== undefined) cleanedData.full_name = updateData.full_name;
+    if (updateData.country !== undefined) cleanedData.country = updateData.country;
+    if (updateData.city !== undefined) cleanedData.city = updateData.city;
+    if (updateData.phone !== undefined) cleanedData.phone = updateData.phone;
 
-    const response = await apiClient.users.update(userId, updateData);
+    const response = await apiClient.users.update(userId, cleanedData);
     
     if (response.success) {
       return {

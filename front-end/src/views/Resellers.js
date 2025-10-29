@@ -1,20 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus } from 'lucide-react';
+import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 // ✅ Using backend API instead of direct Supabase calls
 import { 
-  getResalers, 
-  createResaler, 
-  updateResaler, 
-  deleteResaler,
-  resetResalerPassword
+  getResellers, 
+  createReseller, 
+  updateReseller, 
+  deleteReseller,
+  resetResellerPassword
 } from '../api/backend';
-import CreateResalerModal from '../components/ui/createResalerModel';
-import UpdateResalerModal from '../components/ui/updateResalerModel';
+import apiClient from '../services/apiClient';
+import CreateResellerModal from '../components/ui/createResellerModel';
+import UpdateResellerModal from '../components/ui/updateResellerModel';
 import DeleteModal from '../components/ui/deleteModel';
 
-const Resalers = () => {
-  console.log('👥 Resalers component rendering...');
+const Resellers = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -22,28 +22,39 @@ const Resalers = () => {
   const [openDropdown, setOpenDropdown] = useState(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
-  const [selectedResaler, setSelectedResaler] = useState(null);
+  const [selectedReseller, setSelectedReseller] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteUserData, setDeleteUserData] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [hoveredReseller, setHoveredReseller] = useState(null);
+  const [resellerConsumers, setResellerConsumers] = useState({});
+  const [loadingConsumers, setLoadingConsumers] = useState({});
   const usersPerPage = 20;
 
-  // Fetch Resalers from backend API
+  // Debounce search input
   useEffect(() => {
-    console.log('🔄 Resalers component mounted - Fetching Resalers...');
-    const fetchResalers = async () => {
+    const debounceTimer = setTimeout(() => {
+      setSearchQuery(searchInput);
+    }, 1500);
+
+    return () => clearTimeout(debounceTimer);
+  }, [searchInput]);
+
+  // Fetch Resellers from backend API with search
+  useEffect(() => {
+    const fetchResellers = async () => {
       try {
         setLoading(true);
-        console.log('🔄 Calling getResalers API...');
-        const result = await getResalers();
-        console.log('✅ getResalers result:', result);
+        const result = await getResellers({ search: searchQuery });
         
         if (result?.error) {
           setError(result.error);
-          console.error('❌ Error fetching Resalers:', result.error);
+          console.error('❌ Error fetching Resellers:', result.error);
         } else {
           setUsers(result || []); // Backend returns array directly
-          console.log('✅ Resalers loaded successfully:', result.length, 'Resalers');
+          setCurrentPage(1);
         }
       } catch (err) {
         setError(err.message);
@@ -53,8 +64,8 @@ const Resalers = () => {
       }
     };
 
-    fetchResalers();
-  }, []);
+    fetchResellers();
+  }, [searchQuery]);
 
   const indexOfLastUser = currentPage * usersPerPage;
   const indexOfFirstUser = indexOfLastUser - usersPerPage;
@@ -65,15 +76,17 @@ const Resalers = () => {
     setOpenDropdown(null);
     
     if (action === 'Update') {
-      const resaler = users.find(u => u.user_id === userId);
-      if (resaler) {
-        setSelectedResaler({
+      const reseller = users.find(u => u.user_id === userId);
+      if (reseller) {
+        setSelectedReseller({
           id: userId,
           user_id: userId,
-          full_name: resaler.full_name,
-          email: resaler.email,
-          phone: resaler.phone,
-          created_at: resaler.created_at
+          full_name: reseller.full_name,
+          email: reseller.email,
+          phone: reseller.phone,
+          country: reseller.country,
+          city: reseller.city,
+          created_at: reseller.created_at
         });
         setIsUpdateModalOpen(true);
       }
@@ -85,76 +98,74 @@ const Resalers = () => {
       const loadingToast = toast.loading(`Resetting password for ${userName}...`);
       
       try {
-        const result = await resetResalerPassword(userId);
+        const result = await resetResellerPassword(userId);
         
         if (result.error) {
           toast.error(`Error: ${result.error}`, { id: loadingToast });
         } else {
-          toast.success(`Password reset successfully! Email sent to Resaler.`, { id: loadingToast });
+          toast.success(`Password reset successfully! Email sent to Reseller.`, { id: loadingToast });
         }
       } catch (error) {
         console.error('Error resetting password:', error);
         toast.error('Failed to reset password. Please try again.', { id: loadingToast });
       }
     } else {
-      toast(`${action} action clicked for Resaler: ${userName}`);
+      toast(`${action} action clicked for Reseller: ${userName}`);
     }
   };
 
-  const handleCreateResaler = async (ResalerData) => {
+  const handleCreateReseller = async (ResellerData) => {
     try {
-      // Call backend API to create Resaler
-      const result = await createResaler(ResalerData);
+      // Call backend API to create Reseller
+      const result = await createReseller(ResellerData);
       
       if (!result.success) {
-        return { error: result.error || 'Failed to create Resaler' };
+        return { error: result.error || 'Failed to create Reseller' };
       }
       
-      // Add new Resaler to the local state matching backend structure
-      const newResaler = {
+      // Add new Reseller to the local state matching backend structure
+      const newReseller = {
         user_id: result.user.id,
-        full_name: ResalerData.full_name,
+        full_name: ResellerData.full_name,
         email: result.user.email,
-        phone: ResalerData.phone || null,
+        phone: ResellerData.phone || null,
         referred_by: null,
-        role: 'resaler',
+        role: 'reseller',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
       
-      setUsers(prevUsers => [newResaler, ...prevUsers]);
-      
-      console.log('Resaler created successfully:', result.user);
+      setUsers(prevUsers => [newReseller, ...prevUsers]);
       
       return { success: true };
     } catch (err) {
-      console.error('Error creating Resaler:', err);
-      return { error: 'Failed to create Resaler. Please try again.' };
+      console.error('Error creating Reseller:', err);
+      return { error: 'Failed to create Reseller. Please try again.' };
     }
   };
 
-  const handleUpdateResaler = async (updatedResaler) => {
+  const handleUpdateReseller = async (updatedReseller) => {
     try {
-      // Call API to update Resaler using user_id
-      const result = await updateResaler(updatedResaler.user_id, {
-        full_name: updatedResaler.full_name,
-        phone: updatedResaler.phone
+      // Call API to update Reseller using user_id
+      const result = await updateReseller(updatedReseller.user_id, {
+        full_name: updatedReseller.full_name,
+        phone: updatedReseller.phone
       });
       
       if (result.error) {
-        toast.error(`Error updating Resaler: ${result.error}`);
+        toast.error(`Error updating Reseller: ${result.error}`);
         console.error('Update error:', result.error);
         return;
       }
       
-      // Update the Resaler in the local state matching backend structure
+      // Update the Reseller in the local state matching backend structure
       setUsers(prevUsers =>
         prevUsers.map(user => {
-          if (user.user_id === updatedResaler.user_id) {
+          if (user.user_id === updatedReseller.user_id) {
             return {
               ...user,
-              full_name: updatedResaler.full_name,
-              phone: updatedResaler.phone || null,
+              full_name: updatedReseller.full_name,
+              phone: updatedReseller.phone || null,
               updated_at: new Date().toISOString()
             };
           }
@@ -162,15 +173,14 @@ const Resalers = () => {
         })
       );
       
-      toast.success('Resaler updated successfully!');
-      console.log('Resaler updated successfully:', result.user);
+      toast.success('Reseller updated successfully!');
       
       // Close modal
       setIsUpdateModalOpen(false);
-      setSelectedResaler(null);
+      setSelectedReseller(null);
     } catch (err) {
-      console.error('Error updating Resaler:', err);
-      toast.error('Failed to update Resaler. Please try again.');
+      console.error('Error updating Reseller:', err);
+      toast.error('Failed to update Reseller. Please try again.');
     }
   };
 
@@ -180,31 +190,30 @@ const Resalers = () => {
 
       setIsDeleting(true);
 
-      // Call backend API to delete Resaler
-      const result = await deleteResaler(deleteUserData.id);
+      // Call backend API to delete Reseller
+      const result = await deleteReseller(deleteUserData.id);
       
       if (result.error) {
-        toast.error(`Error deleting Resaler: ${result.error}`);
-        console.error('Delete Resaler error:', result.error);
+        toast.error(`Error deleting Reseller: ${result.error}`);
+        console.error('Delete Reseller error:', result.error);
         setIsDeleting(false);
         return;
       }
       
-      // Remove Resaler from the local state using user_id
+      // Remove Reseller from the local state using user_id
       setUsers(prevUsers => 
         prevUsers.filter(user => user.user_id !== deleteUserData.id)
       );
       
-      console.log('Resaler deleted successfully:', result);
-      toast.success('Resaler deleted successfully!');
+      toast.success('Reseller deleted successfully!');
       
       // Close modal
       setShowDeleteModal(false);
       setDeleteUserData(null);
       setIsDeleting(false);
     } catch (err) {
-      console.error('Error deleting Resaler:', err);
-      toast.error('Failed to delete Resaler. Please try again.');
+      console.error('Error deleting Reseller:', err);
+      toast.error('Failed to delete Reseller. Please try again.');
       setIsDeleting(false);
     }
   };
@@ -230,6 +239,36 @@ const Resalers = () => {
     if (pageNumber >= 1 && pageNumber <= totalPages) {
       setCurrentPage(pageNumber);
     }
+  };
+
+  // Fetch consumers for a reseller on hover
+  const handleConsumerHover = async (resellerId) => {
+    // If already loaded, just show
+    if (resellerConsumers[resellerId]) {
+      setHoveredReseller(resellerId);
+      return;
+    }
+
+    // Start loading
+    setLoadingConsumers(prev => ({ ...prev, [resellerId]: true }));
+    setHoveredReseller(resellerId);
+
+    try {
+      // Use apiClient which has proper auth headers
+      const result = await apiClient.resellers.getReferredConsumers(resellerId);
+      
+      if (result.success && result.data) {
+        setResellerConsumers(prev => ({ ...prev, [resellerId]: result.data }));
+      }
+    } catch (error) {
+      console.error('Error fetching consumers:', error);
+    } finally {
+      setLoadingConsumers(prev => ({ ...prev, [resellerId]: false }));
+    }
+  };
+
+  const handleConsumerLeave = () => {
+    setHoveredReseller(null);
   };
 
   return (
@@ -271,22 +310,28 @@ const Resalers = () => {
           <div style={{ 
             padding: '20px 24px',
             borderBottom: '2px solid #f0f0f0',
-              flexShrink: 0,
+            flexShrink: 0
+          }}>
+            {/* Title and Create Button Row */}
+            <div style={{
               display: 'flex',
               justifyContent: 'space-between',
-              alignItems: 'center'
-          }}>
+              alignItems: 'center',
+              marginBottom: '16px',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
               <div>
-            <h4 style={{ margin: '0 0 8px 0', color: '#333', fontWeight: '600', fontSize: '20px' }}>
-              Resalers Management
-            </h4>
-            <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>
-              Manage your Resalers and their permissions
-            </p>
-          </div>
+                <h4 style={{ margin: '0 0 8px 0', color: '#333', fontWeight: '600', fontSize: '20px' }}>
+                  Resellers Management
+                </h4>
+                <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>
+                  Manage your Resellers and their permissions
+                </p>
+              </div>
               <button
                 onClick={() => setIsCreateModalOpen(true)}
-                title="Create New Resaler"
+                title="Create New Reseller"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -315,6 +360,79 @@ const Resalers = () => {
               </button>
             </div>
 
+            {/* Search Row */}
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'center'
+            }}>
+              {/* Search Bar */}
+              <div style={{ flex: '1 1 300px', minWidth: '200px' }}>
+                <div style={{ position: 'relative' }}>
+                  <div style={{
+                    position: 'absolute',
+                    left: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#9ca3af'
+                  }}>
+                    <Search size={18} />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search by name or email... "
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '10px 100px 10px 40px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#d1d5db';
+                      e.target.style.boxShadow = 'none';
+                    }}
+                  />
+                  {searchInput && searchInput !== searchQuery && (
+                    <div style={{
+                      position: 'absolute',
+                      right: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      fontSize: '12px',
+                      color: '#9ca3af',
+                      fontStyle: 'italic'
+                    }}>
+                      Searching...
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Results Count */}
+              <div style={{
+                padding: '10px 16px',
+                backgroundColor: '#f9fafb',
+                borderRadius: '8px',
+                fontSize: '14px',
+                color: '#666',
+                fontWeight: '500',
+                whiteSpace: 'nowrap'
+              }}>
+                {users.length} {users.length === 1 ? 'result' : 'results'}
+              </div>
+            </div>
+          </div>
+
             {/* Loading State */}
             {loading && (
               <div style={{
@@ -335,7 +453,7 @@ const Resalers = () => {
                     animation: 'spin 1s linear infinite',
                     margin: '0 auto 16px'
                   }} />
-                  <p>Loading Resalers...</p>
+                  <p>Loading Resellers...</p>
                 </div>
               </div>
             )}
@@ -357,9 +475,9 @@ const Resalers = () => {
                   maxWidth: '500px',
                   textAlign: 'center'
                 }}>
-                  <h5 style={{ color: '#dc3545', margin: '0 0 8px 0' }}>Error Loading Resalers</h5>
+                  <h5 style={{ color: '#dc3545', margin: '0 0 8px 0' }}>Error Loading Resellers</h5>
                   <p style={{ color: '#666', margin: 0 }}>
-                    {typeof error === 'string' ? error : 'Failed to load Resalers. Please try again.'}
+                    {typeof error === 'string' ? error : 'Failed to load Resellers. Please try again.'}
                   </p>
                 </div>
               </div>
@@ -376,8 +494,8 @@ const Resalers = () => {
               }}>
                 <div style={{ textAlign: 'center', color: '#666' }}>
                   <div style={{ fontSize: '48px', marginBottom: '16px' }}>👥</div>
-                  <h5 style={{ margin: '0 0 8px 0' }}>No Resalers Found</h5>
-                  <p style={{ margin: 0 }}>There are no Resalers to display.</p>
+                  <h5 style={{ margin: '0 0 8px 0' }}>No Resellers Found</h5>
+                  <p style={{ margin: 0 }}>There are no Resellers to display.</p>
                 </div>
               </div>
             )}
@@ -454,6 +572,15 @@ const Resalers = () => {
                     fontSize: '13px',
                     textTransform: 'uppercase',
                     letterSpacing: '0.5px'
+                  }}>CONSUMERS</th>
+                  <th style={{ 
+                    padding: '15px 24px', 
+                    textAlign: 'center',
+                    color: '#555', 
+                    fontWeight: '600', 
+                    fontSize: '13px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
                   }}>ACTIONS</th>
                 </tr>
               </thead>
@@ -499,6 +626,166 @@ const Resalers = () => {
                         month: 'short', 
                         day: 'numeric' 
                       }) : '-'}
+                    </td>
+                    <td style={{ padding: '15px 24px', textAlign: 'center', position: 'relative' }}>
+                      <div
+                        onMouseEnter={() => user.referred_count > 0 && handleConsumerHover(userId)}
+                        onMouseLeave={handleConsumerLeave}
+                        style={{ display: 'inline-block', position: 'relative' }}
+                      >
+                        <span style={{
+                          backgroundColor: '#007bff',
+                          color: 'white',
+                          padding: '6px 14px',
+                          borderRadius: '20px',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          display: 'inline-block',
+                          minWidth: '40px',
+                          cursor: user.referred_count > 0 ? 'pointer' : 'default',
+                          transition: 'all 0.2s'
+                        }}>
+                          {user.referred_count || 0}
+                        </span>
+
+                        {/* Tooltip for consumer details */}
+                        {hoveredReseller === userId && user.referred_count > 0 && (
+                          <div style={{
+                            position: 'absolute',
+                            top: '100%',
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            marginTop: '8px',
+                            backgroundColor: 'white',
+                            border: '1px solid #e0e0e0',
+                            borderRadius: '8px',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                            zIndex: 1000,
+                            minWidth: '300px',
+                            maxWidth: '400px',
+                            padding: '12px',
+                            maxHeight: '300px',
+                            overflowY: 'auto'
+                          }}>
+                            {/* Arrow */}
+                            <div style={{
+                              position: 'absolute',
+                              top: '-6px',
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              width: '12px',
+                              height: '12px',
+                              backgroundColor: 'white',
+                              border: '1px solid #e0e0e0',
+                              borderRight: 'none',
+                              borderBottom: 'none',
+                              transform: 'translateX(-50%) rotate(45deg)'
+                            }}></div>
+
+                            {/* Content */}
+                            <div style={{ position: 'relative', zIndex: 1 }}>
+                              <div style={{
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                color: '#333',
+                                marginBottom: '8px',
+                                paddingBottom: '8px',
+                                borderBottom: '1px solid #f0f0f0'
+                              }}>
+                                Referred Consumers ({user.referred_count})
+                              </div>
+
+                              {loadingConsumers[userId] ? (
+                                <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
+                                  <div style={{
+                                    width: '30px',
+                                    height: '30px',
+                                    border: '3px solid #f3f3f3',
+                                    borderTop: '3px solid #007bff',
+                                    borderRadius: '50%',
+                                    animation: 'spin 1s linear infinite',
+                                    margin: '0 auto'
+                                  }} />
+                                </div>
+                              ) : resellerConsumers[userId] && resellerConsumers[userId].length > 0 ? (
+                                <>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    {resellerConsumers[userId].slice(0, 5).map((consumer, idx) => (
+                                      <div key={consumer.user_id || idx} style={{
+                                        padding: '8px',
+                                        backgroundColor: '#f8f9fa',
+                                        borderRadius: '6px',
+                                        fontSize: '12px'
+                                      }}>
+                                        <div style={{ fontWeight: '600', color: '#333', marginBottom: '4px' }}>
+                                          {consumer.full_name || 'No name'}
+                                        </div>
+                                        <div style={{ color: '#666', fontSize: '11px' }}>
+                                          {consumer.email || 'No email'}
+                                        </div>
+                                        {consumer.account_status && (
+                                          <div style={{ marginTop: '4px' }}>
+                                            <span style={{
+                                              padding: '2px 8px',
+                                              borderRadius: '10px',
+                                              fontSize: '10px',
+                                              fontWeight: '600',
+                                              backgroundColor: 
+                                                consumer.account_status === 'active' ? '#d4edda' :
+                                                consumer.account_status === 'deactive' ? '#fff3cd' :
+                                                '#f8d7da',
+                                              color:
+                                                consumer.account_status === 'active' ? '#155724' :
+                                                consumer.account_status === 'deactive' ? '#856404' :
+                                                '#721c24'
+                                            }}>
+                                              {consumer.account_status}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                  
+                                  {/* More button if there are more than 5 consumers */}
+                                  {resellerConsumers[userId].length > 5 && (
+                                    <button
+                                      style={{
+                                        width: '100%',
+                                        marginTop: '8px',
+                                        padding: '8px',
+                                        backgroundColor: '#007bff',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        fontSize: '12px',
+                                        fontWeight: '600',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s'
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.backgroundColor = '#0056b3';
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.backgroundColor = '#007bff';
+                                      }}
+                                      onClick={() => {
+                                        // TODO: Navigate to full consumer list page
+                                      }}
+                                    >
+                                      View More ({resellerConsumers[userId].length - 5} more)
+                                    </button>
+                                  )}
+                                </>
+                              ) : (
+                                <div style={{ textAlign: 'center', padding: '20px', color: '#666', fontSize: '12px' }}>
+                                  No consumers found
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td style={{ padding: '15px 24px', textAlign: 'center', position: 'relative' }}>
                       <button
@@ -728,25 +1015,25 @@ const Resalers = () => {
         />
       )}
 
-      {/* Create Resaler Modal */}
-      <CreateResalerModal
+      {/* Create Reseller Modal */}
+      <CreateResellerModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        onCreate={handleCreateResaler}
+        onCreate={handleCreateReseller}
       />
 
-      {/* Update Resaler Modal */}
-      <UpdateResalerModal
+      {/* Update Reseller Modal */}
+      <UpdateResellerModal
         isOpen={isUpdateModalOpen}
         onClose={() => {
           setIsUpdateModalOpen(false);
-          setSelectedResaler(null);
+          setSelectedReseller(null);
         }}
-        resaler={selectedResaler}
-        onUpdate={handleUpdateResaler}
+        reseller={selectedReseller}
+        onUpdate={handleUpdateReseller}
       />
 
-      {/* Delete Resaler Modal */}
+      {/* Delete Reseller Modal */}
       <DeleteModal
         isOpen={showDeleteModal}
         onClose={() => {
@@ -765,4 +1052,4 @@ const Resalers = () => {
   );
 };
 
-export default Resalers;
+export default Resellers;

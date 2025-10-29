@@ -16,117 +16,117 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true) // Start as true to wait for auth check
   const [supabase] = useState(() => createClient())
   const history = useHistory()
 
-  // Check trial expiry for consumers
-  const checkTrialExpiry = async (userId) => {
+  // Check if user is admin
+  const checkAdminAccess = async (userId) => {
     try {
-      console.log('🔍 Checking trial expiry for user:', userId)
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('trial_expiry, role')
+        .select('role')
         .eq('user_id', userId)
         .single()
 
-      // Only check trial expiry for consumers
-      if (profileData?.role === 'consumer' && profileData?.trial_expiry) {
-        const expiryDate = new Date(profileData.trial_expiry)
-        const now = new Date()
-        
-        console.log('📅 Trial expiry date:', expiryDate)
-        console.log('📅 Current date:', now)
-
-        if (expiryDate < now) {
-          console.log('❌ Trial has expired!')
-          await supabase.auth.signOut()
-          setUser(null)
-          setProfile(null)
-          window.location.href = '/trial-expired'
-          return false
-        } else {
-          const daysLeft = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24))
-          console.log('✅ Trial is active. Days left:', daysLeft)
-        }
+      // Only allow admins
+      if (profileData?.role !== 'admin') {
+        await supabase.auth.signOut()
+        // Clear all tokens and storage
+        localStorage.clear()
+        sessionStorage.clear()
+        // Clear all cookies including Supabase auth cookies
+        document.cookie.split(";").forEach((c) => {
+          const cookieName = c.split("=")[0].trim()
+          document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`
+        })
+        setUser(null)
+        setProfile(null)
+        toast.error('Access denied. Only administrators can access this application.')
+        history.push('/login')
+        return false
       }
+      
       return true
     } catch (error) {
-      console.error('❌ Error checking trial expiry:', error)
-      return true // Don't block on error
+      console.error('❌ Error checking admin access:', error)
+      return false
     }
   }
 
   useEffect(() => {
-    console.log('🔄 AuthContext: Initializing authentication...')
     // Check auth only once on mount
     const initAuth = async () => {
       try {
-        console.log('🔄 AuthContext: Fetching session...')
+        setLoading(true)
         const { data: { session } } = await supabase.auth.getSession()
-        console.log('✅ AuthContext: Session retrieved:', session ? 'User logged in' : 'No session')
 
         if (session?.user) {
-          console.log('👤 AuthContext: User ID:', session.user.id)
-          
-          // Check trial expiry first
-          const isTrialValid = await checkTrialExpiry(session.user.id)
-          if (!isTrialValid) {
-            return // User will be redirected to trial-expired page
+          // Check if user is admin
+          const isAdmin = await checkAdminAccess(session.user.id)
+          if (!isAdmin) {
+            setLoading(false)
+            return // User will be signed out and redirected to login
           }
 
           setUser(session.user)
 
-          console.log('🔄 AuthContext: Fetching profile...')
           const { data: profileData } = await supabase
             .from('profiles')
             .select('*')
             .eq('user_id', session.user.id)
             .single()
 
-          console.log('✅ AuthContext: Profile loaded:', profileData)
           setProfile(profileData)
-        } else {
-          console.log('⚠️ AuthContext: No user session found')
         }
       } catch (error) {
         console.error('❌ AuthContext: Auth error:', error)
+      } finally {
+        setLoading(false)
       }
     }
 
     initAuth()
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🔄 AuthContext: Auth state changed:', event)
-      if (session?.user) {
-        // Check trial expiry
-        const isTrialValid = await checkTrialExpiry(session.user.id)
-        if (!isTrialValid) {
-          return // User will be redirected to trial-expired page
-        }
+    // const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    //   console.log('🔄 AuthContext: Auth state changed:', event)
+    //   if (session?.user) {
+    //     // Check trial expiry
+    //     const isTrialValid = await checkTrialExpiry(session.user.id)
+    //     if (!isTrialValid) {
+    //       return // User will be redirected to trial-expired page
+    //     }
 
-        setUser(session.user)
+    //     setUser(session.user)
         
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('user_id', session.user.id)
-          .single()
+    //     const { data: profileData } = await supabase
+    //       .from('profiles')
+    //       .select('*')
+    //       .eq('user_id', session.user.id)
+    //       .single()
 
-        setProfile(profileData)
-      } else {
-        setUser(null)
-        setProfile(null)
-      }
-    })
+    //     setProfile(profileData)
+    //   } else {
+    //     setUser(null)
+    //     setProfile(null)
+    //   }
+    // })
 
-    return () => subscription.unsubscribe()
+    // return () => subscription.unsubscribe()
   }, [supabase])
 
   const signOut = async () => {
     try {
       await supabase.auth.signOut()
+      // Clear all tokens and storage
+      localStorage.clear()
+      sessionStorage.clear()
+      // Clear all cookies including Supabase auth cookies
+      document.cookie.split(";").forEach((c) => {
+        const cookieName = c.split("=")[0].trim()
+        document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`
+      })
       setUser(null)
       setProfile(null)
       toast.success('Logged out successfully!')
@@ -137,26 +137,13 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
-  const getRoleBasedPath = () => {
-    const roleRoutes = {
-      'admin': '/admin/dashboard',
-      'user': '/user/dashboard',
-      'viewer': '/viewer/dashboard',
-      'consumer': '/consumer/dashboard',
-      'resaler': '/resalers/consumers'
-    }
-    return roleRoutes[profile?.role] || '/login'
-  }
-
   const value = {
     user,
     profile,
     loading,
     signOut,
     isAuthenticated: !!user,
-    isAdmin: profile?.role === 'admin',
-    userRole: profile?.role,
-    getRoleBasedPath
+    isAdmin: profile?.role === 'admin'
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
