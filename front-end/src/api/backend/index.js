@@ -9,7 +9,8 @@ export {
   createUser,
   updateUserRole,
   deleteUser,
-  resetUserPassword
+  resetUserPassword,
+  updateUserAccountStatus
 } from './users';
 
 export {
@@ -28,16 +29,28 @@ export {
   createReseller,
   updateReseller,
   deleteReseller,
-  resetResellerPassword
+  resetResellerPassword,
+  updateResellerAccountStatus
 } from './resellers';
 
 export {
-  getProducts,
+  getAllProducts as getProducts,
   getProductById,
   createProduct,
   updateProduct,
   deleteProduct
 } from './products';
+
+export {
+  getAllInvoices,
+  getMyInvoices,
+  getConsumerProductsForInvoice,
+  createInvoice
+} from './invoices';
+
+export {
+  getDashboardStats
+} from './dashboard';
 
 // Re-export API client for direct access if needed
 export { default as apiClient } from '../../services/apiClient';

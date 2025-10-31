@@ -11,6 +11,8 @@ import usersRoutes from './routes/users.routes.js';
 import consumersRoutes from './routes/consumers.routes.js';
 import resellersRoutes from './routes/resellers.routes.js';
 import productsRoutes from './routes/products.routes.js';
+import invoicesRoutes from './routes/invoices.routes.js';
+import dashboardRoutes from './routes/dashboard.routes.js';
 
 // Load environment variables
 dotenv.config();
@@ -61,6 +63,11 @@ app.use('/api/users', usersRoutes);
 app.use('/api/consumers', consumersRoutes);
 app.use('/api/resellers', resellersRoutes);
 app.use('/api/products', productsRoutes);
+app.use('/api/invoices', invoicesRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+
+// Debug: Log all registered routes
+console.log('✅ Invoice routes registered at /api/invoices');
 // 404 Handler
 app.use((req, res) => {
   res.status(404).json({

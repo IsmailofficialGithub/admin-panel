@@ -68,7 +68,7 @@ export const getConsumerById = async (consumerId) => {
 export const createConsumer = async (consumerData) => {
   try {
     // Use the resellers endpoint for creating consumers
-    const response = await apiClient.resellers.createConsumer({
+    const requestData = {
       email: consumerData.email,
       password: consumerData.password,
       full_name: consumerData.full_name,
@@ -77,7 +77,16 @@ export const createConsumer = async (consumerData) => {
       phone: consumerData.phone || null,
       trial_expiry_date: consumerData.trial_expiry_date || null,
       role: 'consumer'
-    });
+    };
+    
+    // Add subscribed_products if provided
+    if (consumerData.subscribed_products !== undefined) {
+      requestData.subscribed_products = consumerData.subscribed_products || [];
+    }
+    
+    console.log('createConsumer sending data:', requestData);
+    
+    const response = await apiClient.resellers.createConsumer(requestData);
     
     if (response.success) {
       return {
@@ -115,6 +124,9 @@ export const updateConsumer = async (consumerId, updateData) => {
     if (updateData.city !== undefined) cleanedData.city = updateData.city;
     if (updateData.phone !== undefined) cleanedData.phone = updateData.phone;
     if (updateData.trial_expiry_date !== undefined) cleanedData.trial_expiry_date = updateData.trial_expiry_date;
+    if (updateData.subscribed_products !== undefined) cleanedData.subscribed_products = updateData.subscribed_products;
+    
+    console.log('updateConsumer sending data:', cleanedData);
     
     const response = await apiClient.consumers.update(consumerId, cleanedData);
     

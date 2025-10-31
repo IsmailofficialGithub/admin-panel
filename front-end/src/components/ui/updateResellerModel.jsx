@@ -325,7 +325,7 @@ const UpdateResellerModal = ({ isOpen, onClose, reseller, onUpdate }) => {
                 }}
                 onFocus={(e) => {
                   if (!errors.full_name) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -391,7 +391,7 @@ const UpdateResellerModal = ({ isOpen, onClose, reseller, onUpdate }) => {
                 }}
                 onFocusCapture={(e) => {
                   if (!errors.country) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -573,7 +573,7 @@ const UpdateResellerModal = ({ isOpen, onClose, reseller, onUpdate }) => {
                 }}
                 onFocus={(e) => {
                   if (!errors.city) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -663,7 +663,7 @@ const UpdateResellerModal = ({ isOpen, onClose, reseller, onUpdate }) => {
                         countrySection.scrollIntoView({ behavior: 'smooth', block: 'center' });
                       }
                     } else if (!errors.phone) {
-                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.borderColor = '#74317e';
                       e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                     }
                   }}
@@ -778,7 +778,7 @@ const UpdateResellerModal = ({ isOpen, onClose, reseller, onUpdate }) => {
               padding: '10px 20px',
               border: 'none',
               borderRadius: '8px',
-              backgroundColor: '#3b82f6',
+              backgroundColor: '#74317e',
               color: 'white',
               fontSize: '14px',
               fontWeight: '500',
@@ -786,10 +786,10 @@ const UpdateResellerModal = ({ isOpen, onClose, reseller, onUpdate }) => {
               transition: 'all 0.2s'
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#2563eb';
+              e.currentTarget.style.backgroundColor = '#5a2460';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#3b82f6';
+              e.currentTarget.style.backgroundColor = '#74317e';
             }}
           >
             Update Reseller

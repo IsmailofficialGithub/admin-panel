@@ -7,7 +7,6 @@ import axios from 'axios';
 import { supabase } from '../lib/supabase/Production/client';
 
 const API_BASE_URL = process.env.REACT_APP_Server_Url || 'http://localhost:5000/api';
-
 /**
  * Token cache - updated by auth state listener
  */
@@ -201,6 +200,11 @@ const apiClient = {
      * Reset user password
      */
     resetPassword: (id) => axiosInstance.post(`/users/${id}/reset-password`),
+
+    /**
+     * Update user account status
+     */
+    updateAccountStatus: (id, account_status) => axiosInstance.patch(`/users/${id}/account-status`, { account_status }),
   },
 
   // ==================== CONSUMERS ====================
@@ -280,6 +284,11 @@ const apiClient = {
     resetPassword: (id) => axiosInstance.post(`/resellers/${id}/reset-password`),
 
     /**
+     * Update reseller account status
+     */
+    updateAccountStatus: (id, account_status) => axiosInstance.patch(`/resellers/${id}/account-status`, { account_status }),
+
+    /**
      * Get referred consumers by reseller ID
      */
     getReferredConsumers: (id) => axiosInstance.get(`/resellers/${id}/referred-consumers`),
@@ -343,6 +352,37 @@ const apiClient = {
      * Delete product
      */
     delete: (id) => axiosInstance.delete(`/products/${id}`),
+  },
+
+  // ==================== INVOICES ====================
+  invoices: {
+    /**
+     * Get all invoices (admin only)
+     */
+    getAll: (queryString = '') => axiosInstance.get(`/invoices${queryString}`),
+
+    /**
+     * Get invoices for reseller (reseller only)
+     */
+    getMyInvoices: (queryString = '') => axiosInstance.get(`/invoices/my-invoices${queryString}`),
+
+    /**
+     * Get consumer's accessed products with prices for invoice creation
+     */
+    getConsumerProducts: (consumerId) => axiosInstance.get(`/invoices/consumer/${consumerId}/products`),
+
+    /**
+     * Create invoice with invoice items
+     */
+    create: (invoiceData) => axiosInstance.post('/invoices', invoiceData),
+  },
+
+  // ==================== DASHBOARD ====================
+  dashboard: {
+    /**
+     * Get dashboard statistics (admin only)
+     */
+    getStats: () => axiosInstance.get('/dashboard/stats'),
   },
 };
 

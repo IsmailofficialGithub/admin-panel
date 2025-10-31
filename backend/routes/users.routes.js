@@ -7,7 +7,8 @@ import {
   updateUser,
   deleteUser,
   resetUserPassword,
-  createReseller
+  createReseller,
+  updateUserAccountStatus
 } from './controllers/users.controller.js';
 
 const router = express.Router();
@@ -60,5 +61,12 @@ router.post('/:id/reset-password', authenticate, requireAdmin, resetUserPassword
  * @access  Private (Admin)
  */
 router.post('/create-reseller', authenticate, requireAdmin, createReseller);
+
+/**
+ * @route   PATCH /api/users/:id/account-status
+ * @desc    Update user account status (admin only)
+ * @access  Private (Admin)
+ */
+router.patch('/:id/account-status', authenticate, requireAdmin, updateUserAccountStatus);
 
 export default router;

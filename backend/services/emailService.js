@@ -3,6 +3,9 @@ import dotenv from "dotenv";
 import {
   AdminEmailTemplateUserCreated,
   PasswordResetTemplate,
+  TrialPeriodChangeTemplate,
+  TrialExtensionTemplate,
+  InvoiceCreatedTemplate,
 } from "../utils/emailTemplates.js";
 
 dotenv.config();
@@ -135,9 +138,155 @@ export const testEmailConfiguration = async () => {
   }
 };
 
+/**
+ * Send trial period change email
+ * @param {Object} params - Email parameters
+ * @param {string} params.email - Recipient email
+ * @param {string} params.full_name - User's full name
+ * @param {string} params.old_trial_date - Previous trial expiry date
+ * @param {string} params.new_trial_date - New trial expiry date
+ * @returns {Promise<Object>} Email send result
+ */
+export const sendTrialPeriodChangeEmail = async ({
+  email,
+  full_name,
+  old_trial_date,
+  new_trial_date,
+}) => {
+  try {
+    // Verify transporter is ready
+    await transporter.verify();
+
+    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+
+    const htmlContent = TrialPeriodChangeTemplate({
+      full_name,
+      old_trial_date,
+      new_trial_date,
+      website_url,
+    });
+
+    const mail = {
+      from: `"Duha Nashrah.AI" <${process.env.AdminEmail}>`,
+      to: email,
+      subject: `Trial Period Updated: ${full_name}`,
+      html: htmlContent,
+    };
+
+    console.log("📧 Sending trial period change email to:", email);
+    await transporter.sendMail(mail);
+    console.log("✅ Trial period change email sent successfully");
+
+    return {
+      success: true,
+      message: "Trial period change email sent successfully",
+      email,
+    };
+  } catch (error) {
+    console.error("❌ Error sending trial period change email:", error);
+    throw error;
+  }
+};
+
+/**
+ * Send trial extension email
+ * @param {Object} params - Email parameters
+ * @param {string} params.email - Recipient email
+ * @param {string} params.full_name - User's full name
+ * @param {string} params.new_trial_date - New trial expiry date
+ * @param {number} params.extension_days - Number of days extended
+ * @returns {Promise<Object>} Email send result
+ */
+export const sendTrialExtensionEmail = async ({
+  email,
+  full_name,
+  new_trial_date,
+  extension_days,
+}) => {
+  try {
+    // Verify transporter is ready
+    await transporter.verify();
+
+    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+
+    const htmlContent = TrialExtensionTemplate({
+      full_name,
+      new_trial_date,
+      extension_days,
+      website_url,
+    });
+
+    const mail = {
+      from: `"Duha Nashrah.AI" <${process.env.AdminEmail}>`,
+      to: email,
+      subject: `Trial Extended: ${full_name}`,
+      html: htmlContent,
+    };
+
+    console.log("📧 Sending trial extension email to:", email);
+    await transporter.sendMail(mail);
+    console.log("✅ Trial extension email sent successfully");
+
+    return {
+      success: true,
+      message: "Trial extension email sent successfully",
+      email,
+    };
+  } catch (error) {
+    console.error("❌ Error sending trial extension email:", error);
+    throw error;
+  }
+};
+
 export default {
   transporter,
   sendWelcomeEmail,
   sendPasswordResetEmail,
+  sendTrialPeriodChangeEmail,
+  sendTrialExtensionEmail,
   testEmailConfiguration,
+};
+
+/**
+ * Send invoice created email
+ * @param {Object} params
+ * @param {string} params.email
+ * @param {string} params.full_name
+ * @param {string} params.invoice_number
+ * @param {string|number} params.total
+ * @param {string} params.due_date
+ */
+export const sendInvoiceCreatedEmail = async ({ email, full_name, invoice_number, invoice_id = '', user_id = '', issue_date, due_date, subtotal, tax_total, total, items = [], created_by_name = 'Admin', created_by_role = 'admin' }) => {
+  try {
+    await transporter.verify();
+    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+    const htmlContent = InvoiceCreatedTemplate({
+      full_name,
+      invoice_number,
+      invoice_id: invoice_id || '',
+      user_id: user_id || '',
+      issue_date,
+      subtotal,
+      tax_total,
+      total: typeof total === 'number' ? total.toFixed(2) : String(total),
+      due_date,
+      items,
+      created_by_name,
+      created_by_role,
+      website_url,
+    });
+    const mail = {
+      from: `"Duha Nashrah.AI" <${process.env.AdminEmail}>`,
+      to: email,
+      subject: `Invoice Created: ${invoice_number}`,
+      html: htmlContent,
+    };
+    console.log("📧 Sending invoice created email to:", email);
+    await transporter.sendMail(mail);
+    console.log("✅ Invoice created email sent successfully");
+    return { success: true };
+  } catch (error) {
+    console.error("❌ Error sending invoice created email:", error);
+    return { success: false, error: error.message };
+  }
 };

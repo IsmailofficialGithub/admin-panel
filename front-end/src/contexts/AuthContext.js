@@ -20,17 +20,22 @@ export const AuthProvider = ({ children }) => {
   const [supabase] = useState(() => createClient())
   const history = useHistory()
 
-  // Check if user is admin
-  const checkAdminAccess = async (userId) => {
+  // Check if user has a valid role and active account
+  const checkValidRole = async (userId) => {
     try {
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('role')
+        .select('role, account_status')
         .eq('user_id', userId)
         .single()
 
-      // Only allow admins
-      if (profileData?.role !== 'admin') {
+      const role = profileData?.role
+      const accountStatus = profileData?.account_status
+
+      // Define allowed roles
+      const allowedRoles = ['admin', 'reseller', 'consumer']
+      
+      if (!role || !allowedRoles.includes(role)) {
         await supabase.auth.signOut()
         // Clear all tokens and storage
         localStorage.clear()
@@ -42,14 +47,50 @@ export const AuthProvider = ({ children }) => {
         })
         setUser(null)
         setProfile(null)
-        toast.error('Access denied. Only administrators can access this application.')
+        toast.error('Access denied. No valid role assigned.')
+        history.push('/login')
+        return false
+      }
+
+      // Check if consumer account is deactivated
+      if (role === 'consumer' && accountStatus === 'deactive') {
+        await supabase.auth.signOut()
+        // Clear all tokens and storage
+        localStorage.clear()
+        sessionStorage.clear()
+        // Clear all cookies including Supabase auth cookies
+        document.cookie.split(";").forEach((c) => {
+          const cookieName = c.split("=")[0].trim()
+          document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`
+        })
+        setUser(null)
+        setProfile(null)
+        toast.error('Your account has been deactivated. Please contact the administrator.')
+        history.push('/login')
+        return false
+      }
+
+      // Check if reseller account is deactivated
+      if (role === 'reseller' && accountStatus === 'deactive') {
+        await supabase.auth.signOut()
+        // Clear all tokens and storage
+        localStorage.clear()
+        sessionStorage.clear()
+        // Clear all cookies including Supabase auth cookies
+        document.cookie.split(";").forEach((c) => {
+          const cookieName = c.split("=")[0].trim()
+          document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`
+        })
+        setUser(null)
+        setProfile(null)
+        toast.error('Your account has been deactivated. Please contact the administrator.')
         history.push('/login')
         return false
       }
       
       return true
     } catch (error) {
-      console.error('❌ Error checking admin access:', error)
+      console.error('❌ Error checking role:', error)
       return false
     }
   }
@@ -62,9 +103,9 @@ export const AuthProvider = ({ children }) => {
         const { data: { session } } = await supabase.auth.getSession()
 
         if (session?.user) {
-          // Check if user is admin
-          const isAdmin = await checkAdminAccess(session.user.id)
-          if (!isAdmin) {
+          // Check if user has a valid role
+          const hasValidRole = await checkValidRole(session.user.id)
+          if (!hasValidRole) {
             setLoading(false)
             return // User will be signed out and redirected to login
           }
@@ -76,6 +117,44 @@ export const AuthProvider = ({ children }) => {
             .select('*')
             .eq('user_id', session.user.id)
             .single()
+
+          // Check if consumer account is deactivated
+          if (profileData?.role === 'consumer' && profileData?.account_status === 'deactive') {
+            await supabase.auth.signOut()
+            // Clear all tokens and storage
+            localStorage.clear()
+            sessionStorage.clear()
+            // Clear all cookies including Supabase auth cookies
+            document.cookie.split(";").forEach((c) => {
+              const cookieName = c.split("=")[0].trim()
+              document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`
+            })
+            setUser(null)
+            setProfile(null)
+            toast.error('Your account has been deactivated. Please contact the administrator.')
+            history.push('/login')
+            setLoading(false)
+            return
+          }
+
+          // Check if reseller account is deactivated
+          if (profileData?.role === 'reseller' && profileData?.account_status === 'deactive') {
+            await supabase.auth.signOut()
+            // Clear all tokens and storage
+            localStorage.clear()
+            sessionStorage.clear()
+            // Clear all cookies including Supabase auth cookies
+            document.cookie.split(";").forEach((c) => {
+              const cookieName = c.split("=")[0].trim()
+              document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`
+            })
+            setUser(null)
+            setProfile(null)
+            toast.error('Your account has been deactivated. Please contact the administrator.')
+            history.push('/login')
+            setLoading(false)
+            return
+          }
 
           setProfile(profileData)
         }
@@ -137,13 +216,39 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
+  // Helper function to check if user can access a specific route
+  const canAccessRoute = (path) => {
+    if (!profile || !profile.role) return false
+    
+    const role = profile.role
+    
+    if (role === 'admin' && path.startsWith('/admin')) return true
+    if (role === 'reseller' && path.startsWith('/reseller')) return true
+    
+    return false
+  }
+
+  // Helper function to get the correct dashboard path for user's role
+  const getDashboardPath = () => {
+    if (!profile || !profile.role) return '/login'
+    
+    const role = profile.role
+    if (role === 'admin') return '/admin/dashboard'
+    if (role === 'reseller') return '/reseller/dashboard'
+    
+    return '/login'
+  }
+
   const value = {
     user,
     profile,
     loading,
     signOut,
+    canAccessRoute,
+    getDashboardPath,
     isAuthenticated: !!user,
-    isAdmin: profile?.role === 'admin'
+    isAdmin: profile?.role === 'admin',
+    isReseller: profile?.role === 'reseller',
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

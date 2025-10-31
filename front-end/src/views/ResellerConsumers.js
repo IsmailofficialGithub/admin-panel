@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus } from 'lucide-react';
+import { useHistory } from 'react-router-dom';
+import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, FileText, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
 // ✅ Using backend API for Reseller's Consumers
 import apiClient from '../services/apiClient';
 import CreateConsumerModal from '../components/ui/createConsumerModel';
 import UpdateConsumerModal from '../components/ui/updateConsumerModel';
 import DeleteModal from '../components/ui/deleteModel';
+import CreateInvoiceModal from '../components/ui/createInvoiceModal';
 
 const ResellerConsumers = () => {
   console.log('👥 Reseller Consumers component rendering...');
+  const history = useHistory();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -20,6 +23,8 @@ const ResellerConsumers = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteUserData, setDeleteUserData] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showCreateInvoiceModal, setShowCreateInvoiceModal] = useState(false);
+  const [selectedConsumerForInvoice, setSelectedConsumerForInvoice] = useState(null);
   const usersPerPage = 20;
 
   // Fetch Reseller's consumers from backend API
@@ -58,7 +63,9 @@ const ResellerConsumers = () => {
   const handleAction = async (action, userId, userName) => {
     setOpenDropdown(null);
     
-    if (action === 'Update') {
+    if (action === 'View Details') {
+      history.push(`/reseller/consumers/${userId}`);
+    } else if (action === 'Update') {
       const consumer = users.find(u => u.user_id === userId);
       if (consumer) {
         setSelectedConsumer({
@@ -67,10 +74,14 @@ const ResellerConsumers = () => {
           full_name: consumer.full_name,
           email: consumer.email,
           phone: consumer.phone,
+          country: consumer.country,
+          city: consumer.city,
           trial_expiry: consumer.trial_expiry,
           trial_expiry_date: consumer.trial_expiry,
-          created_at: consumer.created_at
+          created_at: consumer.created_at,
+          subscribed_products: consumer.subscribed_products || []
         });
+        console.log('Reseller: Setting consumer for update with subscribed_products:', consumer.subscribed_products);
         setIsUpdateModalOpen(true);
       }
     } else if (action === 'Delete') {
@@ -91,6 +102,12 @@ const ResellerConsumers = () => {
       } catch (error) {
         console.error('Error resetting password:', error);
         toast.error('Failed to reset password. Please try again.', { id: loadingToast });
+      }
+    } else if (action === 'Create Invoice') {
+      const consumer = users.find(u => u.user_id === userId);
+      if (consumer) {
+        setSelectedConsumerForInvoice(consumer);
+        setShowCreateInvoiceModal(true);
       }
     } else {
       toast(`${action} action clicked for consumer: ${userName}`);
@@ -136,8 +153,13 @@ const ResellerConsumers = () => {
       const result = await apiClient.resellers.updateMyConsumer(updatedConsumer.user_id, {
         full_name: updatedConsumer.full_name,
         phone: updatedConsumer.phone,
-        trial_expiry_date: updatedConsumer.trial_expiry_date
+        trial_expiry_date: updatedConsumer.trial_expiry_date,
+        country: updatedConsumer.country,
+        city: updatedConsumer.city,
+        subscribed_products: updatedConsumer.subscribed_products || []
       });
+      
+      console.log('Reseller updating consumer with subscribed_products:', updatedConsumer.subscribed_products);
       
       if (result.error) {
         toast.error(`Error updating consumer: ${result.error}`);
@@ -215,7 +237,7 @@ const ResellerConsumers = () => {
     const colors = {
       Admin: '#dc3545',
       Editor: '#ffc107',
-      User: '#007bff',
+      User: '#74317e',
       Viewer: '#6c757d'
     };
     return colors[role] || '#6c757d';
@@ -330,7 +352,7 @@ const ResellerConsumers = () => {
                   alignItems: 'center',
                   justifyContent: 'center',
                   padding: '12px',
-                  backgroundColor: '#007bff',
+                  backgroundColor: '#74317e',
                   color: 'white',
                   border: 'none',
                   borderRadius: '8px',
@@ -339,12 +361,12 @@ const ResellerConsumers = () => {
                   boxShadow: '0 2px 4px rgba(0,123,255,0.2)'
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#0056b3';
+                  e.currentTarget.style.backgroundColor = '#5a2460';
                   e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,123,255,0.3)';
                   e.currentTarget.style.transform = 'translateY(-1px)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#007bff';
+                  e.currentTarget.style.backgroundColor = '#74317e';
                   e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,123,255,0.2)';
                   e.currentTarget.style.transform = 'translateY(0)';
                 }}
@@ -368,7 +390,7 @@ const ResellerConsumers = () => {
                     width: '50px',
                     height: '50px',
                     border: '4px solid #f3f3f3',
-                    borderTop: '4px solid #007bff',
+                    borderTop: '4px solid #74317e',
                     borderRadius: '50%',
                     animation: 'spin 1s linear infinite',
                     margin: '0 auto 16px'
@@ -606,6 +628,33 @@ const ResellerConsumers = () => {
                           marginTop: '4px'
                         }}>
                           <button
+                            onClick={() => handleAction('View Details', userId, user.full_name)}
+                            style={{
+                              width: '100%',
+                              padding: '10px 16px',
+                              border: 'none',
+                              backgroundColor: 'transparent',
+                              textAlign: 'left',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              color: '#74317e',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              transition: 'background-color 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                          >
+                            <Eye size={16} />
+                            View Details
+                          </button>
+                          <div style={{ 
+                            height: '1px', 
+                            backgroundColor: '#e0e0e0', 
+                            margin: '4px 0' 
+                          }} />
+                          <button
                             onClick={() => handleAction('Update', userId, user.full_name)}
                             style={{
                               width: '100%',
@@ -648,6 +697,28 @@ const ResellerConsumers = () => {
                           >
                             <Key size={16} />
                             Reset Password
+                          </button>
+                          <button
+                            onClick={() => handleAction('Create Invoice', userId, user.full_name)}
+                            style={{
+                              width: '100%',
+                              padding: '10px 16px',
+                              border: 'none',
+                              backgroundColor: 'transparent',
+                              textAlign: 'left',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              color: '#74317e',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              transition: 'background-color 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                          >
+                            <FileText size={16} />
+                            Create Invoice
                           </button>
                           <div style={{ 
                             height: '1px', 
@@ -732,7 +803,7 @@ const ResellerConsumers = () => {
                     padding: '8px 12px',
                     border: '1px solid #e0e0e0',
                     borderRadius: '6px',
-                    backgroundColor: currentPage === index + 1 ? '#007bff' : 'white',
+                    backgroundColor: currentPage === index + 1 ? '#74317e' : 'white',
                     color: currentPage === index + 1 ? 'white' : '#333',
                     cursor: 'pointer',
                     fontSize: '14px',
@@ -810,6 +881,23 @@ const ResellerConsumers = () => {
         }}
         consumer={selectedConsumer}
         onUpdate={handleUpdateConsumer}
+      />
+
+      {/* Create Invoice Modal */}
+      <CreateInvoiceModal
+        isOpen={showCreateInvoiceModal}
+        onClose={() => {
+          setSelectedConsumerForInvoice(null);
+          setShowCreateInvoiceModal(false);
+        }}
+        onCreate={async (invoiceData) => {
+          // Invoice is already created by the modal
+          // Refresh the consumers list or perform any additional actions
+          toast.success(`Invoice created successfully!`);
+          // Optionally refresh the data here if needed
+          return { success: true };
+        }}
+        consumer={selectedConsumerForInvoice}
       />
 
       {/* Delete Consumer Modal */}

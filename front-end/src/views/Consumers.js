@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useHistory } from 'react-router-dom';
-import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, CheckCircle, Search, Filter } from 'lucide-react';
+import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, CheckCircle, Search, Filter, FileText, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
 // ✅ Using backend API instead of direct Supabase calls
 import { 
@@ -14,6 +14,7 @@ import {
 import CreateConsumerModal from '../components/ui/createConsumerModel';
 import UpdateConsumerModal from '../components/ui/updateConsumerModel';
 import DeleteModal from '../components/ui/deleteModel';
+import CreateInvoiceModal from '../components/ui/createInvoiceModal';
 
 const Consumers = () => {
   const location = useLocation();
@@ -38,6 +39,8 @@ const Consumers = () => {
   const [accountStatusFilter, setAccountStatusFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchInput, setSearchInput] = useState('');
+  const [showCreateInvoiceModal, setShowCreateInvoiceModal] = useState(false);
+  const [selectedConsumerForInvoice, setSelectedConsumerForInvoice] = useState(null);
   const usersPerPage = 20;
 
   // Read status from URL parameters on mount and when location changes
@@ -96,7 +99,9 @@ const Consumers = () => {
   const handleAction = async (action, userId, userName) => {
     setOpenDropdown(null);
     
-    if (action === 'Update') {
+    if (action === 'View Details') {
+      history.push(`/admin/consumers/${userId}`);
+    } else if (action === 'Update') {
       const consumer = users.find(u => u.user_id === userId);
       if (consumer) {
         setSelectedConsumer({
@@ -109,8 +114,10 @@ const Consumers = () => {
           city: consumer.city,
           trial_expiry: consumer.trial_expiry,
           trial_expiry_date: consumer.trial_expiry,
-          created_at: consumer.created_at
+          created_at: consumer.created_at,
+          subscribed_products: consumer.subscribed_products || []
         });
+        console.log('Setting consumer for update with subscribed_products:', consumer.subscribed_products);
         setIsUpdateModalOpen(true);
       }
     } else if (action === 'Delete') {
@@ -137,6 +144,12 @@ const Consumers = () => {
       } catch (error) {
         console.error('Error resetting password:', error);
         toast.error('Failed to reset password. Please try again.', { id: loadingToast });
+      }
+    } else if (action === 'Create Invoice') {
+      const consumer = users.find(u => u.user_id === userId);
+      if (consumer) {
+        setSelectedConsumerForInvoice(consumer);
+        setShowCreateInvoiceModal(true);
       }
     } else {
       toast(`${action} action clicked for consumer: ${userName}`);
@@ -264,15 +277,42 @@ const Consumers = () => {
     try {
       if (!statusUpdateData || !selectedStatus) return;
 
+      // Check if status is 'active' and validate extension
+      const consumer = users.find(u => u.user_id === statusUpdateData.id);
+      if (selectedStatus === 'active' && consumer && consumer.trial_expiry && consumer.created_at) {
+        // Check available days
+        const createdAt = new Date(consumer.created_at);
+        const currentTrialExpiry = new Date(consumer.trial_expiry);
+        const daysFromCreation = Math.ceil((currentTrialExpiry - createdAt) / (1000 * 60 * 60 * 24));
+        const maxDaysCanAdd = Math.max(0, 7 - daysFromCreation);
+        
+        // If there are days available to extend, require selection
+        if (maxDaysCanAdd > 0 && (!extendDays || extendDays === '')) {
+          toast.error('Please select how many days to extend the trial');
+          return;
+        }
+
+        // Check if extending would exceed 7-day limit
+        if (extendDays && parseInt(extendDays) > 0) {
+          const totalDaysAfterExtension = daysFromCreation + parseInt(extendDays);
+          
+          if (totalDaysAfterExtension > 7) {
+            toast.error('Cannot extend beyond 7 days from account creation date');
+            return;
+          }
+        }
+      }
+
       setIsUpdatingStatus(true);
 
       // Calculate trial_expiry_date if extend days is selected
       let trialExpiryDate = null;
       if (extendDays && parseInt(extendDays) > 0) {
         const days = parseInt(extendDays);
-        const expiryDate = new Date();
-        expiryDate.setDate(expiryDate.getDate() + days);
-        trialExpiryDate = expiryDate.toISOString();
+        // Extend from current trial_expiry, not from today
+        const currentExpiry = consumer.trial_expiry ? new Date(consumer.trial_expiry) : new Date();
+        currentExpiry.setDate(currentExpiry.getDate() + days);
+        trialExpiryDate = currentExpiry.toISOString();
       }
 
       // Call backend API to update account status with optional trial_expiry_date
@@ -334,7 +374,7 @@ const Consumers = () => {
     const colors = {
       Admin: '#dc3545',
       Editor: '#ffc107',
-      User: '#007bff',
+      User: '#74317e',
       Viewer: '#6c757d'
     };
     return colors[role] || '#6c757d';
@@ -364,7 +404,7 @@ const Consumers = () => {
       expired_subscription: {
         backgroundColor: '#f8d7da',
         color: '#dc3545',
-        text: 'Expired'
+        text: 'Expired Subscription'
       }
     };
 
@@ -541,7 +581,7 @@ const Consumers = () => {
                   alignItems: 'center',
                   justifyContent: 'center',
                   padding: '12px',
-                  backgroundColor: '#007bff',
+                  backgroundColor: '#74317e',
                   color: 'white',
                   border: 'none',
                   borderRadius: '8px',
@@ -550,12 +590,12 @@ const Consumers = () => {
                   boxShadow: '0 2px 4px rgba(0,123,255,0.2)'
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#0056b3';
+                  e.currentTarget.style.backgroundColor = '#5a2460';
                   e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,123,255,0.3)';
                   e.currentTarget.style.transform = 'translateY(-1px)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#007bff';
+                  e.currentTarget.style.backgroundColor = '#74317e';
                   e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,123,255,0.2)';
                   e.currentTarget.style.transform = 'translateY(0)';
                 }}
@@ -599,7 +639,7 @@ const Consumers = () => {
                       boxSizing: 'border-box'
                     }}
                     onFocus={(e) => {
-                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.borderColor = '#74317e';
                       e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                     }}
                     onBlur={(e) => {
@@ -666,7 +706,7 @@ const Consumers = () => {
                   <option value="all">All Status</option>
                   <option value="active">Active</option>
                   <option value="deactive">Deactive</option>
-                  <option value="expired_subscription">Expired</option>
+                  <option value="expired_subscription">Expired Subscription</option>
                 </select>
               </div>
 
@@ -729,7 +769,7 @@ const Consumers = () => {
                     width: '50px',
                     height: '50px',
                     border: '4px solid #f3f3f3',
-                    borderTop: '4px solid #007bff',
+                    borderTop: '4px solid #74317e',
                     borderRadius: '50%',
                     animation: 'spin 1s linear infinite',
                     margin: '0 auto 16px'
@@ -995,6 +1035,33 @@ const Consumers = () => {
                           marginTop: '4px'
                         }}>
                           <button
+                            onClick={() => handleAction('View Details', userId, user.full_name)}
+                            style={{
+                              width: '100%',
+                              padding: '10px 16px',
+                              border: 'none',
+                              backgroundColor: 'transparent',
+                              textAlign: 'left',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              color: '#74317e',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              transition: 'background-color 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                          >
+                            <Eye size={16} />
+                            View Details
+                          </button>
+                          <div style={{ 
+                            height: '1px', 
+                            backgroundColor: '#e0e0e0', 
+                            margin: '4px 0' 
+                          }} />
+                          <button
                             onClick={() => handleAction('Update', userId, user.full_name)}
                             style={{
                               width: '100%',
@@ -1059,6 +1126,28 @@ const Consumers = () => {
                           >
                             <Key size={16} />
                             Reset Password
+                          </button>
+                          <button
+                            onClick={() => handleAction('Create Invoice', userId, user.full_name)}
+                            style={{
+                              width: '100%',
+                              padding: '10px 16px',
+                              border: 'none',
+                              backgroundColor: 'transparent',
+                              textAlign: 'left',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              color: '#74317e',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              transition: 'background-color 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                          >
+                            <FileText size={16} />
+                            Create Invoice
                           </button>
                           <div style={{ 
                             height: '1px', 
@@ -1143,7 +1232,7 @@ const Consumers = () => {
                     padding: '8px 12px',
                     border: '1px solid #e0e0e0',
                     borderRadius: '6px',
-                    backgroundColor: currentPage === index + 1 ? '#007bff' : 'white',
+                    backgroundColor: currentPage === index + 1 ? '#74317e' : 'white',
                     color: currentPage === index + 1 ? 'white' : '#333',
                     cursor: 'pointer',
                     fontSize: '14px',
@@ -1223,6 +1312,23 @@ const Consumers = () => {
         onUpdate={handleUpdateConsumer}
       />
 
+      {/* Create Invoice Modal */}
+      <CreateInvoiceModal
+        isOpen={showCreateInvoiceModal}
+        onClose={() => {
+          setSelectedConsumerForInvoice(null);
+          setShowCreateInvoiceModal(false);
+        }}
+        onCreate={async (invoiceData) => {
+          // Invoice is already created by the modal
+          // Refresh the consumers list or perform any additional actions
+          toast.success(`Invoice created successfully!`);
+          // Optionally refresh the data here if needed
+          return { success: true };
+        }}
+        consumer={selectedConsumerForInvoice}
+      />
+
       {/* Delete Consumer Modal */}
       <DeleteModal
         isOpen={showDeleteModal}
@@ -1284,7 +1390,7 @@ const Consumers = () => {
               {statusUpdateData.currentStatus && (
                 <p style={{ margin: '8px 0 0 0', fontSize: '13px', color: '#999' }}>
                   Current status: <span style={{ 
-                    color: '#007bff', 
+                    color: '#74317e', 
                     fontWeight: '500',
                     textTransform: 'capitalize'
                   }}>{statusUpdateData.currentStatus.replace('_', ' ')}</span>
@@ -1325,7 +1431,7 @@ const Consumers = () => {
                   Active
                 </button>
                 <p style={{ margin: '0 0 16px 8px', fontSize: '12px', color: '#666', fontStyle: 'italic' }}>
-                  Trial will be extended by 30 days
+                  Trial can be extended (max 3 days)
                 </p>
               </div>
 
@@ -1489,20 +1595,48 @@ const Consumers = () => {
                 </span>?
               </p>
 
-              {/* Show extend trial dropdown if trial expires within 2 days or less */}
+              {/* Show extend trial dropdown for active status */}
               {(() => {
                 const consumer = users.find(u => u.user_id === statusUpdateData.id);
-                if (!consumer || !consumer.trial_expiry) return null;
+                if (!consumer || !consumer.trial_expiry || !consumer.created_at) return null;
+                
+                // Only show for active status
+                if (selectedStatus !== 'active') return null;
 
                 const trialExpiry = new Date(consumer.trial_expiry);
                 const now = new Date();
                 const daysRemaining = Math.ceil((trialExpiry - now) / (1000 * 60 * 60 * 24));
 
-                if (daysRemaining <= 2) {
+                // Always show for active status
+                {
+                  // Calculate how many days can still be extended (max 7 days from created_at)
+                  const createdAt = new Date(consumer.created_at);
+                  const maxTrialDate = new Date(createdAt);
+                  maxTrialDate.setDate(maxTrialDate.getDate() + 7);
+                  
+                  // Calculate days already used from creation
+                  const daysFromCreation = Math.ceil((trialExpiry - createdAt) / (1000 * 60 * 60 * 24));
+                  
+                  // Calculate remaining days that can be added (max 7 days total from creation)
+                  const maxDaysCanAdd = Math.max(0, 7 - daysFromCreation);
+                  
+                  // Limit to 3 days per extension
+                  const availableDays = Math.min(3, maxDaysCanAdd);
+                  
+                  // Generate available options
+                  const dayOptions = [];
+                  for (let i = 1; i <= availableDays; i++) {
+                    dayOptions.push(i);
+                  }
+
+                  const warningColor = daysRemaining <= 2 ? '#856404' : '#0c5460';
+                  const warningBg = daysRemaining <= 2 ? '#fff3cd' : '#d1ecf1';
+                  const warningBorder = daysRemaining <= 2 ? '#ffc107' : '#bee5eb';
+
                   return (
                     <div style={{
-                      backgroundColor: '#fff3cd',
-                      border: '1px solid #ffc107',
+                      backgroundColor: warningBg,
+                      border: `1px solid ${warningBorder}`,
                       borderRadius: '8px',
                       padding: '16px',
                       marginTop: '16px'
@@ -1510,10 +1644,21 @@ const Consumers = () => {
                       <div style={{
                         fontSize: '14px',
                         fontWeight: '600',
-                        color: '#856404',
+                        color: warningColor,
                         marginBottom: '8px'
                       }}>
-                        ⚠️ Trial expires in {daysRemaining} day{daysRemaining !== 1 ? 's' : ''}
+                        {daysRemaining <= 2 ? '⚠️' : 'ℹ️'} Trial expires in {daysRemaining} day{daysRemaining !== 1 ? 's' : ''}
+                      </div>
+                      <div style={{
+                        fontSize: '12px',
+                        color: '#666',
+                        marginBottom: '12px'
+                      }}>
+                        📅 Account created: {createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        <br />
+                        🔒 Days used: {daysFromCreation} / 7 days max
+                        <br />
+                        ✅ Available to extend: {availableDays} day{availableDays !== 1 ? 's' : ''}
                       </div>
                       <label style={{
                         display: 'block',
@@ -1524,49 +1669,63 @@ const Consumers = () => {
                       }}>
                         Extend trial by:
                       </label>
-                      <select
-                        value={extendDays}
-                        onChange={(e) => setExtendDays(e.target.value)}
-                        disabled={isUpdatingStatus}
-                        style={{
-                          width: '100%',
-                          padding: '8px 12px',
-                          border: '1px solid #d1d5db',
+                      {availableDays > 0 ? (
+                        <>
+                          <select
+                            value={extendDays}
+                            onChange={(e) => setExtendDays(e.target.value)}
+                            disabled={isUpdatingStatus}
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '14px',
+                              outline: 'none',
+                              cursor: isUpdatingStatus ? 'not-allowed' : 'pointer',
+                              backgroundColor: 'white',
+                              color: extendDays ? '#374151' : '#9ca3af'
+                            }}
+                          >
+                            <option value="">Select days to extend</option>
+                            {dayOptions.map(day => (
+                              <option key={day} value={day}>{day} Day{day !== 1 ? 's' : ''}</option>
+                            ))}
+                          </select>
+                          {extendDays && (
+                            <p style={{
+                              marginTop: '8px',
+                              marginBottom: 0,
+                              fontSize: '12px',
+                              color: '#666'
+                            }}>
+                              ℹ️ New expiry: {(() => {
+                                const newExpiry = new Date(trialExpiry);
+                                newExpiry.setDate(newExpiry.getDate() + parseInt(extendDays));
+                                return newExpiry.toLocaleDateString('en-US', {
+                                  year: 'numeric',
+                                  month: 'long',
+                                  day: 'numeric'
+                                });
+                              })()}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <div style={{
+                          padding: '12px',
+                          backgroundColor: '#f3f4f6',
                           borderRadius: '6px',
-                          fontSize: '14px',
-                          outline: 'none',
-                          cursor: isUpdatingStatus ? 'not-allowed' : 'pointer',
-                          backgroundColor: 'white',
-                          color: extendDays ? '#374151' : '#9ca3af'
-                        }}
-                      >
-                        <option value="">Don't extend</option>
-                        <option value="1">1 Day</option>
-                        <option value="2">2 Days</option>
-                        <option value="3">3 Days</option>
-                      </select>
-                      {extendDays && (
-                        <p style={{
-                          marginTop: '8px',
-                          marginBottom: 0,
-                          fontSize: '12px',
-                          color: '#666'
+                          fontSize: '13px',
+                          color: '#dc3545',
+                          fontWeight: '500'
                         }}>
-                          ℹ️ New expiry: {(() => {
-                            const newExpiry = new Date();
-                            newExpiry.setDate(newExpiry.getDate() + parseInt(extendDays));
-                            return newExpiry.toLocaleDateString('en-US', {
-                              year: 'numeric',
-                              month: 'long',
-                              day: 'numeric'
-                            });
-                          })()}
-                        </p>
+                          ❌ Maximum 7-day trial limit reached. Cannot extend further.
+                        </div>
                       )}
                     </div>
                   );
                 }
-                return null;
               })()}
             </div>
             <div style={{
@@ -1607,7 +1766,7 @@ const Consumers = () => {
                   padding: '10px 24px',
                   border: 'none',
                   borderRadius: '6px',
-                  backgroundColor: '#007bff',
+                  backgroundColor: '#74317e',
                   color: 'white',
                   fontSize: '14px',
                   fontWeight: '500',

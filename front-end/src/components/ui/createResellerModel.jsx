@@ -392,7 +392,7 @@ const CreateResellerModal = ({ isOpen, onClose, onCreate }) => {
                 }}
                 onFocus={(e) => {
                   if (!errors.full_name && !isSubmitting) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -455,7 +455,7 @@ const CreateResellerModal = ({ isOpen, onClose, onCreate }) => {
                 }}
                 onFocus={(e) => {
                   if (!errors.email && !isSubmitting) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -498,7 +498,7 @@ const CreateResellerModal = ({ isOpen, onClose, onCreate }) => {
                   padding: '6px 12px',
                   fontSize: '12px',
                   fontWeight: '500',
-                  color: '#3b82f6',
+                  color: '#74317e',
                   backgroundColor: '#eff6ff',
                   border: '1px solid #bfdbfe',
                   borderRadius: '6px',
@@ -553,7 +553,7 @@ const CreateResellerModal = ({ isOpen, onClose, onCreate }) => {
                 }}
                 onFocus={(e) => {
                   if (!errors.password && !isSubmitting) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -636,7 +636,7 @@ const CreateResellerModal = ({ isOpen, onClose, onCreate }) => {
                 }}
                 onFocus={(e) => {
                   if (!errors.confirmPassword && !isSubmitting) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -724,7 +724,7 @@ const CreateResellerModal = ({ isOpen, onClose, onCreate }) => {
                 }}
                 onFocusCapture={(e) => {
                   if (!errors.country && !isSubmitting) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -910,7 +910,7 @@ const CreateResellerModal = ({ isOpen, onClose, onCreate }) => {
                 }}
                 onFocus={(e) => {
                   if (!errors.city && !isSubmitting) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -1003,7 +1003,7 @@ const CreateResellerModal = ({ isOpen, onClose, onCreate }) => {
                         countrySection.scrollIntoView({ behavior: 'smooth', block: 'center' });
                       }
                     } else if (!errors.phone && !isSubmitting) {
-                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.borderColor = '#74317e';
                       e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                     }
                   }}
@@ -1073,7 +1073,7 @@ const CreateResellerModal = ({ isOpen, onClose, onCreate }) => {
               padding: '10px 20px',
               border: 'none',
               borderRadius: '8px',
-              backgroundColor: isSubmitting ? '#93c5fd' : '#3b82f6',
+              backgroundColor: isSubmitting ? '#b896c0' : '#74317e',
               color: 'white',
               fontSize: '14px',
               fontWeight: '500',
@@ -1085,12 +1085,12 @@ const CreateResellerModal = ({ isOpen, onClose, onCreate }) => {
             }}
             onMouseEnter={(e) => {
               if (!isSubmitting) {
-                e.currentTarget.style.backgroundColor = '#2563eb';
+                e.currentTarget.style.backgroundColor = '#5a2460';
               }
             }}
             onMouseLeave={(e) => {
               if (!isSubmitting) {
-                e.currentTarget.style.backgroundColor = '#3b82f6';
+                e.currentTarget.style.backgroundColor = '#74317e';
               }
             }}
           >

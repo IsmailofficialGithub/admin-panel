@@ -1,20 +1,4 @@
-/*!
 
-=========================================================
-* Light Bootstrap Dashboard React - v2.0.1
-=========================================================
-
-* Product Page: https://www.creative-tim.com/product/light-bootstrap-dashboard-react
-* Copyright 2022 Creative Tim (https://www.creative-tim.com)
-* Licensed under MIT (https://github.com/creativetimofficial/light-bootstrap-dashboard-react/blob/master/LICENSE.md)
-
-* Coded by Creative Tim
-
-=========================================================
-
-* The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-*/
 import React from "react";
 import ReactDOM from "react-dom/client";
 
@@ -27,7 +11,10 @@ import "./assets/css/demo.css";
 import "@fortawesome/fontawesome-free/css/all.min.css";
 
 import AdminLayout from "layouts/Admin.js";
+import ResellerLayout from "layouts/Reseller.js";
+import ConsumerLayout from "layouts/Consumer.js";
 import Login from "views/Login.js";
+import Payment from "views/Payment.js";
 import ProtectedRoute from "auth/ProtectedRoute.js";
 import { AuthProvider } from "contexts/AuthContext";
 import { Toaster } from "react-hot-toast";
@@ -64,7 +51,10 @@ root.render(
       />
       <Switch>
         <Route path="/login" component={Login} />
-        <ProtectedRoute path="/admin" component={AdminLayout} />
+        <Route path="/consumer/payment" component={Payment} />
+        <ProtectedRoute path="/admin" component={AdminLayout} allowedRoles={['admin']} />
+        <ProtectedRoute path="/reseller" component={ResellerLayout} allowedRoles={['reseller']} />
+        <ProtectedRoute path="/consumer" component={ConsumerLayout} allowedRoles={['consumer']} />
         <Redirect from="/" to="/login" />
       </Switch>
     </AuthProvider>

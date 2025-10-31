@@ -1,168 +1,193 @@
-import { supabaseAdmin } from '../../config/database.js';
+import { supabase } from '../../config/database.js';
 
 /**
  * Get all products
- * @route GET /api/products
+ * @route   GET /api/products
+ * @access  Private (Admin)
  */
-const getAllProducts = async (req, res) => {
+export const getAllProducts = async (req, res) => {
   try {
-    const { data: products, error } = await supabaseAdmin
+    console.log('📦 Fetching all products...');
+
+    const { data: products, error } = await supabase
       .from('products')
       .select('*')
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('Error fetching products:', error);
-      return res.status(500).json({ error: 'Failed to fetch products' });
+      console.error('❌ Error fetching products:', error);
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: error.message
+      });
     }
 
-    return res.status(200).json(products);
+    console.log(`✅ Found ${products.length} products`);
+
+    res.json({
+      success: true,
+      count: products.length,
+      data: products
+    });
   } catch (error) {
-    console.error('Error in getAllProducts:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('Get products error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
   }
 };
 
 /**
- * Get a single product by ID
- * @route GET /api/products/:id
+ * Get product by ID
+ * @route   GET /api/products/:id
+ * @access  Private (Admin)
  */
-const getProductById = async (req, res) => {
+export const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const { data: product, error } = await supabaseAdmin
+    console.log(`📦 Fetching product with ID: ${id}`);
+
+    const { data: product, error } = await supabase
       .from('products')
       .select('*')
       .eq('id', id)
       .single();
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return res.status(404).json({ error: 'Product not found' });
-      }
-      console.error('Error fetching product:', error);
-      return res.status(500).json({ error: 'Failed to fetch product' });
+    if (error || !product) {
+      console.error('❌ Product not found:', error);
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Product not found'
+      });
     }
 
-    return res.status(200).json(product);
+    console.log('✅ Product found:', product.name);
+
+    res.json({
+      success: true,
+      data: product
+    });
   } catch (error) {
-    console.error('Error in getProductById:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('Get product error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
   }
 };
 
 /**
- * Create a new product
- * @route POST /api/products
+ * Create new product
+ * @route   POST /api/products
+ * @access  Private (Admin)
  */
-const createProduct = async (req, res) => {
+export const createProduct = async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, price } = req.body;
 
-    // Validation
-    if (!name || !name.trim()) {
-      return res.status(400).json({ error: 'Product name is required' });
+    // Validate input
+    if (!name || !description || price === undefined) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Name, description, and price are required'
+      });
     }
 
-    if (name.trim().length < 2) {
-      return res.status(400).json({ error: 'Product name must be at least 2 characters' });
+    // Validate price is a positive number
+    if (isNaN(price) || parseFloat(price) <= 0) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Price must be a positive number'
+      });
     }
 
-    if (name.trim().length > 255) {
-      return res.status(400).json({ error: 'Product name must not exceed 255 characters' });
-    }
+    console.log(`📦 Creating product: ${name}`);
 
-    // Check if product with same name already exists
-    const { data: existingProduct } = await supabaseAdmin
+    const { data: product, error } = await supabase
       .from('products')
-      .select('id')
-      .eq('name', name.trim())
-      .single();
-
-    if (existingProduct) {
-      return res.status(409).json({ error: 'A product with this name already exists' });
-    }
-
-    // Create product
-    const { data: product, error } = await supabaseAdmin
-      .from('products')
-      .insert([
-        {
-          name: name.trim(),
-          description: description?.trim() || null
-        }
-      ])
+      .insert([{
+        name: name.trim(),
+        description: description.trim(),
+        price: parseFloat(price)
+      }])
       .select()
       .single();
 
     if (error) {
-      console.error('Error creating product:', error);
-      return res.status(500).json({ error: 'Failed to create product' });
+      console.error('❌ Error creating product:', error);
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: error.message
+      });
     }
 
-    return res.status(201).json({
+    console.log('✅ Product created successfully:', product.name);
+
+    res.status(201).json({
       success: true,
       message: 'Product created successfully',
-      product
+      data: product
     });
   } catch (error) {
-    console.error('Error in createProduct:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('Create product error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
   }
 };
 
 /**
- * Update a product
- * @route PUT /api/products/:id
+ * Update product
+ * @route   PUT /api/products/:id
+ * @access  Private (Admin)
  */
-const updateProduct = async (req, res) => {
+export const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description } = req.body;
+    const { name, description, price } = req.body;
+
+    // Validate input
+    if (!name || !description || price === undefined) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Name, description, and price are required'
+      });
+    }
+
+    // Validate price is a positive number
+    if (isNaN(price) || parseFloat(price) <= 0) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Price must be a positive number'
+      });
+    }
+
+    console.log(`📦 Updating product with ID: ${id}`);
 
     // Check if product exists
-    const { data: existingProduct, error: fetchError } = await supabaseAdmin
+    const { data: existingProduct, error: fetchError } = await supabase
       .from('products')
       .select('*')
       .eq('id', id)
       .single();
 
     if (fetchError || !existingProduct) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-
-    // Validation
-    if (!name || !name.trim()) {
-      return res.status(400).json({ error: 'Product name is required' });
-    }
-
-    if (name.trim().length < 2) {
-      return res.status(400).json({ error: 'Product name must be at least 2 characters' });
-    }
-
-    if (name.trim().length > 255) {
-      return res.status(400).json({ error: 'Product name must not exceed 255 characters' });
-    }
-
-    // Check if another product with same name exists (excluding current product)
-    const { data: duplicateProduct } = await supabaseAdmin
-      .from('products')
-      .select('id')
-      .eq('name', name.trim())
-      .neq('id', id)
-      .single();
-
-    if (duplicateProduct) {
-      return res.status(409).json({ error: 'A product with this name already exists' });
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Product not found'
+      });
     }
 
     // Update product
-    const { data: product, error } = await supabaseAdmin
+    const { data: product, error } = await supabase
       .from('products')
       .update({
         name: name.trim(),
-        description: description?.trim() || null,
+        description: description.trim(),
+        price: parseFloat(price),
         updated_at: new Date().toISOString()
       })
       .eq('id', id)
@@ -170,66 +195,79 @@ const updateProduct = async (req, res) => {
       .single();
 
     if (error) {
-      console.error('Error updating product:', error);
-      return res.status(500).json({ error: 'Failed to update product' });
+      console.error('❌ Error updating product:', error);
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: error.message
+      });
     }
 
-    return res.status(200).json({
+    console.log('✅ Product updated successfully:', product.name);
+
+    res.json({
       success: true,
       message: 'Product updated successfully',
-      product
+      data: product
     });
   } catch (error) {
-    console.error('Error in updateProduct:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('Update product error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
   }
 };
 
 /**
- * Delete a product
- * @route DELETE /api/products/:id
+ * Delete product
+ * @route   DELETE /api/products/:id
+ * @access  Private (Admin)
  */
-const deleteProduct = async (req, res) => {
+export const deleteProduct = async (req, res) => {
   try {
     const { id } = req.params;
 
+    console.log(`📦 Deleting product with ID: ${id}`);
+
     // Check if product exists
-    const { data: existingProduct, error: fetchError } = await supabaseAdmin
+    const { data: existingProduct, error: fetchError } = await supabase
       .from('products')
       .select('*')
       .eq('id', id)
       .single();
 
     if (fetchError || !existingProduct) {
-      return res.status(404).json({ error: 'Product not found' });
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Product not found'
+      });
     }
 
     // Delete product
-    const { error } = await supabaseAdmin
+    const { error } = await supabase
       .from('products')
       .delete()
       .eq('id', id);
 
     if (error) {
-      console.error('Error deleting product:', error);
-      return res.status(500).json({ error: 'Failed to delete product' });
+      console.error('❌ Error deleting product:', error);
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: error.message
+      });
     }
 
-    return res.status(200).json({
+    console.log('✅ Product deleted successfully:', existingProduct.name);
+
+    res.json({
       success: true,
       message: 'Product deleted successfully'
     });
   } catch (error) {
-    console.error('Error in deleteProduct:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('Delete product error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
   }
 };
-
-export {
-  getAllProducts,
-  getProductById,
-  createProduct,
-  updateProduct,
-  deleteProduct
-};
-

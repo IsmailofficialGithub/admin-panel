@@ -1,5 +1,5 @@
 import { supabase, supabaseAdmin } from '../../config/database.js';
-import { sendPasswordResetEmail } from '../../services/emailService.js';
+import { sendPasswordResetEmail, sendTrialPeriodChangeEmail, sendTrialExtensionEmail } from '../../services/emailService.js';
 import { generatePassword } from '../../utils/helpers.js';
 
 /**
@@ -51,11 +51,44 @@ export const getAllConsumers = async (req, res) => {
       });
     }
 
+    // Fetch product access for all consumers
+    const consumersWithProducts = await Promise.all(
+      consumers.map(async (consumer) => {
+        try {
+          const { data: productAccess, error: productError } = await supabase
+            .from('user_product_access')
+            .select('product_id')
+            .eq('user_id', consumer.user_id);
+
+          if (productError) {
+            console.error(`Error fetching products for consumer ${consumer.user_id}:`, productError);
+            return {
+              ...consumer,
+              subscribed_products: []
+            };
+          }
+
+          // Extract product IDs into array
+          const productIds = productAccess?.map(pa => pa.product_id) || [];
+          
+          return {
+            ...consumer,
+            subscribed_products: productIds
+          };
+        } catch (err) {
+          console.error(`Error processing consumer ${consumer.user_id}:`, err);
+          return {
+            ...consumer,
+            subscribed_products: []
+          };
+        }
+      })
+    );
 
     res.json({
       success: true,
-      count: consumers.length,
-      data: consumers,
+      count: consumersWithProducts.length,
+      data: consumersWithProducts,
       filters: {
         account_status: account_status || 'all',
         search: search || ''
@@ -93,6 +126,25 @@ export const getConsumerById = async (req, res) => {
       });
     }
 
+    // Fetch product access for this consumer
+    try {
+      const { data: productAccess, error: productError } = await supabase
+        .from('user_product_access')
+        .select('product_id')
+        .eq('user_id', id);
+
+      if (productError) {
+        console.error(`Error fetching products for consumer ${id}:`, productError);
+        consumer.subscribed_products = [];
+      } else {
+        // Extract product IDs into array
+        consumer.subscribed_products = productAccess?.map(pa => pa.product_id) || [];
+      }
+    } catch (err) {
+      console.error(`Error processing product access for consumer ${id}:`, err);
+      consumer.subscribed_products = [];
+    }
+
     res.json({
       success: true,
       data: consumer
@@ -115,6 +167,8 @@ export const updateConsumer = async (req, res) => {
   try {
     const { id } = req.params;
     const { full_name, phone, trial_expiry_date, country, city, subscribed_products } = req.body;
+    
+    console.log('subscribed_products received:', subscribed_products);
 
     // Validate required fields for update
     if (!country || !city || !phone) {
@@ -137,12 +191,10 @@ export const updateConsumer = async (req, res) => {
         updateData.trial_expiry = null;
       }
     }
-    // Handle subscribed_products (array of product UUIDs)
-    if (subscribed_products !== undefined) {
-      updateData.subscribed_products = subscribed_products || [];
-    }
+    // Note: subscribed_products is NOT stored in profiles table anymore
+    // It's only stored in user_product_access table (see below)
 
-    if (Object.keys(updateData).length === 0) {
+    if (Object.keys(updateData).length === 0 && subscribed_products === undefined) {
       return res.status(400).json({
         error: 'Bad Request',
         message: 'No fields to update'
@@ -150,6 +202,20 @@ export const updateConsumer = async (req, res) => {
     }
 
     console.log("updateData", updateData);
+
+    // Get current consumer data before update to compare trial_expiry
+    const { data: currentConsumer, error: fetchError } = await supabase
+      .from('auth_role_with_profiles')
+      .select('email, full_name, trial_expiry')
+      .eq('user_id', id)
+      .eq('role', 'consumer')
+      .single();
+
+    if (fetchError) {
+      console.error('Error fetching consumer before update:', fetchError);
+    }
+
+    const oldTrialExpiry = currentConsumer?.trial_expiry || null;
 
     const { data: updatedConsumer, error } = await supabase
       .from('profiles')
@@ -166,6 +232,69 @@ export const updateConsumer = async (req, res) => {
         error: 'Bad Request',
         message: error.message
       });
+    }
+
+    // Update product access in user_product_access table
+    if (subscribed_products !== undefined) {
+      try {
+        // First, delete all existing product access for this user
+        const { error: deleteError } = await supabase
+          .from('user_product_access')
+          .delete()
+          .eq('user_id', id);
+
+        if (deleteError) {
+          console.error('Error deleting existing product access:', deleteError);
+        } else {
+          console.log('✅ Deleted existing product access records');
+        }
+
+        // Then insert new product access records if any products are provided
+        if (Array.isArray(subscribed_products) && subscribed_products.length > 0) {
+          const productAccessRecords = subscribed_products.map(productId => ({
+            user_id: id,
+            product_id: productId
+          }));
+
+          const { error: insertError } = await supabase
+            .from('user_product_access')
+            .insert(productAccessRecords);
+
+          if (insertError) {
+            console.error('Error inserting product access:', insertError);
+            // Don't fail the request, just log the error
+          } else {
+            console.log(`✅ Stored ${productAccessRecords.length} product access records`);
+          }
+        }
+      } catch (productAccessErr) {
+        console.error('Error updating product access:', productAccessErr);
+        // Don't fail the request if product access update fails
+      }
+    }
+
+    // Send email if trial_expiry_date was changed
+    if (trial_expiry_date !== undefined && currentConsumer) {
+      const newTrialExpiry = updatedConsumer?.trial_expiry || null;
+      
+      // Check if trial_expiry actually changed
+      const oldDate = oldTrialExpiry ? new Date(oldTrialExpiry).toISOString() : null;
+      const newDate = newTrialExpiry ? new Date(newTrialExpiry).toISOString() : null;
+      
+      if (oldDate !== newDate && currentConsumer.email && currentConsumer.full_name) {
+        try {
+          await sendTrialPeriodChangeEmail({
+            email: currentConsumer.email,
+            full_name: currentConsumer.full_name,
+            old_trial_date: oldDate || 'Not set',
+            new_trial_date: newDate || 'Not set',
+          });
+          console.log('✅ Trial period change email sent to:', currentConsumer.email);
+        } catch (emailError) {
+          console.error('❌ Error sending trial period change email:', emailError);
+          // Continue anyway - don't fail the update if email fails
+        }
+      }
     }
 
     res.json({
@@ -270,6 +399,21 @@ export const updateConsumerAccountStatus = async (req, res) => {
 
     console.log(`🔄 Updating consumer ${id} account status to:`, account_status);
 
+    // Fetch consumer to check created_at for trial validation
+    const { data: consumer, error: fetchError } = await supabase
+      .from('profiles')
+      .select('created_at, trial_expiry')
+      .eq('user_id', id)
+      .eq('role', 'consumer')
+      .single();
+
+    if (fetchError || !consumer) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Consumer not found'
+      });
+    }
+
     // Prepare update data
     const updateData = { account_status };
 
@@ -279,21 +423,50 @@ export const updateConsumerAccountStatus = async (req, res) => {
       updateData.trial_expiry = new Date().toISOString();
       console.log('📅 Setting trial_expiry to current date (expired)');
     } else if (account_status === 'active') {
-      // If trial_expiry_date is provided, use it; otherwise extend by 30 days
+      // If trial_expiry_date is provided, use it
       if (trial_expiry_date) {
+        // Validate: trial_expiry cannot exceed 7 days from created_at
+        const createdAt = new Date(consumer.created_at);
+        const maxTrialDate = new Date(createdAt);
+        maxTrialDate.setDate(maxTrialDate.getDate() + 7);
+        
+        const requestedExpiryDate = new Date(trial_expiry_date);
+        
+        if (requestedExpiryDate > maxTrialDate) {
+          return res.status(400).json({
+            error: 'Bad Request',
+            message: 'Trial cannot be extended beyond 7 days from account creation date'
+          });
+        }
+        
         updateData.trial_expiry = trial_expiry_date;
         console.log('📅 Setting trial_expiry to provided date:', trial_expiry_date);
       } else {
-        // Extend trial by 30 days from now
-        const extendedDate = new Date();
-        extendedDate.setDate(extendedDate.getDate() + 30);
-        updateData.trial_expiry = extendedDate.toISOString();
-        console.log('📅 Extending trial_expiry by 30 days:', updateData.trial_expiry);
+        // Return error if no trial_expiry_date is provided for active status
+        return res.status(400).json({
+          error: 'Bad Request',
+          message: 'trial_expiry_date is required when setting status to active'
+        });
       }
     } else if (account_status === 'deactive') {
       // Keep trial_expiry as is for deactive status
       console.log('📅 Keeping existing trial_expiry for deactive status');
     }
+
+    // Get consumer email and full_name for email notification
+    const { data: consumerInfo, error: infoError } = await supabase
+      .from('auth_role_with_profiles')
+      .select('email, full_name, trial_expiry')
+      .eq('user_id', id)
+      .eq('role', 'consumer')
+      .single();
+
+    if (infoError) {
+      console.error('Error fetching consumer info:', infoError);
+    }
+
+    // Store old trial_expiry for email (from consumer fetched earlier or from consumerInfo)
+    const oldTrialExpiry = consumerInfo?.trial_expiry || consumer?.trial_expiry || null;
 
     // Update account_status and trial_expiry in profiles table
     const { data: updatedConsumer, error } = await supabase
@@ -320,6 +493,55 @@ export const updateConsumerAccountStatus = async (req, res) => {
     }
 
     console.log('✅ Account status updated successfully:', updatedConsumer);
+
+    // Send trial extension email if status is 'active' and trial was extended
+    if (account_status === 'active' && trial_expiry_date && consumerInfo) {
+      const newTrialExpiry = updatedConsumer?.trial_expiry || null;
+      
+      if (oldTrialExpiry && newTrialExpiry && consumerInfo.email && consumerInfo.full_name) {
+        try {
+          // Calculate extension days
+          const oldDate = new Date(oldTrialExpiry);
+          const newDate = new Date(newTrialExpiry);
+          const extensionDays = Math.ceil((newDate - oldDate) / (1000 * 60 * 60 * 24));
+          
+          if (extensionDays > 0) {
+            await sendTrialExtensionEmail({
+              email: consumerInfo.email,
+              full_name: consumerInfo.full_name,
+              new_trial_date: newTrialExpiry,
+              extension_days: extensionDays,
+            });
+            console.log('✅ Trial extension email sent to:', consumerInfo.email);
+          } else if (oldTrialExpiry !== newTrialExpiry) {
+            // Trial period changed but not extended (could be reduced or set for first time)
+            await sendTrialPeriodChangeEmail({
+              email: consumerInfo.email,
+              full_name: consumerInfo.full_name,
+              old_trial_date: oldTrialExpiry,
+              new_trial_date: newTrialExpiry,
+            });
+            console.log('✅ Trial period change email sent to:', consumerInfo.email);
+          }
+        } catch (emailError) {
+          console.error('❌ Error sending trial email:', emailError);
+          // Continue anyway - don't fail the update if email fails
+        }
+      } else if (!oldTrialExpiry && newTrialExpiry && consumerInfo.email && consumerInfo.full_name) {
+        // First time setting trial expiry
+        try {
+          await sendTrialPeriodChangeEmail({
+            email: consumerInfo.email,
+            full_name: consumerInfo.full_name,
+            old_trial_date: 'Not set',
+            new_trial_date: newTrialExpiry,
+          });
+          console.log('✅ Trial period set email sent to:', consumerInfo.email);
+        } catch (emailError) {
+          console.error('❌ Error sending trial email:', emailError);
+        }
+      }
+    }
 
     res.json({
       success: true,

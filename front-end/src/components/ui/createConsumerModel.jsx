@@ -55,9 +55,9 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         try {
           const result = await getProducts();
           console.log('Fetched products:', result); // Debug log
-          if (result && !result.error && Array.isArray(result)) {
-            setProducts(result);
-            console.log('Products set:', result.length); // Debug log
+          if (result && result.success && result.data && Array.isArray(result.data)) {
+            setProducts(result.data);
+            console.log('Products set:', result.data.length); // Debug log
           } else if (result && result.error) {
             console.error('Error from getProducts:', result.error);
           }
@@ -489,7 +489,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 }}
                 onFocus={(e) => {
                   if (!errors.full_name && !isSubmitting) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -552,7 +552,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 }}
                 onFocus={(e) => {
                   if (!errors.email && !isSubmitting) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -596,9 +596,9 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                   gap: '4px',
                   padding: '4px 12px',
                   fontSize: '12px',
-                  color: '#3b82f6',
+                  color: '#74317e',
                   backgroundColor: '#eff6ff',
-                  border: '1px solid #3b82f6',
+                  border: '1px solid #74317e',
                   borderRadius: '6px',
                   cursor: 'pointer',
                   transition: 'all 0.2s'
@@ -644,7 +644,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 }}
                 onFocus={(e) => {
                   if (!errors.password && !isSubmitting) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -737,7 +737,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 }}
                 onFocus={(e) => {
                   if (!errors.confirmPassword && !isSubmitting) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -835,7 +835,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 }}
                 onFocusCapture={(e) => {
                   if (!errors.country && !isSubmitting) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -1021,7 +1021,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 }}
                 onFocus={(e) => {
                   if (!errors.city && !isSubmitting) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -1114,7 +1114,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                         countrySection.scrollIntoView({ behavior: 'smooth', block: 'center' });
                       }
                     } else if (!errors.phone && !isSubmitting) {
-                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.borderColor = '#74317e';
                       e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                     }
                   }}
@@ -1186,7 +1186,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 }}
                 onFocus={(e) => {
                   if (!isSubmitting && !loadingResellers) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -1260,7 +1260,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 }}
                 onMouseEnter={(e) => {
                   if (!isSubmitting) {
-                    e.currentTarget.style.borderColor = '#3b82f6';
+                    e.currentTarget.style.borderColor = '#74317e';
                   }
                 }}
                 onMouseLeave={(e) => {
@@ -1282,7 +1282,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                           alignItems: 'center',
                           gap: '4px',
                           padding: '4px 8px',
-                          backgroundColor: '#3b82f6',
+                          backgroundColor: '#74317e',
                           color: 'white',
                           borderRadius: '6px',
                           fontSize: '12px',
@@ -1364,12 +1364,12 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                         style={{
                           width: '18px',
                           height: '18px',
-                          border: isProductSelected(product.id) ? '2px solid #3b82f6' : '2px solid #d1d5db',
+                          border: isProductSelected(product.id) ? '2px solid #74317e' : '2px solid #d1d5db',
                           borderRadius: '4px',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          backgroundColor: isProductSelected(product.id) ? '#3b82f6' : 'white',
+                          backgroundColor: isProductSelected(product.id) ? '#74317e' : 'white',
                           transition: 'all 0.2s'
                         }}
                       >
@@ -1448,7 +1448,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 }}
                 onFocus={(e) => {
                   if (!errors.trial_expiry_date && !isSubmitting) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -1545,7 +1545,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
               padding: '10px 20px',
               border: 'none',
               borderRadius: '8px',
-              backgroundColor: isSubmitting ? '#93c5fd' : '#3b82f6',
+              backgroundColor: isSubmitting ? '#b896c0' : '#74317e',
               color: 'white',
               fontSize: '14px',
               fontWeight: '500',
@@ -1557,12 +1557,12 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
             }}
             onMouseEnter={(e) => {
               if (!isSubmitting) {
-                e.currentTarget.style.backgroundColor = '#2563eb';
+                e.currentTarget.style.backgroundColor = '#5a2460';
               }
             }}
             onMouseLeave={(e) => {
               if (!isSubmitting) {
-                e.currentTarget.style.backgroundColor = '#3b82f6';
+                e.currentTarget.style.backgroundColor = '#74317e';
               }
             }}
           >

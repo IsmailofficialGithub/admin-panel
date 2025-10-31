@@ -79,7 +79,7 @@ function ResellerDetail() {
     const statusLabels = {
       active: 'Active',
       deactive: 'Deactive',
-      expired_subscription: 'Expired'
+      expired_subscription: 'Expired Subscription'
     };
     return (
       <Badge bg={statusColors[status] || 'secondary'}>
@@ -137,8 +137,8 @@ function ResellerDetail() {
               boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = '#007bff';
-              e.currentTarget.style.color = '#007bff';
+              e.currentTarget.style.borderColor = '#74317e';
+              e.currentTarget.style.color = '#74317e';
               e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,123,255,0.2)';
             }}
             onMouseLeave={(e) => {

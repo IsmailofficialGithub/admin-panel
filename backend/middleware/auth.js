@@ -41,7 +41,6 @@ export const authenticate = async (req, res, next) => {
  * Middleware to check if user has admin role
  */
 export const requireAdmin = async (req, res, next) => {
-  console.log("req.user", req.user);
 
   try {
     if (!req.user) {

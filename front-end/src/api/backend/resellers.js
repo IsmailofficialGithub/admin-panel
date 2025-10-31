@@ -167,12 +167,38 @@ export const resetResellerPassword = async (resellerId) => {
   }
 };
 
+/**
+ * Update reseller account status
+ * @param {string} resellerId - Reseller ID
+ * @param {string} accountStatus - New account status (active, deactive)
+ * @returns {Promise<Object>} Success status
+ */
+export const updateResellerAccountStatus = async (resellerId, accountStatus) => {
+  try {
+    const response = await apiClient.resellers.updateAccountStatus(resellerId, accountStatus);
+    
+    if (response.success) {
+      return {
+        success: true,
+        message: response.message,
+        data: response.data
+      };
+    }
+    
+    return { error: 'Failed to update account status' };
+  } catch (error) {
+    console.error('updateResellerAccountStatus Error:', error);
+    return { error: error.message };
+  }
+};
+
 export default {
   getResellers,
   getResellerById,
   createReseller,
   updateReseller,
   deleteReseller,
-  resetResellerPassword
+  resetResellerPassword,
+  updateResellerAccountStatus
 };
 

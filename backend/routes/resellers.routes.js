@@ -13,7 +13,8 @@ import {
   deleteMyConsumer,
   resetMyConsumerPassword,
   createConsumerAdmin,
-  getReferredConsumers
+  getReferredConsumers,
+  updateResellerAccountStatus
 } from './controllers/resellers.controller.js';
 
 const router = express.Router();
@@ -121,5 +122,12 @@ router.delete('/:id', authenticate, requireAdmin, deleteReseller);
  * @access  Private (Admin)
  */
 router.post('/:id/reset-password', authenticate, requireAdmin, resetResellerPassword);
+
+/**
+ * @route   PATCH /api/resellers/:id/account-status
+ * @desc    Update reseller account status (admin only)
+ * @access  Private (Admin)
+ */
+router.patch('/:id/account-status', authenticate, requireAdmin, updateResellerAccountStatus);
 
 export default router;

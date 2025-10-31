@@ -149,17 +149,29 @@ export const createUser = async (req, res) => {
       });
     }
 
+    // Prepare profile data
+    const profileData = {
+      user_id: newUser.user.id,
+      full_name,
+      role: role || 'user',
+      phone: phone || null,
+      country: country || null,
+      city: city || null,
+    };
+
+    // If role is consumer, set trial_expiry to 3 days from now and account_status to active
+    if (role === 'consumer') {
+      const trialExpiry = new Date();
+      trialExpiry.setDate(trialExpiry.getDate() + 3);
+      profileData.trial_expiry = trialExpiry.toISOString();
+      profileData.account_status = 'active';
+      console.log('✅ Setting 3-day trial for consumer:', profileData.trial_expiry);
+    }
+
     // Update user role in profiles table
     const { error: insertError } = await supabaseAdmin
       .from('profiles')
-      .upsert([{
-        user_id: newUser.user.id,
-        full_name,
-        role: role || 'user',
-        phone: phone || null,
-        country: country || null,
-        city: city || null,
-      }]);
+      .upsert([profileData]);
 
     if (insertError) {
       console.error('Error inserting profile:', insertError);
@@ -486,6 +498,91 @@ export const createReseller = async (req, res) => {
     res.status(500).json({
       error: "Internal Server Error",
       message: "Internal server error",
+    });
+  }
+};
+
+/**
+ * Update user account status (admin only)
+ * @route   PATCH /api/users/:id/account-status
+ * @access  Private (Admin)
+ */
+export const updateUserAccountStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { account_status } = req.body;
+
+    // Validate account_status
+    const validStatuses = ['active', 'deactive'];
+    if (!account_status) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'account_status is required'
+      });
+    }
+
+    if (!validStatuses.includes(account_status)) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: `Invalid account_status. Must be one of: ${validStatuses.join(', ')}`
+      });
+    }
+
+    console.log(`🔄 Updating user ${id} account status to:`, account_status);
+
+    // Check if user exists and get their role
+    const { data: userProfile, error: fetchError } = await supabase
+      .from('profiles')
+      .select('role, account_status')
+      .eq('user_id', id)
+      .single();
+
+    if (fetchError || !userProfile) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'User not found'
+      });
+    }
+
+    // Prevent admin from deactivating another admin
+    if (userProfile.role === 'admin' && account_status === 'deactive') {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Cannot deactivate admin account'
+      });
+    }
+
+    // Update account_status in profiles table
+    const { data: updatedUser, error: updateError } = await supabase
+      .from('profiles')
+      .update({
+        account_status: account_status,
+        updated_at: new Date().toISOString()
+      })
+      .eq('user_id', id)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('❌ Error updating user account status:', updateError);
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: updateError.message
+      });
+    }
+
+    console.log(`✅ User account status updated successfully`);
+
+    res.json({
+      success: true,
+      message: `User account status updated to ${account_status}`,
+      data: updatedUser
+    });
+  } catch (error) {
+    console.error('Update user account status error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
     });
   }
 };

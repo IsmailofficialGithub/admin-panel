@@ -493,10 +493,44 @@ export const getMyConsumers = async (req, res) => {
 
     console.log(`✅ Found ${consumers.length} consumers for reseller ${resellerId}`);
 
+    // Fetch product access for all consumers
+    const consumersWithProducts = await Promise.all(
+      consumers.map(async (consumer) => {
+        try {
+          const { data: productAccess, error: productError } = await supabase
+            .from('user_product_access')
+            .select('product_id')
+            .eq('user_id', consumer.user_id);
+
+          if (productError) {
+            console.error(`Error fetching products for consumer ${consumer.user_id}:`, productError);
+            return {
+              ...consumer,
+              subscribed_products: []
+            };
+          }
+
+          // Extract product IDs into array
+          const productIds = productAccess?.map(pa => pa.product_id) || [];
+          
+          return {
+            ...consumer,
+            subscribed_products: productIds
+          };
+        } catch (err) {
+          console.error(`Error processing consumer ${consumer.user_id}:`, err);
+          return {
+            ...consumer,
+            subscribed_products: []
+          };
+        }
+      })
+    );
+
     res.json({
       success: true,
-      count: consumers.length,
-      data: consumers
+      count: consumersWithProducts.length,
+      data: consumersWithProducts
     });
   } catch (error) {
     console.error('Get my consumers error:', error);
@@ -515,9 +549,9 @@ export const getMyConsumers = async (req, res) => {
 export const createMyConsumer = async (req, res) => {
   try {
     const resellerId = req.user.id;
-    const { email, password, full_name, phone, trial_expiry_date, country, city } = req.body;
+    const { email, password, full_name, phone, trial_expiry_date, country, city, subscribed_products } = req.body;
 
-    console.log('👤 Reseller creating consumer:', { resellerId, email });
+    console.log('👤 Reseller creating consumer:', { resellerId, email, subscribed_products });
 
     // Validate input
     if (!email || !password || !full_name) {
@@ -589,6 +623,30 @@ export const createMyConsumer = async (req, res) => {
         error: 'Internal Server Error',
         message: 'User created but profile insert failed'
       });
+    }
+
+    // Store product access in user_product_access table
+    if (subscribed_products && Array.isArray(subscribed_products) && subscribed_products.length > 0) {
+      try {
+        const productAccessRecords = subscribed_products.map(productId => ({
+          user_id: newUser.user.id,
+          product_id: productId
+        }));
+
+        const { error: productAccessError } = await supabaseAdmin
+          .from('user_product_access')
+          .insert(productAccessRecords);
+
+        if (productAccessError) {
+          console.error('Error inserting product access:', productAccessError);
+          // Don't fail the request, just log the error
+        } else {
+          console.log(`✅ Stored ${productAccessRecords.length} product access records in user_product_access`);
+        }
+      } catch (productAccessErr) {
+        console.error('Error storing product access:', productAccessErr);
+        // Don't fail the request if product access storage fails
+      }
     }
 
     // Send welcome email
@@ -681,7 +739,11 @@ export const updateMyConsumer = async (req, res) => {
       }
     }
 
-    if (Object.keys(updateData).length === 0) {
+    // Extract subscribed_products from request body if provided
+    const { subscribed_products } = req.body;
+    console.log('subscribed_products', subscribed_products);
+
+    if (Object.keys(updateData).length === 0 && subscribed_products === undefined) {
       return res.status(400).json({
         error: 'Bad Request',
         message: 'No fields to update'
@@ -701,6 +763,45 @@ export const updateMyConsumer = async (req, res) => {
         error: 'Bad Request',
         message: error.message
       });
+    }
+
+    // Update product access in user_product_access table
+    if (subscribed_products !== undefined) {
+      try {
+        // First, delete all existing product access for this user
+        const { error: deleteError } = await supabase
+          .from('user_product_access')
+          .delete()
+          .eq('user_id', id);
+
+        if (deleteError) {
+          console.error('Error deleting existing product access:', deleteError);
+        } else {
+          console.log('✅ Deleted existing product access records');
+        }
+
+        // Then insert new product access records if any products are provided
+        if (Array.isArray(subscribed_products) && subscribed_products.length > 0) {
+          const productAccessRecords = subscribed_products.map(productId => ({
+            user_id: id,
+            product_id: productId
+          }));
+
+          const { error: insertError } = await supabase
+            .from('user_product_access')
+            .insert(productAccessRecords);
+
+          if (insertError) {
+            console.error('Error inserting product access:', insertError);
+            // Don't fail the request, just log the error
+          } else {
+            console.log(`✅ Stored ${productAccessRecords.length} product access records`);
+          }
+        }
+      } catch (productAccessErr) {
+        console.error('Error updating product access:', productAccessErr);
+        // Don't fail the request if product access update fails
+      }
     }
 
     console.log('✅ Consumer updated successfully');
@@ -983,10 +1084,8 @@ export const createConsumerAdmin = async (req, res) => {
       profileData.trial_expiry = new Date(trial_expiry_date);
     }
 
-    // Add subscribed_products if provided
-    if (subscribed_products !== undefined) {
-      profileData.subscribed_products = subscribed_products || [];
-    }
+    // Note: subscribed_products is NOT stored in profiles table
+    // It's only stored in user_product_access table (see below)
 
     const { error: insertError } = await supabaseAdmin
       .from('profiles')
@@ -998,6 +1097,30 @@ export const createConsumerAdmin = async (req, res) => {
         error: 'Internal Server Error',
         message: 'User created but profile insert failed'
       });
+    }
+
+    // Store product access in user_product_access table
+    if (subscribed_products && Array.isArray(subscribed_products) && subscribed_products.length > 0) {
+      try {
+        const productAccessRecords = subscribed_products.map(productId => ({
+          user_id: newUser.user.id,
+          product_id: productId
+        }));
+
+        const { error: productAccessError } = await supabaseAdmin
+          .from('user_product_access')
+          .insert(productAccessRecords);
+
+        if (productAccessError) {
+          console.error('Error inserting product access:', productAccessError);
+          // Don't fail the request, just log the error
+        } else {
+          console.log(`✅ Stored ${productAccessRecords.length} product access records in user_product_access`);
+        }
+      } catch (productAccessErr) {
+        console.error('Error storing product access:', productAccessErr);
+        // Don't fail the request if product access storage fails
+      }
     }
 
     // Send welcome email
@@ -1029,6 +1152,85 @@ export const createConsumerAdmin = async (req, res) => {
     res.status(500).json({
       error: 'Internal Server Error',
       message: 'Internal server error'
+    });
+  }
+};
+
+/**
+ * Update reseller account status (admin only)
+ * @route   PATCH /api/resellers/:id/account-status
+ * @access  Private (Admin)
+ */
+export const updateResellerAccountStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { account_status } = req.body;
+
+    // Validate account_status
+    const validStatuses = ['active', 'deactive'];
+    if (!account_status) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'account_status is required'
+      });
+    }
+
+    if (!validStatuses.includes(account_status)) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: `Invalid account_status. Must be one of: ${validStatuses.join(', ')}`
+      });
+    }
+
+    console.log(`🔄 Updating reseller ${id} account status to:`, account_status);
+
+    // Check if reseller exists
+    const { data: resellerProfile, error: fetchError } = await supabase
+      .from('profiles')
+      .select('role, account_status')
+      .eq('user_id', id)
+      .eq('role', 'reseller')
+      .single();
+
+    if (fetchError || !resellerProfile) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Reseller not found'
+      });
+    }
+
+    // Update account_status in profiles table
+    const { data: updatedReseller, error: updateError } = await supabase
+      .from('profiles')
+      .update({
+        account_status: account_status,
+        updated_at: new Date().toISOString()
+      })
+      .eq('user_id', id)
+      .eq('role', 'reseller')
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('❌ Error updating reseller account status:', updateError);
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: updateError.message
+      });
+    }
+
+    console.log(`✅ Reseller account status updated successfully`);
+
+    res.json({
+      success: true,
+      message: `Reseller account status updated to ${account_status}`,
+      data: updatedReseller
+    });
+  } catch (error) {
+    console.error('Update reseller account status error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
     });
   }
 };

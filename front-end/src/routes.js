@@ -1,20 +1,4 @@
-/*!
 
-=========================================================
-* Light Bootstrap Dashboard React - v2.0.1
-=========================================================
-
-* Product Page: https://www.creative-tim.com/product/light-bootstrap-dashboard-react
-* Copyright 2022 Creative Tim (https://www.creative-tim.com)
-* Licensed under MIT (https://github.com/creativetimofficial/light-bootstrap-dashboard-react/blob/master/LICENSE.md)
-
-* Coded by Creative Tim
-
-=========================================================
-
-* The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-*/
 import Dashboard from "views/Dashboard.js";
 import Users from "views/Users.js";
 import Consumers from "views/Consumers.js";
@@ -27,6 +11,11 @@ import Notifications from "views/Notifications.js";
 import Upgrade from "views/Upgrade.js";
 import Resellers from "views/Resellers.js";
 import ResellerDetail from "views/ResellerDetail.js";
+import UserDetail from "views/UserDetail.js";
+import ConsumerDetail from "views/ConsumerDetail.js";
+import Account from "views/Account.js";
+import Products from "views/Products.js";
+import Invoices from "views/Invoices.js";
 
 const dashboardRoutes = [
   // Hidden routes (not shown in sidebar)
@@ -36,14 +25,32 @@ const dashboardRoutes = [
     layout: "/admin",
     invisible: true // This prevents it from showing in sidebar
   },
+  {
+    path: "/users/:id",
+    component: UserDetail,
+    layout: "/admin",
+    invisible: true // This prevents it from showing in sidebar
+  },
+  {
+    path: "/consumers/:id",
+    component: ConsumerDetail,
+    layout: "/admin",
+    invisible: true // This prevents it from showing in sidebar
+  },
+  {
+    path: "/account",
+    component: Account,
+    layout: "/admin",
+    invisible: true // This prevents it from showing in sidebar
+  },
   // Sidebar routes
-  // {
-  //   path: "/dashboard",
-  //   name: "Dashboard",
-  //   icon: "nc-icon nc-chart-pie-35",
-  //   component: Dashboard,
-  //   layout: "/admin"
-  // },
+  {
+    path: "/dashboard",
+    name: "Dashboard",
+    icon: "nc-icon nc-chart-pie-35",
+    component: Dashboard,
+    layout: "/admin"
+  },
   {
     path: "/users",
     name: "Users",
@@ -72,7 +79,7 @@ const dashboardRoutes = [
       },
       {
         path: "/consumers?status=expired_subscription",
-        name: "Expired",
+        name: "Expired Subscription",
         component: Consumers,
         layout: "/admin"
       }
@@ -86,11 +93,17 @@ const dashboardRoutes = [
     layout: "/admin"
   },
   {
-    upgrade: true,
-    path: "/upgrade",
-    name: "Upgrade to PRO",
-    icon: "nc-icon nc-alien-33",
-    component: Upgrade,
+    path: "/products",
+    name: "Products",
+    icon: "nc-icon nc-notes",
+    component: Products,
+    layout: "/admin"
+  },
+  {
+    path: "/invoices",
+    name: "Invoices",
+    icon: "nc-icon nc-single-copy-04",
+    component: Invoices,
     layout: "/admin"
   },
   // {

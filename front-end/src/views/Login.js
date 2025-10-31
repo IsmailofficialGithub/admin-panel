@@ -10,15 +10,21 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const { user, isAdmin, loading } = useAuth();
+  const { user, isAdmin, profile, loading } = useAuth();
   const history = useHistory();
 
-  // Redirect if already authenticated as admin
+  // Redirect if already authenticated
   useEffect(() => {
-    if (!loading && user && isAdmin) {
-      history.push('/admin/users');
+    if (!loading && user && profile) {
+      if (profile.role === 'admin') {
+        history.push('/admin/dashboard');
+      } else if (profile.role === 'reseller') {
+        history.push('/reseller/dashboard');
+      } else if (profile.role === 'consumer') {
+        history.push('/consumer/dashboard');
+      }
     }
-  }, [user, isAdmin, loading, history]);
+  }, [user, profile, loading, history]);
 
   const validateForm = () => {
     if (!email || !password) {
@@ -86,10 +92,11 @@ const Login = () => {
           setIsLoading(false);
           return;
         }
+        console.log("profile", profile);
 
-        // Check if user is Admin
-        if (profile.role !== 'admin') {
-          console.error('❌ Login: User is not admin, access denied');
+        // Check if consumer account is deactivated
+        if (profile.role === 'consumer' && profile.account_status === 'deactive') {
+          console.error('❌ Login: Consumer account is deactivated');
           await supabase.auth.signOut();
           // Clear all tokens and storage
           localStorage.clear();
@@ -99,22 +106,76 @@ const Login = () => {
             const cookieName = c.split("=")[0].trim();
             document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
           });
-          toast.error('Access denied. Only administrators can access this application.');
+          toast.error('Your account has been deactivated. Please contact the administrator.');
           setIsLoading(false);
           return;
         }
 
-        toast.success(`Welcome back, Admin!`);
-        
-        // Try immediate redirect first
-        try {
-          window.location.href = '/admin/users';
-        } catch (redirectError) {
-          console.error('❌ Immediate redirect failed:', redirectError);
-          // Fallback: try with setTimeout
-          setTimeout(() => {
-            window.location.href = '/admin/users';
-          }, 500);
+        // Check if reseller account is deactivated
+        if (profile.role === 'reseller' && profile.account_status === 'deactive') {
+          console.error('❌ Login: Reseller account is deactivated');
+          await supabase.auth.signOut();
+          // Clear all tokens and storage
+          localStorage.clear();
+          sessionStorage.clear();
+          // Clear all cookies including Supabase auth cookies
+          document.cookie.split(";").forEach((c) => {
+            const cookieName = c.split("=")[0].trim();
+            document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+          });
+          toast.error('Your account has been deactivated. Please contact the administrator.');
+          setIsLoading(false);
+          return;
+        }
+
+        // Check role and redirect accordingly
+        if (profile.role === 'admin') {
+          toast.success(`Welcome back, Admin!`);
+          
+          // Redirect to admin users page
+          try {
+            setTimeout(() => {
+              window.location.href = '/admin/dashboard';
+            }, 500);
+          } catch (redirectError) {
+            console.error('❌ Redirect failed:', redirectError);
+          }
+        } else if (profile.role === 'reseller') {
+          toast.success(`Welcome back, Reseller!`);
+          
+          // Redirect to resellers page
+          try {
+            setTimeout(() => {
+              window.location.href = '/reseller/dashboard';
+            }, 500);
+          } catch (redirectError) {
+            console.error('❌ Redirect failed:', redirectError);
+          }
+        } else if (profile.role === 'consumer') {
+          toast.success(`Welcome back!`);
+          
+          // Redirect to consumer page
+          try {
+            setTimeout(() => {
+              window.location.href = '/consumer/dashboard';
+            }, 500);
+          } catch (redirectError) {
+            console.error('❌ Redirect failed:', redirectError);
+          }
+        } else {
+          // Deny access for other roles
+          await supabase.auth.signOut();
+          // Clear all tokens and storage
+          localStorage.clear();
+          sessionStorage.clear();
+          // Clear all cookies including Supabase auth cookies
+          document.cookie.split(";").forEach((c) => {
+            const cookieName = c.split("=")[0].trim();
+            document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+          });
+          toast.error('Access denied. Invalid user role.');
+          setIsLoading(false);
+          return;
         }
         
         // Keep loading state true while redirecting

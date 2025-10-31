@@ -171,12 +171,38 @@ export const resetUserPassword = async (userId) => {
   }
 };
 
+/**
+ * Update user account status
+ * @param {string} userId - User ID
+ * @param {string} accountStatus - New account status (active, deactive)
+ * @returns {Promise<Object>} Success status
+ */
+export const updateUserAccountStatus = async (userId, accountStatus) => {
+  try {
+    const response = await apiClient.users.updateAccountStatus(userId, accountStatus);
+    
+    if (response.success) {
+      return {
+        success: true,
+        message: response.message,
+        data: response.data
+      };
+    }
+    
+    return { error: 'Failed to update account status' };
+  } catch (error) {
+    console.error('updateUserAccountStatus Error:', error);
+    return { error: error.message };
+  }
+};
+
 export default {
   getAdminUsers,
   getUserById,
   createUser,
   updateUserRole,
   deleteUser,
-  resetUserPassword
+  resetUserPassword,
+  updateUserAccountStatus
 };
 

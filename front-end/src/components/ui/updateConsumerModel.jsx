@@ -10,7 +10,6 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
     trial_expiry_date: '',
     country: '',
     city: '',
-    extend_days: '',
     subscribed_products: []
   });
 
@@ -38,14 +37,16 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         }
       }
       
+      const consumerProducts = consumer.subscribed_products || [];
+      console.log('Update modal: Setting subscribed_products from consumer:', consumerProducts);
+      
       setFormData({
         full_name: consumer.full_name || consumer.name || '',
         phone: '',
         trial_expiry_date: trialDate,
         country: consumer.country || '',
         city: consumer.city || '',
-        extend_days: '',
-        subscribed_products: consumer.subscribed_products || []
+        subscribed_products: consumerProducts
       });
       
       // If consumer has a country, find and set it
@@ -92,9 +93,9 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         try {
           const result = await getProducts();
           console.log('Fetched products:', result); // Debug log
-          if (result && !result.error && Array.isArray(result)) {
-            setProducts(result);
-            console.log('Products set:', result.length); // Debug log
+          if (result && result.success && result.data && Array.isArray(result.data)) {
+            setProducts(result.data);
+            console.log('Products set:', result.data.length); // Debug log
           } else if (result && result.error) {
             console.error('Error from getProducts:', result.error);
           }
@@ -119,26 +120,6 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
       setErrors(prev => ({
         ...prev,
         [name]: ''
-      }));
-    }
-  };
-
-  const handleExtendDaysChange = (e) => {
-    const days = e.target.value;
-    setFormData(prev => ({
-      ...prev,
-      extend_days: days
-    }));
-
-    // If days are selected, calculate and update trial_expiry_date
-    if (days) {
-      const currentDate = new Date();
-      currentDate.setDate(currentDate.getDate() + parseInt(days));
-      const newTrialDate = currentDate.toISOString().split('T')[0];
-      setFormData(prev => ({
-        ...prev,
-        trial_expiry_date: newTrialDate,
-        extend_days: days
       }));
     }
   };
@@ -209,7 +190,9 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
 
   // Check if product is selected
   const isProductSelected = (productId) => {
-    return formData.subscribed_products.includes(productId);
+    // Convert both to strings for comparison to handle UUID string comparison issues
+    const productIdStr = String(productId);
+    return formData.subscribed_products.some(id => String(id) === productIdStr);
   };
 
   const validateForm = () => {
@@ -247,15 +230,19 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         ? `${selectedCountry.phoneCode} ${formData.phone.trim()}`
         : formData.phone.trim() || null;
 
-      onUpdate({
+      const updateData = {
         ...consumer,
         full_name: formData.full_name.trim(),
         phone: fullPhone,
         trial_expiry_date: formData.trial_expiry_date || null,
         country: formData.country.trim() || null,
         city: formData.city.trim() || null,
-        subscribed_products: formData.subscribed_products
-      });
+        subscribed_products: formData.subscribed_products || []
+      };
+
+      console.log('Update modal sending subscribed_products:', updateData.subscribed_products);
+      
+      onUpdate(updateData);
       onClose();
     }
   };
@@ -410,7 +397,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                 }}
                 onFocus={(e) => {
                   if (!errors.full_name) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -476,7 +463,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                 }}
                 onFocusCapture={(e) => {
                   if (!errors.country) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -658,7 +645,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                 }}
                 onFocus={(e) => {
                   if (!errors.city) {
-                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.borderColor = '#74317e';
                     e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                   }
                 }}
@@ -748,7 +735,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                         countrySection.scrollIntoView({ behavior: 'smooth', block: 'center' });
                       }
                     } else if (!errors.phone) {
-                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.borderColor = '#74317e';
                       e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                     }
                   }}
@@ -806,7 +793,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                   alignItems: 'center'
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = '#3b82f6';
+                  e.currentTarget.style.borderColor = '#74317e';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.borderColor = '#d1d5db';
@@ -827,7 +814,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                           alignItems: 'center',
                           gap: '4px',
                           padding: '4px 8px',
-                          backgroundColor: '#3b82f6',
+                          backgroundColor: '#74317e',
                           color: 'white',
                           borderRadius: '6px',
                           fontSize: '12px',
@@ -909,12 +896,12 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                         style={{
                           width: '18px',
                           height: '18px',
-                          border: isProductSelected(product.id) ? '2px solid #3b82f6' : '2px solid #d1d5db',
+                          border: isProductSelected(product.id) ? '2px solid #74317e' : '2px solid #d1d5db',
                           borderRadius: '4px',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          backgroundColor: isProductSelected(product.id) ? '#3b82f6' : 'white',
+                          backgroundColor: isProductSelected(product.id) ? '#74317e' : 'white',
                           transition: 'all 0.2s'
                         }}
                       >
@@ -947,85 +934,6 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
               }}>
                 <span style={{ fontSize: '16px' }}>ℹ️</span>
                 {formData.subscribed_products.length} product{formData.subscribed_products.length !== 1 ? 's' : ''} selected
-              </p>
-            )}
-          </div>
-
-          {/* Extend Trial Dropdown */}
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '14px',
-              fontWeight: '500',
-              color: '#374151',
-              marginBottom: '8px'
-            }}>
-              <Calendar size={16} style={{ color: '#6b7280' }} />
-              Extend Trial <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
-            </label>
-            <div style={{ position: 'relative' }}>
-              <select
-                value={formData.extend_days}
-                onChange={handleExtendDaysChange}
-                style={{
-                  width: '100%',
-                  padding: '10px 40px 10px 14px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  outline: 'none',
-                  transition: 'all 0.2s',
-                  boxSizing: 'border-box',
-                  backgroundColor: 'white',
-                  cursor: 'pointer',
-                  color: formData.extend_days ? '#374151' : '#9ca3af',
-                  appearance: 'none',
-                  WebkitAppearance: 'none',
-                  MozAppearance: 'none'
-                }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = '#3b82f6';
-                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = '#d1d5db';
-                  e.target.style.boxShadow = 'none';
-                }}
-              >
-                <option value="">Select days to extend</option>
-                <option value="1">Extend by 1 day</option>
-                <option value="2">Extend by 2 days</option>
-                <option value="3">Extend by 3 days</option>
-              </select>
-              <div style={{
-                position: 'absolute',
-                right: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                pointerEvents: 'none',
-                color: '#9ca3af'
-              }}>
-                <ChevronDown size={18} />
-              </div>
-            </div>
-            {formData.extend_days && (
-              <p style={{
-                color: '#3b82f6',
-                fontSize: '12px',
-                marginTop: '6px',
-                marginBottom: 0,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}>
-                <span style={{ fontSize: '16px' }}>✅</span>
-                Trial will be extended by {formData.extend_days} day{formData.extend_days > 1 ? 's' : ''} (New expiry: {new Date(formData.trial_expiry_date).toLocaleDateString('en-US', {
-                  year: 'numeric',
-                  month: 'short',
-                  day: 'numeric'
-                })})
               </p>
             )}
           </div>
@@ -1125,10 +1033,10 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
               transition: 'all 0.2s'
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#2563eb';
+              e.currentTarget.style.backgroundColor = '#5a2460';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#3b82f6';
+              e.currentTarget.style.backgroundColor = '#74317e';
             }}
           >
             Update Consumer
