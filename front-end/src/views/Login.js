@@ -79,13 +79,17 @@ const Login = () => {
 
         if (profileError || !profile?.role) {
           console.error('❌ Login: No profile or role found');
+          // Sign out before clearing to ensure complete session removal
           await supabase.auth.signOut();
+          // Wait a bit for signOut to complete
+          await new Promise(resolve => setTimeout(resolve, 100));
           // Clear all tokens and storage
           localStorage.clear();
           sessionStorage.clear();
           // Clear all cookies including Supabase auth cookies
           document.cookie.split(";").forEach((c) => {
             const cookieName = c.split("=")[0].trim();
+            document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=${window.location.hostname};`;
             document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
           });
           toast.error('No role assigned to this user.');
@@ -94,37 +98,55 @@ const Login = () => {
         }
         console.log("profile", profile);
 
-        // Check if consumer account is deactivated
+        // Check if consumer account is deactivated BEFORE completing login
         if (profile.role === 'consumer' && profile.account_status === 'deactive') {
           console.error('❌ Login: Consumer account is deactivated');
+          // Sign out immediately before clearing storage
           await supabase.auth.signOut();
+          // Wait for signOut to complete
+          await new Promise(resolve => setTimeout(resolve, 200));
           // Clear all tokens and storage
           localStorage.clear();
           sessionStorage.clear();
-          // Clear all cookies including Supabase auth cookies
+          // Clear all cookies including Supabase auth cookies with domain
           document.cookie.split(";").forEach((c) => {
             const cookieName = c.split("=")[0].trim();
+            document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=${window.location.hostname};`;
             document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
           });
+          // Force refresh to ensure complete cleanup
           toast.error('Your account has been deactivated. Please contact the administrator.');
           setIsLoading(false);
+          // Small delay before allowing retry
+          setTimeout(() => {
+            window.location.reload();
+          }, 1500);
           return;
         }
 
-        // Check if reseller account is deactivated
+        // Check if reseller account is deactivated BEFORE completing login
         if (profile.role === 'reseller' && profile.account_status === 'deactive') {
           console.error('❌ Login: Reseller account is deactivated');
+          // Sign out immediately before clearing storage
           await supabase.auth.signOut();
+          // Wait for signOut to complete
+          await new Promise(resolve => setTimeout(resolve, 200));
           // Clear all tokens and storage
           localStorage.clear();
           sessionStorage.clear();
-          // Clear all cookies including Supabase auth cookies
+          // Clear all cookies including Supabase auth cookies with domain
           document.cookie.split(";").forEach((c) => {
             const cookieName = c.split("=")[0].trim();
+            document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=${window.location.hostname};`;
             document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
           });
+          // Force refresh to ensure complete cleanup
           toast.error('Your account has been deactivated. Please contact the administrator.');
           setIsLoading(false);
+          // Small delay before allowing retry
+          setTimeout(() => {
+            window.location.reload();
+          }, 1500);
           return;
         }
 

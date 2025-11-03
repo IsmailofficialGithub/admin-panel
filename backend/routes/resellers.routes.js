@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticate, requireAdmin } from '../middleware/auth.js';
+import { authenticate, requireAdmin, requireRole } from '../middleware/auth.js';
 import {
   getAllResellers,
   getResellerById,
@@ -16,6 +16,12 @@ import {
   getReferredConsumers,
   updateResellerAccountStatus
 } from './controllers/resellers.controller.js';
+import {
+  getMyCommission,
+  getResellerCommission,
+  setResellerCommission,
+  resetResellerCommission
+} from './controllers/settings.controller.js';
 
 const router = express.Router();
 
@@ -34,11 +40,18 @@ router.get('/', authenticate, requireAdmin, getAllResellers);
  */
 
 /**
+ * @route   GET /api/resellers/my-commission
+ * @desc    Get reseller's own commission (effective commission)
+ * @access  Private (Reseller) - Must come before /:id routes
+ */
+router.get('/my-commission', authenticate, requireRole(['reseller']), getMyCommission);
+
+/**
  * @route   GET /api/resellers/my-consumers
  * @desc    Get all consumers created by the logged-in reseller
  * @access  Private (Reseller)
  */
-router.get('/my-consumers', authenticate, getMyConsumers);
+router.get('/my-consumers', authenticate, requireRole(['reseller']), getMyConsumers);
 
 /**
  * @route   POST /api/resellers/my-consumers
@@ -129,5 +142,32 @@ router.post('/:id/reset-password', authenticate, requireAdmin, resetResellerPass
  * @access  Private (Admin)
  */
 router.patch('/:id/account-status', authenticate, requireAdmin, updateResellerAccountStatus);
+
+/**
+ * ==========================================
+ * COMMISSION MANAGEMENT ROUTES
+ * ==========================================
+ */
+
+/**
+ * @route   GET /api/resellers/:id/commission
+ * @desc    Get reseller commission (effective commission)
+ * @access  Private (Admin)
+ */
+router.get('/:id/commission', authenticate, requireAdmin, getResellerCommission);
+
+/**
+ * @route   PUT /api/resellers/:id/commission
+ * @desc    Set custom commission for reseller
+ * @access  Private (Admin)
+ */
+router.put('/:id/commission', authenticate, requireAdmin, setResellerCommission);
+
+/**
+ * @route   DELETE /api/resellers/:id/commission
+ * @desc    Reset reseller commission to default
+ * @access  Private (Admin)
+ */
+router.delete('/:id/commission', authenticate, requireAdmin, resetResellerCommission);
 
 export default router;

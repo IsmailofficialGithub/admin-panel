@@ -49,10 +49,10 @@ export const requireAdmin = async (req, res, next) => {
         message: 'User not authenticated'
       });
     }
-    // Fetch user profile to check role
+    // Fetch user profile to check role and account status
     const { data: profile, error } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, account_status')
       .eq('user_id', req.user.id)
       .single()
 
@@ -61,6 +61,14 @@ export const requireAdmin = async (req, res, next) => {
       return res.status(403).json({
         error: 'Forbidden',
         message: 'User profile not found'
+      });
+    }
+
+    // Check if admin account is deactivated (shouldn't happen, but safety check)
+    if (profile.role === 'admin' && profile.account_status === 'deactive') {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Your account has been deactivated. Please contact the administrator.'
       });
     }
 
@@ -97,10 +105,10 @@ export const requireRole = (allowedRoles = []) => {
         });
       }
 
-      // Fetch user profile to check role
+      // Fetch user profile to check role and account status
       const { data: profile, error } = await supabase
         .from('profiles')
-        .select('role')
+        .select('role, account_status')
         .eq('user_id', req.user.id)
         .single();
 
@@ -108,6 +116,14 @@ export const requireRole = (allowedRoles = []) => {
         return res.status(403).json({
           error: 'Forbidden',
           message: 'User profile not found'
+        });
+      }
+
+      // Check if account is deactivated (for reseller and consumer roles)
+      if ((profile.role === 'reseller' || profile.role === 'consumer') && profile.account_status === 'deactive') {
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'Your account has been deactivated. Please contact the administrator.'
         });
       }
 

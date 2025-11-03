@@ -793,11 +793,11 @@ const User = () => {
                               width: '100%',
                               padding: '10px 16px',
                               border: 'none',
-                              backgroundColor: 'transparent',
+                              backgroundColor: user.account_status === 'deactive' ? 'transparent' : 'transparent',
                               textAlign: 'left',
                               cursor: user.role === 'admin' ? 'not-allowed' : 'pointer',
                               fontSize: '14px',
-                              color: user.role === 'admin' ? '#999' : '#ffc107',
+                              color: user.role === 'admin' ? '#999' : (user.account_status === 'deactive' ? '#28a745' : '#dc3545'),
                               display: 'flex',
                               alignItems: 'center',
                               gap: '8px',
@@ -806,7 +806,11 @@ const User = () => {
                             }}
                             onMouseEnter={(e) => {
                               if (user.role !== 'admin') {
-                                e.currentTarget.style.backgroundColor = '#fffbf0';
+                                if (user.account_status === 'deactive') {
+                                  e.currentTarget.style.backgroundColor = '#f0fdf4';
+                                } else {
+                                  e.currentTarget.style.backgroundColor = '#fee';
+                                }
                               }
                             }}
                             onMouseLeave={(e) => {
@@ -1109,10 +1113,10 @@ const User = () => {
                     width: '100%',
                     padding: '16px',
                     marginBottom: '8px',
-                    border: '2px solid #ffc107',
+                    border: '2px solid #dc3545',
                     borderRadius: '8px',
-                    backgroundColor: statusUpdateData.currentStatus === 'deactive' ? '#ffc107' : 'white',
-                    color: statusUpdateData.currentStatus === 'deactive' ? 'white' : '#ffc107',
+                    backgroundColor: statusUpdateData.currentStatus === 'deactive' ? '#dc3545' : 'white',
+                    color: statusUpdateData.currentStatus === 'deactive' ? 'white' : '#dc3545',
                     fontSize: '15px',
                     fontWeight: '500',
                     cursor: isUpdatingStatus || statusUpdateData.currentStatus === 'deactive' ? 'not-allowed' : 'pointer',
@@ -1125,14 +1129,14 @@ const User = () => {
                   }}
                   onMouseEnter={(e) => {
                     if (!isUpdatingStatus && statusUpdateData.currentStatus !== 'deactive') {
-                      e.currentTarget.style.backgroundColor = '#ffc107';
+                      e.currentTarget.style.backgroundColor = '#dc3545';
                       e.currentTarget.style.color = 'white';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (statusUpdateData.currentStatus !== 'deactive') {
                       e.currentTarget.style.backgroundColor = 'white';
-                      e.currentTarget.style.color = '#ffc107';
+                      e.currentTarget.style.color = '#dc3545';
                     }
                   }}
                 >

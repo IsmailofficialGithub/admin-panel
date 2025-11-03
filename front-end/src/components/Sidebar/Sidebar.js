@@ -17,6 +17,8 @@
 */
 import React, { useState } from "react";
 import { useLocation, NavLink } from "react-router-dom";
+import { useAuth } from "hooks/useAuth";
+import toast from "react-hot-toast";
 
 import { Nav } from "react-bootstrap";
 
@@ -26,6 +28,30 @@ function Sidebar({ color, image, routes }) {
   const location = useLocation();
   const [expandedMenus, setExpandedMenus] = useState({});
   const [hoveredSubmenu, setHoveredSubmenu] = useState(null);
+  const { profile, signOut } = useAuth();
+
+  // Handle navigation click - check account status
+  const handleNavClick = (e) => {
+    if (profile) {
+      // Check if reseller account is deactivated
+      if (profile.role === 'reseller' && profile.account_status === 'deactive') {
+        e.preventDefault();
+        e.stopPropagation();
+        toast.error('Your account has been deactivated. Please contact the administrator.');
+        signOut();
+        return false;
+      }
+      // Check if consumer account is deactivated
+      if (profile.role === 'consumer' && profile.account_status === 'deactive') {
+        e.preventDefault();
+        e.stopPropagation();
+        toast.error('Your account has been deactivated. Please contact the administrator.');
+        signOut();
+        return false;
+      }
+    }
+    return true;
+  };
 
   const activeRoute = (routeName) => {
     return location.pathname.indexOf(routeName) > -1 ? "active" : "";
@@ -106,7 +132,7 @@ function Sidebar({ color, image, routes }) {
         </div>
         <Nav>
           {routes.map((prop, key) => {
-            if (!prop.redirect && prop.name && !prop.upgrade) {
+            if (!prop.redirect && prop.name && !prop.upgrade && !prop.invisible) {
               const hasSubmenus = prop.submenus && prop.submenus.length > 0;
               const isExpanded = expandedMenus[key];
 
@@ -123,7 +149,11 @@ function Sidebar({ color, image, routes }) {
                           className="nav-link"
                           activeClassName="active"
                           style={{ flex: 1, paddingRight: '35px', position: 'relative', zIndex: 1 }}
-                          onClick={() => {
+                          onClick={(e) => {
+                            // Check account status before navigation
+                            if (!handleNavClick(e)) {
+                              return;
+                            }
                             // Close submenu if it's open
                             if (isExpanded) {
                               setExpandedMenus(prev => ({
@@ -185,6 +215,7 @@ function Sidebar({ color, image, routes }) {
                         to={prop.layout + prop.path}
                         className="nav-link"
                         activeClassName="active"
+                        onClick={handleNavClick}
                       >
                         <i className={prop.icon} />
                         <p>{prop.name}</p>
@@ -219,6 +250,7 @@ function Sidebar({ color, image, routes }) {
                               className="nav-link"
                               onMouseEnter={() => setHoveredSubmenu(submenuId)}
                               onMouseLeave={() => setHoveredSubmenu(null)}
+                              onClick={handleNavClick}
                               style={{
                                 padding: '10px 12px 10px 35px',
                                 fontSize: '13px',
@@ -276,6 +308,7 @@ function Sidebar({ color, image, routes }) {
                 <NavLink
                   to={prop.layout + prop.path}
                   className="nav-link active-pro"
+                  onClick={handleNavClick}
                   style={{
                     textAlign: 'center',
                     backgroundColor: '#51cbce',

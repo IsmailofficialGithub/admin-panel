@@ -55,36 +55,48 @@ export const AuthProvider = ({ children }) => {
       // Check if consumer account is deactivated
       if (role === 'consumer' && accountStatus === 'deactive') {
         await supabase.auth.signOut()
+        // Wait for signOut to complete
+        await new Promise(resolve => setTimeout(resolve, 200))
         // Clear all tokens and storage
         localStorage.clear()
         sessionStorage.clear()
-        // Clear all cookies including Supabase auth cookies
+        // Clear all cookies including Supabase auth cookies with domain
         document.cookie.split(";").forEach((c) => {
           const cookieName = c.split("=")[0].trim()
+          document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=${window.location.hostname};`
           document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`
         })
         setUser(null)
         setProfile(null)
         toast.error('Your account has been deactivated. Please contact the administrator.')
-        history.push('/login')
+        // Force redirect and reload to ensure clean state
+        setTimeout(() => {
+          window.location.href = '/login'
+        }, 500)
         return false
       }
 
       // Check if reseller account is deactivated
       if (role === 'reseller' && accountStatus === 'deactive') {
         await supabase.auth.signOut()
+        // Wait for signOut to complete
+        await new Promise(resolve => setTimeout(resolve, 200))
         // Clear all tokens and storage
         localStorage.clear()
         sessionStorage.clear()
-        // Clear all cookies including Supabase auth cookies
+        // Clear all cookies including Supabase auth cookies with domain
         document.cookie.split(";").forEach((c) => {
           const cookieName = c.split("=")[0].trim()
+          document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=${window.location.hostname};`
           document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`
         })
         setUser(null)
         setProfile(null)
         toast.error('Your account has been deactivated. Please contact the administrator.')
-        history.push('/login')
+        // Force redirect and reload to ensure clean state
+        setTimeout(() => {
+          window.location.href = '/login'
+        }, 500)
         return false
       }
       
@@ -140,18 +152,24 @@ export const AuthProvider = ({ children }) => {
           // Check if reseller account is deactivated
           if (profileData?.role === 'reseller' && profileData?.account_status === 'deactive') {
             await supabase.auth.signOut()
+            // Wait for signOut to complete
+            await new Promise(resolve => setTimeout(resolve, 200))
             // Clear all tokens and storage
             localStorage.clear()
             sessionStorage.clear()
-            // Clear all cookies including Supabase auth cookies
+            // Clear all cookies including Supabase auth cookies with domain
             document.cookie.split(";").forEach((c) => {
               const cookieName = c.split("=")[0].trim()
+              document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=${window.location.hostname};`
               document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`
             })
             setUser(null)
             setProfile(null)
             toast.error('Your account has been deactivated. Please contact the administrator.')
-            history.push('/login')
+            // Force redirect and reload to ensure clean state
+            setTimeout(() => {
+              window.location.href = '/login'
+            }, 500)
             setLoading(false)
             return
           }

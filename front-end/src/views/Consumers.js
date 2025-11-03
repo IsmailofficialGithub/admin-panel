@@ -397,8 +397,8 @@ const Consumers = () => {
         text: 'Active'
       },
       deactive: {
-        backgroundColor: '#fff3cd',
-        color: '#ffc107',
+        backgroundColor: '#f8d7da',
+        color: '#dc3545',
         text: 'Deactive'
       },
       expired_subscription: {
@@ -1442,10 +1442,10 @@ const Consumers = () => {
                     width: '100%',
                     padding: '16px',
                     marginBottom: '8px',
-                    border: '2px solid #ffc107',
+                    border: '2px solid #dc3545',
                     borderRadius: '8px',
                     backgroundColor: 'white',
-                    color: '#ffc107',
+                    color: '#dc3545',
                     fontSize: '15px',
                     fontWeight: '500',
                     cursor: 'pointer',
@@ -1456,12 +1456,12 @@ const Consumers = () => {
                     gap: '8px'
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#ffc107';
+                    e.currentTarget.style.backgroundColor = '#dc3545';
                     e.currentTarget.style.color = 'white';
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = 'white';
-                    e.currentTarget.style.color = '#ffc107';
+                    e.currentTarget.style.color = '#dc3545';
                   }}
                 >
                   <CheckCircle size={18} />
@@ -1587,7 +1587,7 @@ const Consumers = () => {
               <p style={{ margin: '0 0 16px 0', fontSize: '15px', color: '#666', lineHeight: '1.6' }}>
                 Are you sure you want to update the account status for <strong>{statusUpdateData.name}</strong> to{' '}
                 <span style={{ 
-                  color: selectedStatus === 'active' ? '#28a745' : selectedStatus === 'deactive' ? '#ffc107' : '#dc3545',
+                  color: selectedStatus === 'active' ? '#28a745' : selectedStatus === 'deactive' ? '#dc3545' : '#dc3545',
                   fontWeight: '600',
                   textTransform: 'capitalize'
                 }}>

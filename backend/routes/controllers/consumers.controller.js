@@ -1,6 +1,7 @@
 import { supabase, supabaseAdmin } from '../../config/database.js';
 import { sendPasswordResetEmail, sendTrialPeriodChangeEmail, sendTrialExtensionEmail } from '../../services/emailService.js';
 import { generatePassword } from '../../utils/helpers.js';
+import { logActivity, getActorInfo, getClientIp, getUserAgent } from '../../services/activityLogger.js';
 
 /**
  * Consumers Controller
@@ -215,6 +216,14 @@ export const updateConsumer = async (req, res) => {
       console.error('Error fetching consumer before update:', fetchError);
     }
 
+    // Get old data for logging changed fields
+    const { data: oldConsumer } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', id)
+      .eq('role', 'consumer')
+      .single();
+
     const oldTrialExpiry = currentConsumer?.trial_expiry || null;
 
     const { data: updatedConsumer, error } = await supabase
@@ -233,6 +242,29 @@ export const updateConsumer = async (req, res) => {
         message: error.message
       });
     }
+
+    // Log activity - track changed fields
+    const changedFields = {};
+    Object.keys(updateData).forEach(key => {
+      if (oldConsumer && oldConsumer[key] !== updateData[key]) {
+        changedFields[key] = {
+          old: oldConsumer[key],
+          new: updateData[key]
+        };
+      }
+    });
+
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: id,
+      actionType: 'update',
+      tableName: 'profiles',
+      changedFields: changedFields,
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    });
 
     // Update product access in user_product_access table
     if (subscribed_products !== undefined) {
@@ -334,6 +366,19 @@ export const deleteConsumer = async (req, res) => {
         message: 'Consumer not found'
       });
     }
+
+    // Log activity BEFORE deletion to avoid foreign key constraint violation
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: id,
+      actionType: 'delete',
+      tableName: 'profiles',
+      changedFields: consumer || null,
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    });
 
     // Delete from profiles table first
     const { error: profileError } = await supabase

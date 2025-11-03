@@ -13,6 +13,8 @@ import resellersRoutes from './routes/resellers.routes.js';
 import productsRoutes from './routes/products.routes.js';
 import invoicesRoutes from './routes/invoices.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
+import activityLogsRoutes from './routes/activityLogs.routes.js';
+import settingsRoutes from './routes/settings.routes.js';
 
 // Load environment variables
 dotenv.config();
@@ -65,6 +67,8 @@ app.use('/api/resellers', resellersRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/invoices', invoicesRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/activity-logs', activityLogsRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // Debug: Log all registered routes
 console.log('✅ Invoice routes registered at /api/invoices');

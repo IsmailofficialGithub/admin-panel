@@ -1,6 +1,7 @@
 import { supabase, supabaseAdmin } from '../../config/database.js';
 import { sendWelcomeEmail, sendPasswordResetEmail } from '../../services/emailService.js';
 import { generatePassword } from '../../utils/helpers.js';
+import { logActivity, getActorInfo, getClientIp, getUserAgent } from '../../services/activityLogger.js';
 
 /**
  * Resellers Controller
@@ -47,7 +48,33 @@ export const getAllResellers = async (req, res) => {
 
     console.log(`✅ Found ${resellers.length} resellers`);
 
-    // Gather each reseller's referred customer count
+    // Get default commission
+    const { data: defaultSetting } = await supabaseAdmin
+      .from('app_settings')
+      .select('setting_value')
+      .eq('setting_key', 'default_reseller_commission')
+      .single();
+
+    const defaultCommission = defaultSetting ? parseFloat(defaultSetting.setting_value) : 10.00;
+
+    // Get commission data for all resellers
+    const resellerIds = resellers.map(r => r.user_id);
+    const { data: profilesWithCommission } = await supabaseAdmin
+      .from('profiles')
+      .select('user_id, commission_rate, commission_updated_at')
+      .in('user_id', resellerIds);
+
+    const commissionMap = new Map();
+    if (profilesWithCommission) {
+      profilesWithCommission.forEach(profile => {
+        commissionMap.set(profile.user_id, {
+          commission_rate: profile.commission_rate,
+          commission_updated_at: profile.commission_updated_at
+        });
+      });
+    }
+
+    // Gather each reseller's referred customer count and commission
     const resellerWithCounts = await Promise.all(
       resellers.map(async function (reseller) {
         // For each reseller, count the number of users referred by them
@@ -57,9 +84,20 @@ export const getAllResellers = async (req, res) => {
           .eq('referred_by', reseller.user_id)
           .eq('role', 'consumer');
 
+        // Get commission data
+        const commissionData = commissionMap.get(reseller.user_id);
+        const customCommission = commissionData?.commission_rate ? parseFloat(commissionData.commission_rate) : null;
+        const effectiveCommission = customCommission !== null ? customCommission : defaultCommission;
+        const commissionType = customCommission !== null ? 'custom' : 'default';
+
         // Use function syntax so `this` can work inside object if needed
         return Object.assign({}, reseller, {
-          referred_count: referredError ? 0 : (typeof count === 'number' ? count : 0)
+          referred_count: referredError ? 0 : (typeof count === 'number' ? count : 0),
+          commission_rate: effectiveCommission,
+          commission_type: commissionType,
+          custom_commission: customCommission,
+          default_commission: defaultCommission,
+          commission_updated_at: commissionData?.commission_updated_at || null
         });
       })
     );
@@ -144,9 +182,27 @@ export const getResellerById = async (req, res) => {
       });
     }
 
+    // Get default commission
+    const { data: defaultSetting } = await supabaseAdmin
+      .from('app_settings')
+      .select('setting_value')
+      .eq('setting_key', 'default_reseller_commission')
+      .single();
+
+    const defaultCommission = defaultSetting ? parseFloat(defaultSetting.setting_value) : 10.00;
+    const customCommission = reseller.commission_rate ? parseFloat(reseller.commission_rate) : null;
+    const effectiveCommission = customCommission !== null ? customCommission : defaultCommission;
+    const commissionType = customCommission !== null ? 'custom' : 'default';
+
     res.json({
       success: true,
-      data: reseller
+      data: {
+        ...reseller,
+        commission_rate: effectiveCommission,
+        commission_type: commissionType,
+        custom_commission: customCommission,
+        default_commission: defaultCommission
+      }
     });
   } catch (error) {
     console.error('Get reseller error:', error);
@@ -181,6 +237,9 @@ export const createReseller = async (req, res) => {
       });
     }
 
+    // Get the user ID of who created this reseller (from token)
+    const referred_by = req.user && req.user.id ? req.user.id : null;
+
     // Create user with Supabase Admin
     const createUserPayload = {
       email,
@@ -210,6 +269,7 @@ export const createReseller = async (req, res) => {
     }
 
     // Update user role in profiles table
+    // commission_rate is NULL by default (new resellers use default commission)
     const profileData = {
       user_id: newUser.user.id,
       full_name,
@@ -217,6 +277,9 @@ export const createReseller = async (req, res) => {
       phone: phone || null,
       country: country || null,
       city: city || null,
+      referred_by: referred_by || null,
+      commission_rate: null, // Explicitly set to NULL to use default
+      commission_updated_at: null
     };
 
     const { error: insertError } = await supabaseAdmin
@@ -242,6 +305,19 @@ export const createReseller = async (req, res) => {
     } catch (emailError) {
       console.error('❌ Email send error:', emailError);
     }
+
+    // Log activity
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: newUser.user.id,
+      actionType: 'create',
+      tableName: 'profiles',
+      changedFields: profileData,
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    });
 
     res.status(201).json({
       success: true,
@@ -297,6 +373,14 @@ export const updateReseller = async (req, res) => {
 
     console.log("updateData", updateData);
 
+    // Get old data for logging changed fields
+    const { data: oldReseller } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', id)
+      .eq('role', 'reseller')
+      .single();
+
     const { data: updatedReseller, error } = await supabase
       .from('profiles')
       .update(updateData)
@@ -313,6 +397,29 @@ export const updateReseller = async (req, res) => {
         message: error.message
       });
     }
+
+    // Log activity - track changed fields
+    const changedFields = {};
+    Object.keys(updateData).forEach(key => {
+      if (oldReseller && oldReseller[key] !== updateData[key]) {
+        changedFields[key] = {
+          old: oldReseller[key],
+          new: updateData[key]
+        };
+      }
+    });
+
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: id,
+      actionType: 'update',
+      tableName: 'profiles',
+      changedFields: changedFields,
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    });
 
     res.json({
       success: true,
@@ -354,6 +461,19 @@ export const deleteReseller = async (req, res) => {
         message: 'Reseller not found'
       });
     }
+
+    // Log activity BEFORE deletion to avoid foreign key constraint violation
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: id,
+      actionType: 'delete',
+      tableName: 'profiles',
+      changedFields: reseller || null,
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    });
 
     // Delete from profiles table first
     const { error: profileError } = await supabase
@@ -625,6 +745,19 @@ export const createMyConsumer = async (req, res) => {
       });
     }
 
+    // Log activity
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: newUser.user.id,
+      actionType: 'create',
+      tableName: 'profiles',
+      changedFields: profileData,
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    });
+
     // Store product access in user_product_access table
     if (subscribed_products && Array.isArray(subscribed_products) && subscribed_products.length > 0) {
       try {
@@ -726,6 +859,13 @@ export const updateMyConsumer = async (req, res) => {
       });
     }
 
+    // Get old data for logging changed fields
+    const { data: oldConsumer } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', id)
+      .single();
+
     const updateData = {};
     if (full_name !== undefined) updateData.full_name = full_name;
     if (phone !== undefined) updateData.phone = phone;
@@ -764,6 +904,29 @@ export const updateMyConsumer = async (req, res) => {
         message: error.message
       });
     }
+
+    // Log activity - track changed fields
+    const changedFields = {};
+    Object.keys(updateData).forEach(key => {
+      if (oldConsumer && oldConsumer[key] !== updateData[key]) {
+        changedFields[key] = {
+          old: oldConsumer[key],
+          new: updateData[key]
+        };
+      }
+    });
+
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: id,
+      actionType: 'update',
+      tableName: 'profiles',
+      changedFields: changedFields,
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    });
 
     // Update product access in user_product_access table
     if (subscribed_products !== undefined) {
@@ -861,6 +1024,26 @@ export const deleteMyConsumer = async (req, res) => {
         message: 'Can only delete consumers'
       });
     }
+
+    // Get full consumer data before deletion for logging
+    const { data: fullConsumer } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', id)
+      .single();
+
+    // Log activity BEFORE deletion to avoid foreign key constraint violation
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: id,
+      actionType: 'delete',
+      tableName: 'profiles',
+      changedFields: fullConsumer || consumer || null,
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    });
 
     // Delete from profiles table
     const { error: deleteProfileError } = await supabase
@@ -1019,8 +1202,16 @@ export const createConsumerAdmin = async (req, res) => {
       });
     }
 
-    // If referred_by is provided, verify the reseller exists
-    if (referred_by) {
+    // Get referred_by from request body or from token (whoever is creating this consumer)
+    let finalReferredBy = referred_by;
+    
+    // If referred_by is not provided in body, use the creator's ID from token
+    if (!finalReferredBy && req.user && req.user.id) {
+      finalReferredBy = req.user.id;
+    }
+
+    // If referred_by is provided, verify the reseller exists (only if explicitly provided in body)
+    if (referred_by && referred_by !== req.user?.id) {
       const { data: reseller, error: resellerError } = await supabase
         .from('profiles')
         .select('user_id, role')
@@ -1072,12 +1263,8 @@ export const createConsumerAdmin = async (req, res) => {
       phone: phone || null,
       country: country || null,
       city: city || null,
+      referred_by: finalReferredBy || null,
     };
-
-    // Add referred_by if provided
-    if (referred_by) {
-      profileData.referred_by = referred_by;
-    }
 
     // Add trial_expiry if provided
     if (trial_expiry_date) {
@@ -1098,6 +1285,19 @@ export const createConsumerAdmin = async (req, res) => {
         message: 'User created but profile insert failed'
       });
     }
+
+    // Log activity
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: newUser.user.id,
+      actionType: 'create',
+      tableName: 'profiles',
+      changedFields: profileData,
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    });
 
     // Store product access in user_product_access table
     if (subscribed_products && Array.isArray(subscribed_products) && subscribed_products.length > 0) {

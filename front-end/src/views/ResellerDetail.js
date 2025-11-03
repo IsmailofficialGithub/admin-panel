@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useHistory } from 'react-router-dom';
 import { Card, Table, Container, Row, Col, Button, Badge } from 'react-bootstrap';
 import { toast } from 'react-hot-toast';
+import { Edit2, Save, X, DollarSign, FileText, TrendingUp, Users } from 'lucide-react';
 import { getResellerById } from '../api/backend/resellers';
+import { getResellerCommission, setResellerCommission, resetResellerCommission } from '../api/backend';
 import apiClient from '../services/apiClient';
 
 function ResellerDetail() {
@@ -12,11 +14,102 @@ function ResellerDetail() {
   const [consumers, setConsumers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [consumersLoading, setConsumersLoading] = useState(true);
+  const [commissionData, setCommissionData] = useState(null);
+  const [isEditingCommission, setIsEditingCommission] = useState(false);
+  const [editCommissionValue, setEditCommissionValue] = useState('');
+  const [savingCommission, setSavingCommission] = useState(false);
+  const [invoiceStats, setInvoiceStats] = useState({
+    totalRevenue: 0,
+    totalInvoices: 0,
+    paidInvoices: 0,
+    unpaidInvoices: 0
+  });
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  // Define fetchInvoiceStats with useCallback before useEffect hooks
+  const fetchInvoiceStats = React.useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      // Get all consumers referred by this reseller
+      const consumerIds = consumers.map(c => c.user_id);
+      if (consumerIds.length === 0) {
+        setInvoiceStats({
+          totalRevenue: 0,
+          totalInvoices: 0,
+          paidInvoices: 0,
+          unpaidInvoices: 0
+        });
+        setStatsLoading(false);
+        return;
+      }
+
+      // Fetch invoices for all referred consumers
+      const invoicePromises = consumerIds.map(consumerId =>
+        apiClient.invoices.getConsumerInvoices(consumerId)
+          .then(response => {
+            // Handle response structure: response.data = { success: true, count: X, data: [...] }
+            if (response && response.data) {
+              if (response.data.success && response.data.data) {
+                return Array.isArray(response.data.data) ? response.data.data : [];
+              }
+              if (Array.isArray(response.data.data)) {
+                return response.data.data;
+              }
+              if (Array.isArray(response.data)) {
+                return response.data;
+              }
+            }
+            return [];
+          })
+          .catch(() => [])
+      );
+
+      const invoiceArrays = await Promise.all(invoicePromises);
+      const allInvoices = invoiceArrays.flat();
+
+      // Calculate statistics - only count invoices where this reseller is the sender
+      const resellerInvoices = allInvoices.filter(inv => 
+        inv.reseller_id === id || inv.sender_id === id
+      );
+
+      // Calculate statistics
+      const paidInvoices = resellerInvoices.filter(inv => inv.status === 'paid');
+      const unpaidInvoices = resellerInvoices.filter(inv => inv.status === 'unpaid');
+      const totalRevenue = paidInvoices.reduce((sum, inv) => sum + parseFloat(inv.total || 0), 0);
+
+      setInvoiceStats({
+        totalRevenue,
+        totalInvoices: resellerInvoices.length,
+        paidInvoices: paidInvoices.length,
+        unpaidInvoices: unpaidInvoices.length
+      });
+    } catch (error) {
+      console.error('Error fetching invoice stats:', error);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, [consumers, id]);
 
   useEffect(() => {
     fetchResellerData();
     fetchReferredConsumers();
+    fetchCommissionData();
   }, [id]);
+
+  useEffect(() => {
+    if (consumers.length > 0 && id) {
+      fetchInvoiceStats();
+    } else {
+      // Reset stats if no consumers
+      setInvoiceStats({
+        totalRevenue: 0,
+        totalInvoices: 0,
+        paidInvoices: 0,
+        unpaidInvoices: 0
+      });
+      setStatsLoading(false);
+    }
+  }, [consumers, id, fetchInvoiceStats]);
 
   const fetchResellerData = async () => {
     setLoading(true);
@@ -60,6 +153,39 @@ function ResellerDetail() {
     }
   };
 
+  const fetchCommissionData = async () => {
+    try {
+      console.log('🔄 Fetching commission for reseller:', id);
+      const result = await getResellerCommission(id);
+      console.log('📥 Commission result:', result);
+      
+      // Handle different response structures
+      if (result) {
+        // Structure 1: { success: true, data: { commissionRate: 11, ... } }
+        if (result.success && result.data) {
+          setCommissionData(result.data);
+          console.log('✅ Set commission data (structure 1):', result.data);
+        }
+        // Structure 2: Direct data { commissionRate: 11, ... }
+        else if (result.commissionRate !== undefined) {
+          setCommissionData(result);
+          console.log('✅ Set commission data (structure 2):', result);
+        }
+        // Structure 3: response.data.data (double wrapped)
+        else if (result.data && result.data.commissionRate !== undefined) {
+          setCommissionData(result.data);
+          console.log('✅ Set commission data (structure 3):', result.data);
+        } else {
+          console.warn('⚠️ Could not parse commission result:', result);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error fetching commission:', error);
+      console.error('❌ Error details:', error.response?.data || error.message);
+      toast.error('Failed to load commission data');
+    }
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     const date = new Date(dateString);
@@ -73,7 +199,7 @@ function ResellerDetail() {
   const getAccountStatusBadge = (status) => {
     const statusColors = {
       active: 'success',
-      deactive: 'secondary',
+      deactive: 'danger',
       expired_subscription: 'danger'
     };
     const statusLabels = {
@@ -86,6 +212,164 @@ function ResellerDetail() {
         {statusLabels[status] || status}
       </Badge>
     );
+  };
+
+  const handleEditCommission = () => {
+    console.log('✏️ Edit commission clicked, commissionData:', commissionData);
+    if (commissionData && commissionData.commissionRate !== undefined) {
+      const rate = parseFloat(commissionData.commissionRate || 0);
+      setEditCommissionValue(rate.toString());
+      setIsEditingCommission(true);
+      console.log('✅ Set editCommissionValue to:', rate);
+    } else {
+      console.warn('⚠️ Cannot edit: commissionData is missing or commissionRate is undefined');
+      toast.error('Commission data not loaded yet. Please wait...');
+    }
+  };
+
+  const handleSaveCommission = async () => {
+    const rate = parseFloat(editCommissionValue);
+    if (isNaN(rate) || rate < 0 || rate > 100) {
+      toast.error('Commission rate must be between 0 and 100');
+      return;
+    }
+
+    setSavingCommission(true);
+    try {
+      console.log('💾 Saving commission:', rate, 'for reseller:', id);
+      const result = await setResellerCommission(id, rate);
+      console.log('📥 Save commission result:', result);
+      console.log('📥 Result type:', typeof result);
+      console.log('📥 Result.success:', result?.success);
+      console.log('📥 Result.success === true:', result?.success === true);
+      console.log('📥 Result.success == true:', result?.success == true);
+      console.log('📥 Boolean(result.success):', Boolean(result?.success));
+      
+      // Handle different response structures
+      if (result) {
+        // Structure 1: { success: true, message: '...', data: {...} }
+        // Check success in multiple ways (strict, loose, boolean)
+        if (result.success === true || result.success === 'true' || Boolean(result.success) === true) {
+          console.log('✅ Success detected!');
+          toast.success(result.message || 'Commission updated successfully!');
+          setIsEditingCommission(false);
+          await fetchCommissionData();
+          await fetchResellerData(); // Refresh reseller data
+          return;
+        }
+        // Structure 2: Response might have success field but false
+        else if (result.success === false || result.success === 'false') {
+          console.log('❌ Explicit failure detected');
+          toast.error(result.error || result.message || 'Failed to update commission');
+          return;
+        }
+        // Structure 3: No success field but has data with commissionRate
+        else if (result.data && (result.data.commissionRate !== undefined || result.data.commissionType !== undefined)) {
+          console.log('✅ Success detected via data field');
+          toast.success(result.message || 'Commission updated successfully!');
+          setIsEditingCommission(false);
+          await fetchCommissionData();
+          await fetchResellerData();
+          return;
+        }
+        // Structure 4: Direct commissionRate in result (not nested in data)
+        else if (result.commissionRate !== undefined || result.commissionType !== undefined) {
+          console.log('✅ Success detected via direct fields');
+          toast.success(result.message || 'Commission updated successfully!');
+          setIsEditingCommission(false);
+          await fetchCommissionData();
+          await fetchResellerData();
+          return;
+        }
+      }
+      
+      // If we get here, couldn't parse the response
+      console.warn('⚠️ Could not parse commission save result:', result);
+      console.warn('⚠️ Result keys:', result ? Object.keys(result) : 'null');
+      toast.error(result?.error || result?.message || 'Failed to update commission');
+    } catch (error) {
+      console.error('❌ Error updating commission:', error);
+      console.error('❌ Error details:', error.response?.data || error.message);
+      toast.error(error.response?.data?.message || error.message || 'Failed to update commission');
+    } finally {
+      setSavingCommission(false);
+    }
+  };
+
+  const handleResetCommission = async () => {
+    if (!window.confirm('Reset this reseller\'s commission to default?')) {
+      return;
+    }
+
+    setSavingCommission(true);
+    try {
+      console.log('🔄 Resetting commission for reseller:', id);
+      const result = await resetResellerCommission(id);
+      console.log('📥 Reset commission result:', result);
+      console.log('📥 Result type:', typeof result);
+      console.log('📥 Result.success:', result?.success);
+      console.log('📥 Result.success === true:', result?.success === true);
+      console.log('📥 Result.success == true:', result?.success == true);
+      console.log('📥 Boolean(result.success):', Boolean(result?.success));
+      
+      // Handle different response structures
+      if (result) {
+        // Structure 1: { success: true, message: '...', data: {...} }
+        // Check success in multiple ways (strict, loose, boolean)
+        if (result.success === true || result.success === 'true' || Boolean(result.success) === true) {
+          console.log('✅ Success detected!');
+          toast.success(result.message || 'Commission reset to default!');
+          await fetchCommissionData();
+          await fetchResellerData();
+          return;
+        }
+        // Structure 2: Response might have success field but false
+        else if (result.success === false || result.success === 'false') {
+          console.log('❌ Explicit failure detected');
+          toast.error(result.error || result.message || 'Failed to reset commission');
+          return;
+        }
+        // Structure 3: No success field but has data with commissionRate or commissionType
+        else if (result.data && (result.data.commissionRate !== undefined || result.data.commissionType !== undefined)) {
+          console.log('✅ Success detected via data field');
+          toast.success(result.message || 'Commission reset to default!');
+          await fetchCommissionData();
+          await fetchResellerData();
+          return;
+        }
+        // Structure 4: Direct commissionRate or commissionType in result (not nested in data)
+        else if (result.commissionRate !== undefined || result.commissionType !== undefined) {
+          console.log('✅ Success detected via direct fields');
+          toast.success(result.message || 'Commission reset to default!');
+          await fetchCommissionData();
+          await fetchResellerData();
+          return;
+        }
+      }
+      
+      // If we get here, couldn't parse the response
+      console.warn('⚠️ Could not parse commission reset result:', result);
+      console.warn('⚠️ Result keys:', result ? Object.keys(result) : 'null');
+      toast.error(result?.error || result?.message || 'Failed to reset commission');
+    } catch (error) {
+      console.error('❌ Error resetting commission:', error);
+      console.error('❌ Error details:', error.response?.data || error.message);
+      toast.error(error.response?.data?.message || error.message || 'Failed to reset commission');
+    } finally {
+      setSavingCommission(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditingCommission(false);
+    setEditCommissionValue('');
+  };
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(amount || 0);
   };
 
   if (loading) {
@@ -269,13 +553,294 @@ function ResellerDetail() {
                       letterSpacing: '0.5px',
                       marginBottom: '6px',
                       fontWeight: '600'
-                    }}>Member Since</div>
+                    }}>Created At</div>
                     <div style={{ fontSize: '15px', color: '#333', fontWeight: '500' }}>
                       {formatDate(reseller.created_at)}
                     </div>
                   </div>
+                  <div style={{ marginBottom: '20px' }}>
+                    <div style={{ 
+                      fontSize: '12px', 
+                      color: '#999', 
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      marginBottom: '6px',
+                      fontWeight: '600'
+                    }}>Updated At</div>
+                    <div style={{ fontSize: '15px', color: '#333', fontWeight: '500' }}>
+                      {formatDate(reseller.updated_at)}
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: '20px' }}>
+                    <div style={{ 
+                      fontSize: '12px', 
+                      color: '#999', 
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      marginBottom: '6px',
+                      fontWeight: '600'
+                    }}>Commission Rate</div>
+                    {isEditingCommission ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="number"
+                          value={editCommissionValue}
+                          onChange={(e) => setEditCommissionValue(e.target.value)}
+                          min={0}
+                          max={100}
+                          step={0.01}
+                          style={{
+                            padding: '8px 12px',
+                            border: '1px solid #74317e',
+                            borderRadius: '6px',
+                            fontSize: '14px',
+                            width: '100px',
+                            outline: 'none'
+                          }}
+                          autoFocus
+                        />
+                        <span style={{ fontSize: '14px', color: '#666' }}>%</span>
+                        <button
+                          onClick={handleSaveCommission}
+                          disabled={savingCommission}
+                          style={{
+                            padding: '6px 12px',
+                            backgroundColor: '#74317e',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '12px'
+                          }}
+                        >
+                          <Save size={14} />
+                          Save
+                        </button>
+                        <button
+                          onClick={handleCancelEdit}
+                          disabled={savingCommission}
+                          style={{
+                            padding: '6px 12px',
+                            backgroundColor: '#6c757d',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '12px'
+                          }}
+                        >
+                          <X size={14} />
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ fontSize: '15px', color: '#333', fontWeight: '500' }}>
+                          {commissionData ? (
+                            <>
+                              <span style={{ color: '#74317e', fontWeight: '600', fontSize: '16px' }}>
+                                {parseFloat(commissionData.commissionRate || 0).toFixed(2)}%
+                              </span>
+                              <span style={{ 
+                                fontSize: '11px', 
+                                color: commissionData.commissionType === 'custom' ? '#f59e0b' : '#6b7280',
+                                backgroundColor: commissionData.commissionType === 'custom' ? '#fef3c7' : '#f3f4f6',
+                                padding: '2px 8px',
+                                borderRadius: '10px',
+                                marginLeft: '8px',
+                                textTransform: 'uppercase',
+                                fontWeight: '500'
+                              }}>
+                                {commissionData.commissionType === 'custom' ? 'Custom' : 'Default'}
+                              </span>
+                            </>
+                          ) : (
+                            'Loading...'
+                          )}
+                        </div>
+                        <button
+                          onClick={handleEditCommission}
+                          disabled={!commissionData || commissionData.commissionRate === undefined}
+                          style={{
+                            padding: '4px 8px',
+                            backgroundColor: 'transparent',
+                            border: '1px solid #74317e',
+                            borderRadius: '6px',
+                            cursor: (!commissionData || commissionData.commissionRate === undefined) ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '11px',
+                            color: (!commissionData || commissionData.commissionRate === undefined) ? '#999' : '#74317e',
+                            opacity: (!commissionData || commissionData.commissionRate === undefined) ? 0.5 : 1
+                          }}
+                          title={(!commissionData || commissionData.commissionRate === undefined) ? "Loading commission data..." : "Edit Commission"}
+                        >
+                          <Edit2 size={12} />
+                          Edit
+                        </button>
+                        {commissionData && commissionData.commissionType === 'custom' && (
+                          <button
+                            onClick={handleResetCommission}
+                            disabled={savingCommission}
+                            style={{
+                              padding: '4px 8px',
+                              backgroundColor: 'transparent',
+                              border: '1px solid #6c757d',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              color: '#6c757d'
+                            }}
+                            title="Reset to Default"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </Col>
               </Row>
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Invoice Statistics Card */}
+      <Row className="mt-4">
+        <Col md="12">
+          <Card>
+            <Card.Header style={{ 
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              borderRadius: '8px 8px 0 0',
+              padding: '20px 24px'
+            }}>
+              <Card.Title as="h4" style={{ 
+                color: 'white', 
+                margin: 0,
+                fontSize: '22px',
+                fontWeight: '600',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px'
+              }}>
+                <DollarSign size={24} />
+                Business Statistics (Based on Referred Consumers' Paid Invoices)
+              </Card.Title>
+            </Card.Header>
+            <Card.Body style={{ padding: '24px' }}>
+              {statsLoading ? (
+                <div className="text-center py-5">
+                  <div className="spinner-border text-primary" role="status">
+                    <span className="sr-only">Loading...</span>
+                  </div>
+                  <p className="mt-3">Loading statistics...</p>
+                </div>
+              ) : (
+                <Row>
+                  <Col md={3} style={{ marginBottom: '16px' }}>
+                    <div style={{
+                      padding: '20px',
+                      backgroundColor: '#f0f9ff',
+                      borderRadius: '8px',
+                      border: '2px solid #0284c7',
+                      textAlign: 'center'
+                    }}>
+                      <DollarSign size={32} color="#0284c7" style={{ marginBottom: '8px' }} />
+                      <div style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '4px' }}>
+                        TOTAL REVENUE
+                      </div>
+                      <div style={{ fontSize: '24px', fontWeight: '700', color: '#0284c7' }}>
+                        {formatCurrency(invoiceStats.totalRevenue)}
+                      </div>
+                    </div>
+                  </Col>
+                  <Col md={3} style={{ marginBottom: '16px' }}>
+                    <div style={{
+                      padding: '20px',
+                      backgroundColor: '#fef3c7',
+                      borderRadius: '8px',
+                      border: '2px solid #f59e0b',
+                      textAlign: 'center'
+                    }}>
+                      <TrendingUp size={32} color="#f59e0b" style={{ marginBottom: '8px' }} />
+                      <div style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '4px' }}>
+                        RESELLER EARNINGS
+                        {commissionData && (
+                          <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '2px' }}>
+                            ({parseFloat(commissionData.commissionRate || 0).toFixed(2)}% commission)
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '24px', fontWeight: '700', color: '#f59e0b' }}>
+                        {commissionData && invoiceStats.totalRevenue > 0 ? (
+                          formatCurrency((invoiceStats.totalRevenue * parseFloat(commissionData.commissionRate || 0)) / 100)
+                        ) : (
+                          formatCurrency(0)
+                        )}
+                      </div>
+                    </div>
+                  </Col>
+                  <Col md={3} style={{ marginBottom: '16px' }}>
+                    <div style={{
+                      padding: '20px',
+                      backgroundColor: '#f0fdf4',
+                      borderRadius: '8px',
+                      border: '2px solid #16a34a',
+                      textAlign: 'center'
+                    }}>
+                      <FileText size={32} color="#16a34a" style={{ marginBottom: '8px' }} />
+                      <div style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '4px' }}>
+                        TOTAL INVOICES
+                      </div>
+                      <div style={{ fontSize: '24px', fontWeight: '700', color: '#16a34a' }}>
+                        {invoiceStats.totalInvoices}
+                      </div>
+                    </div>
+                  </Col>
+                  <Col md={3} style={{ marginBottom: '16px' }}>
+                    <div style={{
+                      padding: '20px',
+                      backgroundColor: '#dcfce7',
+                      borderRadius: '8px',
+                      border: '2px solid #22c55e',
+                      textAlign: 'center'
+                    }}>
+                      <TrendingUp size={32} color="#22c55e" style={{ marginBottom: '8px' }} />
+                      <div style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '4px' }}>
+                        PAID INVOICES
+                      </div>
+                      <div style={{ fontSize: '24px', fontWeight: '700', color: '#22c55e' }}>
+                        {invoiceStats.paidInvoices}
+                      </div>
+                    </div>
+                  </Col>
+                  <Col md={3} style={{ marginBottom: '16px' }}>
+                    <div style={{
+                      padding: '20px',
+                      backgroundColor: '#fee2e2',
+                      borderRadius: '8px',
+                      border: '2px solid #ef4444',
+                      textAlign: 'center'
+                    }}>
+                      <Users size={32} color="#ef4444" style={{ marginBottom: '8px' }} />
+                      <div style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '4px' }}>
+                        UNPAID INVOICES
+                      </div>
+                      <div style={{ fontSize: '24px', fontWeight: '700', color: '#ef4444' }}>
+                        {invoiceStats.unpaidInvoices}
+                      </div>
+                    </div>
+                  </Col>
+                </Row>
+              )}
             </Card.Body>
           </Card>
         </Col>

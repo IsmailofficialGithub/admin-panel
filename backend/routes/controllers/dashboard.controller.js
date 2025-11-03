@@ -243,3 +243,180 @@ export const getDashboardStats = async (req, res) => {
   }
 };
 
+/**
+ * Get reseller business statistics
+ * @route   GET /api/dashboard/reseller-stats
+ * @access  Private (Admin)
+ */
+export const getResellerStats = async (req, res) => {
+  try {
+    const userRole = req.userProfile?.role;
+
+    // Only admin can access reseller stats
+    if (userRole !== 'admin') {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Admin access required'
+      });
+    }
+
+    const { month, year, status, limit = 10 } = req.query;
+    
+    // Default to current month if not specified
+    const currentDate = new Date();
+    const targetMonth = month ? parseInt(month) - 1 : currentDate.getMonth(); // month is 0-indexed
+    const targetYear = year ? parseInt(year) : currentDate.getFullYear();
+    
+    const startOfMonth = new Date(targetYear, targetMonth, 1);
+    const endOfMonth = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59, 999);
+    
+    // First, get all reseller IDs
+    const { data: resellers, error: resellerError } = await supabaseAdmin
+      .from('profiles')
+      .select('user_id')
+      .eq('role', 'reseller');
+
+    if (resellerError) {
+      console.error('Error fetching resellers:', resellerError);
+      return res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to fetch reseller data'
+      });
+    }
+
+    const resellerIds = (resellers || []).map(r => r.user_id);
+    
+    if (resellerIds.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          stats: [],
+          summary: {
+            total_resellers: 0,
+            total_revenue: 0,
+            total_invoices: 0,
+            month: targetMonth + 1,
+            year: targetYear,
+            status: status || 'paid'
+          }
+        }
+      });
+    }
+
+    // Build query for invoices (simplified - fetch sender profiles separately)
+    let query = supabaseAdmin
+      .from('invoices')
+      .select(`
+        id,
+        sender_id,
+        receiver_id,
+        total_amount,
+        status,
+        created_at
+      `)
+      .in('sender_id', resellerIds)
+      .gte('created_at', startOfMonth.toISOString())
+      .lte('created_at', endOfMonth.toISOString());
+
+    // Filter by status (default to 'paid' if not specified)
+    const invoiceStatus = status || 'paid';
+    if (invoiceStatus !== 'all') {
+      query = query.eq('status', invoiceStatus);
+    }
+
+    const { data: invoices, error } = await query;
+
+    if (error) {
+      console.error('Error fetching reseller stats:', error);
+      return res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to fetch reseller statistics',
+        details: error.message
+      });
+    }
+
+    // Fetch sender profiles separately
+    const senderIdsFromInvoices = Array.from(new Set((invoices || []).map(inv => inv.sender_id).filter(Boolean)));
+    
+    let senderProfiles = {};
+    if (senderIdsFromInvoices.length > 0) {
+      const { data: profiles, error: profilesError } = await supabaseAdmin
+        .from('auth_role_with_profiles')
+        .select('user_id, full_name, email, role')
+        .in('user_id', senderIdsFromInvoices);
+      
+      if (!profilesError && profiles) {
+        profiles.forEach(profile => {
+          senderProfiles[profile.user_id] = {
+            full_name: profile.full_name || 'Unknown',
+            email: profile.email || '',
+            role: profile.role
+          };
+        });
+      }
+    }
+
+    // Group invoices by reseller (sender_id)
+    const resellerStats = {};
+    
+    (invoices || []).forEach(invoice => {
+      const senderId = invoice.sender_id;
+      if (!senderId) return;
+
+      const profile = senderProfiles[senderId];
+      if (!profile) return; // Skip if profile not found
+
+      if (!resellerStats[senderId]) {
+        resellerStats[senderId] = {
+          reseller_id: senderId,
+          reseller_name: profile.full_name || 'Unknown',
+          reseller_email: profile.email || '',
+          total_revenue: 0,
+          invoice_count: 0,
+          invoices: []
+        };
+      }
+
+      const amount = parseFloat(invoice.total_amount || 0);
+      resellerStats[senderId].total_revenue += amount;
+      resellerStats[senderId].invoice_count += 1;
+      resellerStats[senderId].invoices.push({
+        id: invoice.id,
+        amount: amount,
+        status: invoice.status,
+        created_at: invoice.created_at
+      });
+    });
+
+    // Convert to array and sort by total_revenue (descending)
+    let statsArray = Object.values(resellerStats)
+      .sort((a, b) => b.total_revenue - a.total_revenue)
+      .slice(0, parseInt(limit));
+
+    // Calculate totals
+    const totalRevenue = statsArray.reduce((sum, stat) => sum + stat.total_revenue, 0);
+    const totalInvoices = statsArray.reduce((sum, stat) => sum + stat.invoice_count, 0);
+
+    res.json({
+      success: true,
+      data: {
+        stats: statsArray,
+        summary: {
+          total_resellers: statsArray.length,
+          total_revenue: totalRevenue,
+          total_invoices: totalInvoices,
+          month: targetMonth + 1,
+          year: targetYear,
+          status: invoiceStatus
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error in getResellerStats:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
+  }
+};
+

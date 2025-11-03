@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useHistory } from 'react-router-dom';
-import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, FileText, Eye } from 'lucide-react';
+import { useHistory, useLocation } from 'react-router-dom';
+import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, FileText, Eye, Wallet, DollarSign, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 // ✅ Using backend API for Reseller's Consumers
 import apiClient from '../services/apiClient';
@@ -8,10 +8,12 @@ import CreateConsumerModal from '../components/ui/createConsumerModel';
 import UpdateConsumerModal from '../components/ui/updateConsumerModel';
 import DeleteModal from '../components/ui/deleteModel';
 import CreateInvoiceModal from '../components/ui/createInvoiceModal';
+import { getMyCommission } from '../api/backend';
 
 const ResellerConsumers = () => {
   console.log('👥 Reseller Consumers component rendering...');
   const history = useHistory();
+  const location = useLocation();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -25,6 +27,11 @@ const ResellerConsumers = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [showCreateInvoiceModal, setShowCreateInvoiceModal] = useState(false);
   const [selectedConsumerForInvoice, setSelectedConsumerForInvoice] = useState(null);
+  const [availableBalance, setAvailableBalance] = useState(0);
+  const [commissionRate, setCommissionRate] = useState(0);
+  const [loadingBalance, setLoadingBalance] = useState(true);
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
   const usersPerPage = 20;
 
   // Fetch Reseller's consumers from backend API
@@ -53,7 +60,74 @@ const ResellerConsumers = () => {
     };
 
     fetchConsumers();
+    fetchWithdrawData();
   }, []);
+
+
+  // Fetch withdraw data (commission rate and available balance)
+  const fetchWithdrawData = async () => {
+    setLoadingBalance(true);
+    try {
+      // Fetch commission data
+      const commissionResult = await getMyCommission();
+      if (commissionResult && commissionResult.success && commissionResult.data) {
+        const rate = parseFloat(commissionResult.data.commissionRate || 0);
+        setCommissionRate(rate);
+
+        // Fetch paid invoices to calculate available balance
+        const invoicesResponse = await apiClient.invoices.getMyInvoices('?status=paid');
+        if (invoicesResponse && invoicesResponse.data) {
+          const invoices = invoicesResponse.data.data || invoicesResponse.data || [];
+          
+          // Calculate total revenue from paid invoices
+          const totalRevenue = invoices.reduce((sum, inv) => {
+            return sum + parseFloat(inv.total_amount || inv.total || 0);
+          }, 0);
+
+          // Calculate available balance (total revenue * commission rate)
+          const balance = (totalRevenue * rate) / 100;
+          setAvailableBalance(balance);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching withdraw data:', error);
+    } finally {
+      setLoadingBalance(false);
+    }
+  };
+
+  // Handle withdraw button click - navigate to withdraw page
+  const handleWithdraw = () => {
+    history.push('/reseller/withdraw');
+  };
+
+  // Handle request fund from modal
+  const handleRequestFund = () => {
+    const amount = parseFloat(withdrawAmount) || 0;
+    if (amount <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+    if (amount > availableBalance) {
+      toast.error(`Cannot withdraw more than available balance ($${availableBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`);
+      return;
+    }
+    
+    // Show coming soon toast
+    toast('Coming soon', {
+      icon: '🚀',
+      duration: 3000,
+      style: {
+        borderRadius: '10px',
+        background: '#333',
+        color: '#fff',
+      },
+    });
+    
+    // Close modal and reset amount
+    setShowWithdrawModal(false);
+    setWithdrawAmount('');
+  };
 
   const indexOfLastUser = currentPage * usersPerPage;
   const indexOfFirstUser = indexOfLastUser - usersPerPage;
@@ -344,35 +418,82 @@ const ResellerConsumers = () => {
               Manage your consumers and their permissions
             </p>
           </div>
-              <button
-                onClick={() => setIsCreateModalOpen(true)}
-                title="Create New Consumer"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '12px',
-                  backgroundColor: '#74317e',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  boxShadow: '0 2px 4px rgba(0,123,255,0.2)'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#5a2460';
-                  e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,123,255,0.3)';
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#74317e';
-                  e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,123,255,0.2)';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }}
-              >
-                <UserPlus size={20} />
-              </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {/* Withdraw Button */}
+            <button
+              onClick={handleWithdraw}
+              title={`Available Balance: $${availableBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                padding: '12px 20px',
+                backgroundColor: '#10b981',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                boxShadow: '0 2px 4px rgba(16,185,129,0.2)',
+                fontWeight: '500',
+                fontSize: '14px'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#059669';
+                e.currentTarget.style.boxShadow = '0 4px 8px rgba(16,185,129,0.3)';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#10b981';
+                e.currentTarget.style.boxShadow = '0 2px 4px rgba(16,185,129,0.2)';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
+            >
+              <Wallet size={18} />
+              <span>Withdraw</span>
+              {!loadingBalance && (
+                <span style={{ 
+                  marginLeft: '4px',
+                  fontSize: '12px',
+                  opacity: 0.9
+                }}>
+                  ${availableBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              )}
+            </button>
+            
+            {/* Create Consumer Button */}
+            <button
+              onClick={() => setIsCreateModalOpen(true)}
+              title="Create New Consumer"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '12px',
+                backgroundColor: '#74317e',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                boxShadow: '0 2px 4px rgba(0,123,255,0.2)'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#5a2460';
+                e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,123,255,0.3)';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#74317e';
+                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,123,255,0.2)';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
+            >
+              <UserPlus size={20} />
+            </button>
+          </div>
             </div>
 
             {/* Loading State */}
@@ -914,6 +1035,260 @@ const ResellerConsumers = () => {
         userId={deleteUserData?.id}
         isDeleting={isDeleting}
       />
+
+      {/* Withdraw Modal */}
+      {showWithdrawModal && (
+        <div
+          onClick={() => {
+            setShowWithdrawModal(false);
+            setWithdrawAmount('');
+            // Navigate back if we're on /withdraw route
+            if (location.pathname === '/reseller/withdraw') {
+              history.push('/reseller/dashboard');
+            }
+          }}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '12px',
+              width: '100%',
+              maxWidth: '500px',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              padding: '24px',
+              borderBottom: '1px solid #e5e7eb',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}>
+              <h2 style={{
+                margin: 0,
+                fontSize: '20px',
+                fontWeight: '600',
+                color: '#111827',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px'
+              }}>
+                <Wallet size={24} style={{ color: '#10b981' }} />
+                Request Withdrawal
+              </h2>
+              <button
+                onClick={() => {
+                  setShowWithdrawModal(false);
+                  setWithdrawAmount('');
+                }}
+                style={{
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '8px',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#6b7280',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#f3f4f6';
+                  e.currentTarget.style.color = '#111827';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = '#6b7280';
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '24px' }}>
+              {/* Available Balance Display */}
+              <div style={{
+                padding: '16px',
+                backgroundColor: '#f0fdf4',
+                border: '1px solid #86efac',
+                borderRadius: '8px',
+                marginBottom: '24px'
+              }}>
+                <div style={{
+                  fontSize: '14px',
+                  color: '#166534',
+                  marginBottom: '8px',
+                  fontWeight: '500'
+                }}>
+                  Available Balance
+                </div>
+                <div style={{
+                  fontSize: '28px',
+                  color: '#10b981',
+                  fontWeight: '700',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  <DollarSign size={24} />
+                  {loadingBalance ? (
+                    <span style={{ color: '#9ca3af' }}>Loading...</span>
+                  ) : (
+                    <span>${availableBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  )}
+                </div>
+                <div style={{
+                  fontSize: '12px',
+                  color: '#166534',
+                  marginTop: '4px'
+                }}>
+                  Based on {commissionRate.toFixed(2)}% commission from paid invoices
+                </div>
+              </div>
+
+              {/* Withdraw Amount Input */}
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: '#374151',
+                  marginBottom: '8px'
+                }}>
+                  Withdrawal Amount
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <DollarSign 
+                    size={18} 
+                    style={{
+                      position: 'absolute',
+                      left: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: '#9ca3af',
+                      pointerEvents: 'none'
+                    }}
+                  />
+                  <input
+                    type="text"
+                    value={withdrawAmount}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[^0-9.]/g, '');
+                      setWithdrawAmount(value);
+                    }}
+                    placeholder="0.00"
+                    style={{
+                      width: '100%',
+                      padding: '12px 12px 12px 40px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '16px',
+                      outline: 'none',
+                      transition: 'all 0.2s'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#74317e';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#d1d5db';
+                      e.target.style.boxShadow = 'none';
+                    }}
+                  />
+                </div>
+                <div style={{
+                  fontSize: '12px',
+                  color: '#6b7280',
+                  marginTop: '4px'
+                }}>
+                  Maximum: ${availableBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{
+                display: 'flex',
+                gap: '12px',
+                justifyContent: 'flex-end'
+              }}>
+                <button
+                  onClick={() => {
+                    setShowWithdrawModal(false);
+                    setWithdrawAmount('');
+                    // Navigate back if we're on /withdraw route
+                    if (location.pathname === '/reseller/withdraw') {
+                      history.push('/reseller/dashboard');
+                    }
+                  }}
+                  style={{
+                    padding: '10px 20px',
+                    backgroundColor: '#f3f4f6',
+                    color: '#374151',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#e5e7eb';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#f3f4f6';
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRequestFund}
+                  style={{
+                    padding: '10px 20px',
+                    backgroundColor: '#10b981',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#059669';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#10b981';
+                  }}
+                >
+                  <Wallet size={16} />
+                  Request Fund
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
     </>
   );

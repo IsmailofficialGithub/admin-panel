@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin';
+  const isReseller = profile?.role === 'reseller';
   const [formData, setFormData] = useState({
     consumer_id: '',
     consumer_name: '',
@@ -58,13 +59,14 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
               }));
             }
 
-            // Auto-populate products with their prices
+            // Auto-populate products with their prices (if consumer has accessed products)
             if (products && Array.isArray(products) && products.length > 0) {
               const invoiceProducts = products.map(product => ({
                 product_id: product.product_id,
                 product_name: product.product_name,
                 quantity: 1,
                 price: product.price,
+                original_price: product.price, // Store original price for reseller validation
                 subtotal: product.price * 1
               }));
               setFormData(prev => ({
@@ -74,11 +76,14 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
               setAvailableProducts(products);
               toast.success(`Loaded ${products.length} product(s) for this consumer`);
             } else {
-              toast.error('This consumer has no accessed products');
+              // Don't show error for resellers - they can still add all products
+              if (!isReseller) {
+                toast.error('This consumer has no accessed products');
+              }
             }
 
-            // If admin, also fetch all products for manual addition
-            if (isAdmin) {
+            // Fetch all products for admin and reseller (for manual addition)
+            if (isAdmin || isReseller) {
               try {
                 const allProductsResult = await getProducts();
                 if (allProductsResult && allProductsResult.success && allProductsResult.data && Array.isArray(allProductsResult.data)) {
@@ -108,15 +113,29 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
     }
   }, [isOpen, consumer]);
 
-  // Calculate due date as 30 days from invoice date
+  // Calculate due date as 30 days from invoice date (only if invoice_date is valid and >= today)
   useEffect(() => {
     if (formData.invoice_date) {
-      const invoiceDate = new Date(formData.invoice_date);
-      invoiceDate.setDate(invoiceDate.getDate() + 30);
-      setFormData(prev => ({
-        ...prev,
-        due_date: invoiceDate.toISOString().split('T')[0]
-      }));
+      const invoiceDate = new Date(formData.invoice_date + 'T00:00:00');
+      const invoiceDateOnly = new Date(invoiceDate.getFullYear(), invoiceDate.getMonth(), invoiceDate.getDate());
+      const today = new Date();
+      const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      
+      // Only auto-calculate if invoice date is valid (>= today)
+      if (invoiceDateOnly >= todayOnly) {
+        const calculatedDueDate = new Date(invoiceDateOnly);
+        calculatedDueDate.setDate(calculatedDueDate.getDate() + 30);
+        const currentDueDate = formData.due_date ? new Date(formData.due_date + 'T00:00:00') : null;
+        const currentDueDateOnly = currentDueDate ? new Date(currentDueDate.getFullYear(), currentDueDate.getMonth(), currentDueDate.getDate()) : null;
+        
+        // Only update if there's no due date set or if current due date is before/invalid
+        if (!currentDueDateOnly || currentDueDateOnly <= invoiceDateOnly) {
+          setFormData(prev => ({
+            ...prev,
+            due_date: calculatedDueDate.toISOString().split('T')[0]
+          }));
+        }
+      }
     }
   }, [formData.invoice_date]);
 
@@ -126,7 +145,62 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
       ...prev,
       [name]: value
     }));
-    if (errors[name]) {
+    
+    // Validate dates in real-time
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    if (name === 'invoice_date' && value) {
+      const invoiceDate = new Date(value + 'T00:00:00');
+      const invoiceDateOnly = new Date(invoiceDate.getFullYear(), invoiceDate.getMonth(), invoiceDate.getDate());
+      const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      
+      if (invoiceDateOnly < todayOnly) {
+        setErrors(prev => ({
+          ...prev,
+          invoice_date: 'Invoice date must be today or later',
+          due_date: prev.due_date // Keep due_date error if exists
+        }));
+      } else {
+        setErrors(prev => ({
+          ...prev,
+          invoice_date: '',
+          // If due date is now invalid, validate it
+          due_date: prev.due_date && formData.due_date ? (() => {
+            const dueDate = new Date(formData.due_date + 'T00:00:00');
+            const dueDateOnly = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+            return dueDateOnly <= invoiceDateOnly ? 'Due date must be after invoice date' : '';
+          })() : prev.due_date
+        }));
+      }
+    }
+    
+    if (name === 'due_date' && value && formData.invoice_date) {
+      const dueDate = new Date(value + 'T00:00:00');
+      const dueDateOnly = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+      const invoiceDate = new Date(formData.invoice_date + 'T00:00:00');
+      const invoiceDateOnly = new Date(invoiceDate.getFullYear(), invoiceDate.getMonth(), invoiceDate.getDate());
+      
+      if (dueDateOnly <= invoiceDateOnly) {
+        setErrors(prev => ({
+          ...prev,
+          due_date: 'Due date must be after invoice date'
+        }));
+      } else {
+        setErrors(prev => ({
+          ...prev,
+          due_date: ''
+        }));
+      }
+    } else if (name === 'due_date' && value && !formData.invoice_date) {
+      setErrors(prev => ({
+        ...prev,
+        due_date: 'Please select invoice date first'
+      }));
+    }
+    
+    // Clear error for other fields
+    if (errors[name] && name !== 'invoice_date' && name !== 'due_date') {
       setErrors(prev => ({
         ...prev,
         [name]: ''
@@ -137,7 +211,7 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
   const handleAddProduct = () => {
     setFormData(prev => ({
       ...prev,
-      products: [...prev.products, { product_id: '', product_name: '', quantity: 1, price: 0, subtotal: 0 }]
+      products: [...prev.products, { product_id: '', product_name: '', quantity: 1, price: 0, original_price: 0, subtotal: 0 }]
     }));
   };
 
@@ -155,12 +229,14 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
         // Search in both availableProducts (consumer's products) and allProducts (for admin)
         const product = availableProducts.find(p => p.product_id === value || p.id === value) 
                      || allProducts.find(p => p.id === value);
+        const originalPrice = parseFloat(product?.price || 0);
         newProducts[index] = {
           ...newProducts[index],
           product_id: value,
           product_name: product?.product_name || product?.name || '',
-          price: parseFloat(product?.price || 0),
-          subtotal: parseFloat(product?.price || 0) * (newProducts[index].quantity || 1)
+          price: originalPrice,
+          original_price: originalPrice, // Store original price for validation
+          subtotal: originalPrice * (newProducts[index].quantity || 1)
         };
       } else if (field === 'quantity') {
         const qty = parseFloat(value) || 0;
@@ -170,12 +246,35 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
           subtotal: (newProducts[index].price || 0) * qty
         };
       } else if (field === 'price') {
-        const price = parseFloat(value) || 0;
+        // Allow empty string and only parse when there's a value
+        const priceStr = value.trim();
+        const price = priceStr === '' ? '' : (isNaN(parseFloat(priceStr)) ? '' : parseFloat(priceStr));
+        const priceNum = price === '' ? 0 : price;
+        // Get original price BEFORE updating
+        const originalPrice = parseFloat(newProducts[index].original_price || 0);
+        
+        // Update the product first
         newProducts[index] = {
           ...newProducts[index],
-          price: price,
-          subtotal: price * (newProducts[index].quantity || 1)
+          price: price, // Store as string or number, allow empty string
+          subtotal: priceNum * (newProducts[index].quantity || 1)
         };
+        
+        // For resellers: validate that price is equal to or greater than original price
+        if (isReseller && priceNum > 0 && originalPrice > 0 && priceNum < originalPrice) {
+          // Show error if reseller tries to set price lower than original
+          setErrors(prev => ({
+            ...prev,
+            [`price_${index}`]: 'Price must be equal to or greater than original price'
+          }));
+        } else {
+          // Clear error if validation passes
+          setErrors(prev => {
+            const newErrors = { ...prev };
+            delete newErrors[`price_${index}`];
+            return newErrors;
+          });
+        }
       }
       return {
         ...prev,
@@ -193,15 +292,34 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
 
   const validateForm = () => {
     const newErrors = {};
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Set to start of day for comparison
     
     if (!formData.consumer_id) {
       newErrors.consumer_id = 'Consumer is required';
     }
     if (!formData.invoice_date) {
       newErrors.invoice_date = 'Invoice date is required';
+    } else {
+      const invoiceDate = new Date(formData.invoice_date + 'T00:00:00');
+      const invoiceDateOnly = new Date(invoiceDate.getFullYear(), invoiceDate.getMonth(), invoiceDate.getDate());
+      const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      if (invoiceDateOnly < todayOnly) {
+        newErrors.invoice_date = 'Invoice date must be today or later';
+      }
     }
     if (!formData.due_date) {
       newErrors.due_date = 'Due date is required';
+    } else {
+      const dueDate = new Date(formData.due_date + 'T00:00:00');
+      const dueDateOnly = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+      if (formData.invoice_date) {
+        const invoiceDate = new Date(formData.invoice_date + 'T00:00:00');
+        const invoiceDateOnly = new Date(invoiceDate.getFullYear(), invoiceDate.getMonth(), invoiceDate.getDate());
+        if (dueDateOnly <= invoiceDateOnly) {
+          newErrors.due_date = 'Due date must be after invoice date';
+        }
+      }
     }
     if (formData.products.length === 0) {
       newErrors.products = 'At least one product is required';
@@ -212,6 +330,14 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
       }
       if (!product.quantity || product.quantity <= 0) {
         newErrors[`quantity_${index}`] = 'Valid quantity is required';
+      }
+      // Validate price for resellers: must be equal to or greater than original price
+      if (isReseller && product.product_id && product.original_price) {
+        const currentPrice = parseFloat(product.price || 0);
+        const originalPrice = parseFloat(product.original_price || 0);
+        if (currentPrice > 0 && originalPrice > 0 && currentPrice < originalPrice) {
+          newErrors[`price_${index}`] = 'Price must be equal to or greater than original price';
+        }
       }
     });
 
@@ -483,6 +609,13 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
                 name="invoice_date"
                 value={formData.invoice_date}
                 onChange={handleChange}
+                min={(() => {
+                  const today = new Date();
+                  const year = today.getFullYear();
+                  const month = String(today.getMonth() + 1).padStart(2, '0');
+                  const day = String(today.getDate()).padStart(2, '0');
+                  return `${year}-${month}-${day}`;
+                })()}
                 disabled={isSubmitting}
                 style={{
                   width: '100%',
@@ -528,7 +661,12 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
                 name="due_date"
                 value={formData.due_date}
                 onChange={handleChange}
-                disabled={isSubmitting}
+                min={formData.invoice_date ? (() => {
+                  const minDate = new Date(formData.invoice_date);
+                  minDate.setDate(minDate.getDate() + 1);
+                  return minDate.toISOString().split('T')[0];
+                })() : new Date().toISOString().split('T')[0]}
+                disabled={isSubmitting || !formData.invoice_date}
                 style={{
                   width: '100%',
                   padding: '10px 12px 10px 40px',
@@ -538,7 +676,8 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
                   outline: 'none',
                   transition: 'all 0.2s',
                   boxSizing: 'border-box',
-                  opacity: isSubmitting ? 0.6 : 1
+                  opacity: isSubmitting || !formData.invoice_date ? 0.6 : 1,
+                  cursor: !formData.invoice_date ? 'not-allowed' : 'default'
                 }}
               />
             </div>
@@ -598,7 +737,7 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
                   </span>
                 )}
               </label>
-              {isAdmin && (
+              {(isAdmin || isReseller) && (availableProducts.length > 0 || allProducts.length > 0) && (
                 <button
                   type="button"
                   onClick={handleAddProduct}
@@ -620,7 +759,7 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
                   }}
                 >
                   <Plus size={14} />
-                  Add Manual Product
+                  {isAdmin ? 'Add Manual Product' : 'Add Product'}
                 </button>
               )}
             </div>
@@ -680,30 +819,38 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
                       }}
                     >
                       <option value="">Select product...</option>
-                      {/* Show consumer's accessed products first */}
-                      {availableProducts.map(p => (
-                        <option key={p.product_id || p.id} value={p.product_id || p.id}>
-                          {p.product_name || p.name} - ${parseFloat(p.price || 0).toFixed(2)}
-                        </option>
-                      ))}
-                      {/* If admin and has all products, show remaining products */}
-                      {isAdmin && allProducts.length > 0 && availableProducts.length > 0 && (
-                        <optgroup label="Other Products">
-                          {allProducts
-                            .filter(p => !availableProducts.some(ap => (ap.product_id || ap.id) === p.id))
-                            .map(p => (
+                      {/* Show consumer's subscribed products (if any) */}
+                      {availableProducts.length > 0 && (
+                        <optgroup label="Consumer's Products">
+                          {availableProducts.map(p => (
+                            <option key={p.product_id || p.id} value={p.product_id || p.id}>
+                              {p.product_name || p.name} - ${parseFloat(p.price || 0).toFixed(2)}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {/* Show all products for admin and reseller */}
+                      {(isAdmin || isReseller) && allProducts.length > 0 && (
+                        <optgroup label={availableProducts.length > 0 ? "All Products" : "Products"}>
+                          {availableProducts.length > 0 ? (
+                            // Show products not in consumer's list
+                            allProducts
+                              .filter(p => !availableProducts.some(ap => (ap.product_id || ap.id) === p.id))
+                              .map(p => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name} - ${parseFloat(p.price || 0).toFixed(2)}
+                                </option>
+                              ))
+                          ) : (
+                            // Show all products if consumer has no products
+                            allProducts.map(p => (
                               <option key={p.id} value={p.id}>
                                 {p.name} - ${parseFloat(p.price || 0).toFixed(2)}
                               </option>
-                            ))}
+                            ))
+                          )}
                         </optgroup>
                       )}
-                      {/* If admin and no consumer products, show all products */}
-                      {isAdmin && availableProducts.length === 0 && allProducts.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} - ${parseFloat(p.price || 0).toFixed(2)}
-                        </option>
-                      ))}
                     </select>
                   </div>
                   <div>
@@ -728,34 +875,54 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
                   </div>
                   <div>
                     <label style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>
-                      Price {isAdmin ? '(Editable)' : '(Fixed)'}
+                      Price {isAdmin ? '(Editable)' : isReseller ? '(Editable - Min: $' + (product.original_price || product.price || 0).toFixed(2) + ')' : '(Fixed)'}
                     </label>
                     <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={product.price}
-                      onChange={(e) => handleProductChange(index, 'price', e.target.value)}
-                      disabled={isSubmitting || !isAdmin}
+                      type="text"
+                      value={product.price === 0 || product.price === '' || product.price === null || product.price === undefined ? '' : String(product.price)}
+                      onChange={(e) => {
+                        // Allow empty string and numeric input
+                        const value = e.target.value;
+                        // Allow empty string, numbers, decimals (no negative for price)
+                        if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                          handleProductChange(index, 'price', value);
+                        }
+                      }}
+                      onBlur={(e) => {
+                        // When user leaves the field, ensure valid number or empty
+                        const value = e.target.value.trim();
+                        if (value === '' || value === '-') {
+                          handleProductChange(index, 'price', '');
+                        } else if (!isNaN(parseFloat(value))) {
+                          handleProductChange(index, 'price', value);
+                        }
+                      }}
+                      placeholder="0.00"
+                      disabled={isSubmitting || (!isAdmin && !isReseller)}
                       style={{
                         width: '100%',
                         padding: '8px 10px',
-                        border: '1px solid #d1d5db',
+                        border: errors[`price_${index}`] ? '1px solid #ef4444' : '1px solid #d1d5db',
                         borderRadius: '6px',
                         fontSize: '13px',
                         outline: 'none',
-                        backgroundColor: isAdmin ? 'white' : '#f3f4f6',
-                        cursor: isAdmin ? 'text' : 'not-allowed',
-                        opacity: isAdmin ? 1 : 0.7
+                        backgroundColor: (isAdmin || isReseller) ? 'white' : '#f3f4f6',
+                        cursor: (isAdmin || isReseller) ? 'text' : 'not-allowed',
+                        opacity: (isAdmin || isReseller) ? 1 : 0.7
                       }}
-                      title={!isAdmin ? 'Only admin can edit prices' : 'Edit price'}
+                      title={!isAdmin && !isReseller ? 'Only admin and reseller can edit prices' : isReseller ? `Price must be equal to or greater than original price ($${(product.original_price || product.price || 0).toFixed(2)})` : 'Edit price'}
                     />
+                    {errors[`price_${index}`] && (
+                      <p style={{ color: '#ef4444', fontSize: '11px', marginTop: '4px', marginBottom: 0 }}>
+                        {errors[`price_${index}`]}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div style={{ marginTop: '8px', textAlign: 'right' }}>
                   <span style={{ fontSize: '12px', color: '#6b7280' }}>Subtotal: </span>
                   <span style={{ fontSize: '14px', fontWeight: '600', color: '#74317e' }}>
-                    ${product.subtotal.toFixed(2)}
+                    ${(product.subtotal || 0).toFixed(2)}
                   </span>
                 </div>
               </div>

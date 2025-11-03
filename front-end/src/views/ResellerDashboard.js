@@ -9,12 +9,16 @@ import {
   Calendar,
   Award,
   ShoppingCart,
-  Activity
+  Activity,
+  Percent
 } from 'lucide-react';
 import { Container, Row, Col, Card, Table, Badge } from 'react-bootstrap';
+import apiClient from '../services/apiClient';
+import { getMyCommission } from '../api/backend';
+import { useAuth } from '../hooks/useAuth';
 
 const ResellerDashboard = () => {
-  // Demo data - will be replaced with real API calls later
+  const { user } = useAuth();
   const [stats, setStats] = useState({
     totalConsumers: 0,
     activeConsumers: 0,
@@ -23,77 +27,170 @@ const ResellerDashboard = () => {
     monthlyRevenue: 0,
     totalOrders: 0,
     newConsumersThisMonth: 0,
-    commissionEarned: 0
+    commissionEarned: 0,
+    commissionRate: 0
   });
 
   const [recentConsumers, setRecentConsumers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [commissionData, setCommissionData] = useState(null);
 
   useEffect(() => {
-    // Simulate API call with demo data
-    setTimeout(() => {
-      setStats({
-        totalConsumers: 127,
-        activeConsumers: 98,
-        expiredConsumers: 29,
-        totalRevenue: 15680,
-        monthlyRevenue: 3450,
-        totalOrders: 234,
-        newConsumersThisMonth: 12,
-        commissionEarned: 2340
-      });
-
-      setRecentConsumers([
-        {
-          id: 1,
-          name: 'John Doe',
-          email: 'john@example.com',
-          status: 'active',
-          subscription: 'Premium Plan',
-          joinDate: '2025-10-15',
-          expiryDate: '2025-11-15'
-        },
-        {
-          id: 2,
-          name: 'Jane Smith',
-          email: 'jane@example.com',
-          status: 'active',
-          subscription: 'Basic Plan',
-          joinDate: '2025-10-20',
-          expiryDate: '2025-11-20'
-        },
-        {
-          id: 3,
-          name: 'Mike Johnson',
-          email: 'mike@example.com',
-          status: 'expired',
-          subscription: 'Pro Plan',
-          joinDate: '2025-09-10',
-          expiryDate: '2025-10-10'
-        },
-        {
-          id: 4,
-          name: 'Sarah Williams',
-          email: 'sarah@example.com',
-          status: 'active',
-          subscription: 'Premium Plan',
-          joinDate: '2025-10-25',
-          expiryDate: '2025-11-25'
-        },
-        {
-          id: 5,
-          name: 'David Brown',
-          email: 'david@example.com',
-          status: 'active',
-          subscription: 'Basic Plan',
-          joinDate: '2025-10-28',
-          expiryDate: '2025-11-28'
-        }
-      ]);
-
-      setLoading(false);
-    }, 500);
+    fetchDashboardData();
   }, []);
+
+  const fetchDashboardData = async () => {
+    setLoading(true);
+    try {
+      // Fetch commission data
+      const commissionResult = await getMyCommission();
+      console.log('📊 Commission Result:', commissionResult);
+      
+      let commissionRate = 0;
+      let commissionDataToSet = null;
+      
+      if (commissionResult && commissionResult.success && commissionResult.data) {
+        // Standard response structure: { success: true, data: { commissionRate: 30, ... } }
+        commissionRate = parseFloat(commissionResult.data.commissionRate || 0);
+        commissionDataToSet = commissionResult.data;
+        console.log('📊 Parsed Commission Rate (standard structure):', commissionRate);
+      } else if (commissionResult && commissionResult.commissionRate !== undefined) {
+        // Alternative response structure: { commissionRate: 30, ... }
+        commissionRate = parseFloat(commissionResult.commissionRate || 0);
+        commissionDataToSet = commissionResult;
+        console.log('📊 Parsed Commission Rate (alternative structure):', commissionRate);
+      } else {
+        console.warn('⚠️ Commission result structure unexpected:', commissionResult);
+      }
+      
+      if (commissionRate > 0 || commissionDataToSet) {
+        setCommissionData(commissionDataToSet);
+        setStats(prev => ({
+          ...prev,
+          commissionRate: commissionRate
+        }));
+      }
+
+      // Fetch consumers count
+      try {
+        const consumersResponse = await apiClient.resellers.getMyConsumers();
+        console.log('📊 Consumers response:', consumersResponse);
+        
+        if (consumersResponse) {
+          // Handle different response structures
+          let consumers = [];
+          if (consumersResponse.data) {
+            if (consumersResponse.data.data) {
+              consumers = consumersResponse.data.data;
+            } else if (Array.isArray(consumersResponse.data)) {
+              consumers = consumersResponse.data;
+            }
+          } else if (Array.isArray(consumersResponse)) {
+            consumers = consumersResponse;
+          }
+          
+          console.log('📊 Processed consumers:', consumers);
+          
+          // Calculate active and expired consumers
+          // Active: account_status is 'active' OR trial_expiry is in the future
+          const now = new Date();
+          const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+          
+          const activeConsumers = consumers.filter(c => {
+            if (c.account_status === 'active') return true;
+            if (c.trial_expiry) {
+              const expiryDate = new Date(c.trial_expiry);
+              return expiryDate > now;
+            }
+            return false;
+          }).length;
+          
+          // Expired: account_status is 'expired_subscription' OR trial_expiry is in the past
+          const expiredConsumers = consumers.filter(c => {
+            if (c.account_status === 'expired_subscription') return true;
+            if (c.trial_expiry) {
+              const expiryDate = new Date(c.trial_expiry);
+              return expiryDate <= now;
+            }
+            return c.account_status === 'expired' || c.account_status === 'inactive';
+          }).length;
+        
+          // Get recent consumers (last 5)
+          const recent = consumers.slice(0, 5).map(c => ({
+            id: c.user_id,
+            name: c.full_name || 'Unknown',
+            email: c.email || '',
+            status: c.account_status || 'active',
+            subscription: 'Active',
+            joinDate: c.created_at,
+            expiryDate: c.trial_expiry
+          }));
+
+          // Calculate new consumers this month
+          const newThisMonth = consumers.filter(c => {
+            const createdDate = new Date(c.created_at);
+            return createdDate >= startOfMonth;
+          }).length;
+
+          setRecentConsumers(recent);
+          setStats(prev => ({
+            ...prev,
+            totalConsumers: consumers.length,
+            activeConsumers,
+            expiredConsumers,
+            newConsumersThisMonth: newThisMonth
+          }));
+        }
+      } catch (error) {
+        console.error('❌ Error fetching consumers:', error);
+        // Don't break the entire dashboard if consumers fail to load
+      }
+
+      // Fetch invoices to calculate revenue
+      try {
+        const invoicesResponse = await apiClient.invoices.getMyInvoices('?status=paid');
+        if (invoicesResponse && invoicesResponse.data) {
+          const invoices = invoicesResponse.data.data || invoicesResponse.data || [];
+          
+          // Calculate total revenue from paid invoices
+          const totalRevenue = invoices.reduce((sum, inv) => {
+            return sum + parseFloat(inv.total_amount || inv.total || 0);
+          }, 0);
+
+          // Calculate monthly revenue
+          const invoiceNow = new Date();
+          const invoiceStartOfMonth = new Date(invoiceNow.getFullYear(), invoiceNow.getMonth(), 1);
+          const monthlyRevenue = invoices
+            .filter(inv => {
+              const createdDate = new Date(inv.created_at || inv.createdAt);
+              return createdDate >= invoiceStartOfMonth;
+            })
+            .reduce((sum, inv) => {
+              return sum + parseFloat(inv.total_amount || inv.total || 0);
+            }, 0);
+
+          // Calculate commission earnings using the commission rate from stats (already set from API)
+          const commissionRate = stats.commissionRate || (commissionData ? parseFloat(commissionData.commissionRate || 0) : 0);
+          const commissionEarned = (totalRevenue * commissionRate) / 100;
+
+          setStats(prev => ({
+            ...prev,
+            totalRevenue,
+            monthlyRevenue,
+            totalOrders: invoices.length,
+            commissionEarned
+          }));
+        }
+      } catch (error) {
+        console.error('❌ Error fetching invoices:', error);
+        // Don't break the entire dashboard if invoices fail to load
+      }
+    } catch (error) {
+      console.error('❌ Error fetching dashboard data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const StatCard = ({ title, value, icon: Icon, color, subtitle, trend }) => (
     <Card 
@@ -247,52 +344,74 @@ const ResellerDashboard = () => {
         </Col>
         <Col xs={12} sm={6} lg={3} style={{ marginBottom: '24px' }}>
           <StatCard
-            title="Commission Earned"
-            value={`$${stats.commissionEarned.toLocaleString()}`}
-            icon={Award}
+            title="Commission Rate"
+            value={loading ? '---' : `${stats.commissionRate.toFixed(2)}%`}
+            icon={Percent}
             color="#8b5cf6"
-            subtitle="Total earnings"
-            trend="+15% this month"
+            subtitle={commissionData && commissionData.commissionType === 'custom' ? 'Custom rate' : 'Default rate'}
           />
         </Col>
       </Row>
 
-      {/* Revenue Statistics */}
+      {/* Total Revenue and Reseller Earnings Row */}
+      <Row style={{ marginBottom: '24px' }}>
+        <Col xs={12} sm={6} lg={6} style={{ marginBottom: '24px' }}>
+          <StatCard
+            title="TOTAL REVENUE"
+            value={loading ? '---' : `$${stats.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            icon={DollarSign}
+            color="#f59e0b"
+            subtitle="Total revenue from all consumers' paid invoices"
+          />
+        </Col>
+        <Col xs={12} sm={6} lg={6} style={{ marginBottom: '24px' }}>
+          <StatCard
+            title="RESELLER EARNINGS"
+            value={loading ? '---' : `$${stats.commissionEarned.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            icon={Award}
+            color="#10b981"
+            subtitle={stats.commissionRate > 0 ? `(${stats.commissionRate.toFixed(2)}% commission)` : '(0.00% commission)'}
+            trend={stats.totalRevenue > 0 ? `Total profit from referred consumers` : 'No revenue yet'}
+          />
+        </Col>
+      </Row>
+
+      {/* Additional Statistics */}
       <Row style={{ marginBottom: '24px' }}>
         <Col xs={12} sm={6} lg={3} style={{ marginBottom: '24px' }}>
           <StatCard
             title="Monthly Revenue"
-            value={`$${stats.monthlyRevenue.toLocaleString()}`}
+            value={loading ? '---' : `$${stats.monthlyRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             icon={DollarSign}
             color="#ec4899"
             subtitle="This month"
-            trend="+22% from last month"
-          />
-        </Col>
-        <Col xs={12} sm={6} lg={3} style={{ marginBottom: '24px' }}>
-          <StatCard
-            title="Total Revenue"
-            value={`$${stats.totalRevenue.toLocaleString()}`}
-            icon={TrendingUp}
-            color="#f59e0b"
-            subtitle="All time"
+            trend={stats.commissionRate > 0 ? `Est. earnings: $${((stats.monthlyRevenue * stats.commissionRate) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}
           />
         </Col>
         <Col xs={12} sm={6} lg={3} style={{ marginBottom: '24px' }}>
           <StatCard
             title="Total Orders"
-            value={stats.totalOrders.toLocaleString()}
+            value={loading ? '---' : stats.totalOrders.toLocaleString()}
             icon={ShoppingCart}
             color="#06b6d4"
-            subtitle="Completed orders"
+            subtitle="Paid invoices"
+          />
+        </Col>
+        <Col xs={12} sm={6} lg={3} style={{ marginBottom: '24px' }}>
+          <StatCard
+            title="New Consumers This Month"
+            value={loading ? '---' : stats.newConsumersThisMonth.toLocaleString()}
+            icon={TrendingUp}
+            color="#14b8a6"
+            subtitle="Recent signups"
           />
         </Col>
         <Col xs={12} sm={6} lg={3} style={{ marginBottom: '24px' }}>
           <StatCard
             title="Active Products"
-            value="12"
+            value={loading ? '---' : '12'}
             icon={Package}
-            color="#14b8a6"
+            color="#8b5cf6"
             subtitle="Available for sale"
           />
         </Col>

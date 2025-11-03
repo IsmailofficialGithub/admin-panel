@@ -75,6 +75,21 @@ export const getMyInvoices = async (filters = {}) => {
 };
 
 /**
+ * Get invoices for a specific consumer
+ * @param {string} consumerId - Consumer user ID
+ * @returns {Promise<Object>} Invoices data
+ */
+export const getConsumerInvoices = async (consumerId) => {
+  try {
+    const response = await apiClient.invoices.getConsumerInvoices(consumerId);
+    return response;
+  } catch (error) {
+    console.error('Error fetching consumer invoices:', error);
+    throw error;
+  }
+};
+
+/**
  * Create invoice with invoice items
  * @param {Object} invoiceData - Invoice data
  * @param {string} invoiceData.receiver_id - Consumer user ID

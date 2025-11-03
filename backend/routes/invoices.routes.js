@@ -4,7 +4,8 @@ import {
   getConsumerProductsForInvoice,
   getAllInvoices,
   getMyInvoices,
-  createInvoice
+  createInvoice,
+  getConsumerInvoices
 } from './controllers/invoices.controller.js';
 
 const router = express.Router();
@@ -56,6 +57,18 @@ router.get(
   authenticate,
   requireRole(['reseller']),
   getMyInvoices
+);
+
+/**
+ * @route   GET /api/invoices/consumer/:consumerId
+ * @desc    Get invoices for a specific consumer
+ * @access  Private (Admin or Reseller)
+ */
+router.get(
+  '/consumer/:consumerId',
+  authenticate,
+  requireRole(['admin', 'reseller']),
+  getConsumerInvoices
 );
 
 /**

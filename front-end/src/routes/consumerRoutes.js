@@ -2,6 +2,8 @@ import Dashboard from "views/Dashboard.js";
 import UserProfile from "views/UserProfile.js";
 import Invoices from "views/Invoices.js";
 import Payment from "views/Payment.js";
+import Account from "views/Account.js";
+import ActivityLogDetail from "views/ActivityLogDetail.js";
 
 const consumerRoutes = [
   {
@@ -29,6 +31,24 @@ const consumerRoutes = [
     path: "/payment",
     name: "Payment",
     component: Payment,
+    layout: "/consumer",
+    invisible: true // Hidden from sidebar
+  },
+  {
+    path: "/account",
+    component: Account,
+    layout: "/consumer",
+    invisible: true // Hidden from sidebar
+  },
+  {
+    path: "/activity-logs/:id",
+    component: ActivityLogDetail,
+    layout: "/consumer",
+    invisible: true // Hidden from sidebar
+  },
+  {
+    path: "/logs/:id",
+    component: ActivityLogDetail,
     layout: "/consumer",
     invisible: true // Hidden from sidebar
   }

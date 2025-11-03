@@ -425,6 +425,139 @@ export const getMyInvoices = async (req, res) => {
 };
 
 /**
+ * Get invoices for a specific consumer
+ * @route   GET /api/invoices/consumer/:consumerId
+ * @access  Private (Admin or Reseller)
+ */
+export const getConsumerInvoices = async (req, res) => {
+  try {
+    const { consumerId } = req.params;
+    const senderId = req.user.id;
+    const senderRole = req.userProfile?.role;
+
+    // Verify consumer exists
+    const { data: consumer, error: consumerError } = await supabase
+      .from('auth_role_with_profiles')
+      .select('user_id, full_name, email, role, referred_by')
+      .eq('user_id', consumerId)
+      .eq('role', 'consumer')
+      .single();
+
+    if (consumerError || !consumer) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Consumer not found'
+      });
+    }
+
+    // If reseller, verify this consumer is referred by them
+    if (senderRole === 'reseller') {
+      if (!consumer.referred_by || consumer.referred_by !== senderId) {
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'You can only view invoices for your referred consumers'
+        });
+      }
+    }
+
+    // Build query for invoices
+    let query = supabaseAdmin
+      .from('invoices')
+      .select(`
+        id,
+        sender_id,
+        receiver_id,
+        issue_date,
+        due_date,
+        total_amount,
+        tax_total,
+        status,
+        notes,
+        created_at,
+        updated_at,
+        sender:profiles!invoices_sender_id_fkey(user_id, full_name, role),
+        invoice_items (
+          id,
+          product_id,
+          quantity,
+          unit_price,
+          tax_rate,
+          total_price,
+          products (
+            id,
+            name,
+            price
+          )
+        )
+      `)
+      .eq('receiver_id', consumerId)
+      .order('created_at', { ascending: false });
+
+    // For resellers, only show invoices they created
+    if (senderRole === 'reseller') {
+      query = query.eq('sender_id', senderId);
+    }
+
+    const { data: invoices, error } = await query;
+
+    if (error) {
+      console.error('Error fetching consumer invoices:', error);
+      return res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to fetch invoices'
+      });
+    }
+
+    // Get sender profiles for admin view
+    const senderIds = Array.from(new Set((invoices || []).map(inv => inv.sender_id).filter(Boolean)));
+    const { data: senderProfiles } = await supabaseAdmin
+      .from('auth_role_with_profiles')
+      .select('user_id, email, full_name, role')
+      .in('user_id', senderIds.length ? senderIds : ['00000000-0000-0000-0000-000000000000']);
+
+    const senderIdToProfile = new Map((senderProfiles || []).map(p => [p.user_id, { email: p.email, full_name: p.full_name, role: p.role }]));
+
+    // Format invoices for frontend
+    const formattedInvoices = invoices.map(invoice => ({
+      id: invoice.id,
+      invoice_number: `INV-${invoice.created_at?.split('T')[0]?.replace(/-/g, '')}-${invoice.id.substring(0, 8).toUpperCase()}`,
+      consumer_id: consumerId,
+      consumer_name: consumer.full_name || 'Unknown',
+      consumer_email: consumer.email || '',
+      reseller_id: invoice.sender_id,
+      reseller_name: senderIdToProfile.get(invoice.sender_id)?.full_name || 'Unknown',
+      invoice_date: invoice.issue_date,
+      due_date: invoice.due_date,
+      amount: parseFloat((invoice.total_amount || 0) - (invoice.tax_total || 0)).toFixed(2),
+      tax: parseFloat(invoice.tax_total || 0).toFixed(2),
+      total: parseFloat(invoice.total_amount || 0).toFixed(2),
+      status: invoice.status || 'unpaid',
+      payment_date: invoice.status === 'paid' ? invoice.updated_at : null,
+      products: invoice.invoice_items?.map(item => ({
+        name: item.products?.name || 'Unknown Product',
+        quantity: item.quantity,
+        price: parseFloat(item.unit_price || 0).toFixed(2),
+        total: parseFloat(item.total_price || 0).toFixed(2)
+      })) || [],
+      notes: invoice.notes,
+      created_at: invoice.created_at
+    }));
+
+    res.json({
+      success: true,
+      count: formattedInvoices.length,
+      data: formattedInvoices
+    });
+  } catch (error) {
+    console.error('Error in getConsumerInvoices:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
+  }
+};
+
+/**
  * Create invoice with invoice items
  * @route   POST /api/invoices
  * @access  Private (Admin or Reseller)

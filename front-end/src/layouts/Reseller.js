@@ -1,5 +1,7 @@
 import React from "react";
-import { useLocation, Route, Switch } from "react-router-dom";
+import { useLocation, Route, Switch, Redirect } from "react-router-dom";
+import { useAuth } from "hooks/useAuth";
+import toast from "react-hot-toast";
 
 import AdminNavbar from "components/Navbars/AdminNavbar";
 import Footer from "components/Footer/Footer";
@@ -15,6 +17,18 @@ function Reseller() {
   const [hasImage, setHasImage] = React.useState(true);
   const location = useLocation();
   const mainPanel = React.useRef(null);
+  const { profile, signOut } = useAuth();
+
+  // Check account status on mount and route changes
+  React.useEffect(() => {
+    if (profile) {
+      // Check if reseller account is deactivated
+      if (profile.role === 'reseller' && profile.account_status === 'deactive') {
+        toast.error('Your account has been deactivated. Please contact the administrator.');
+        signOut();
+      }
+    }
+  }, [profile, location.pathname, signOut]);
   
   const getRoutes = (routes) => {
     return routes.map((prop, key) => {

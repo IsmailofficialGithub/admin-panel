@@ -3,7 +3,7 @@ import { Route, Redirect } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
 const ProtectedRoute = ({ component: Component, allowedRoles = [], ...rest }) => {
-  const { user, profile, loading, getDashboardPath } = useAuth();
+  const { user, profile, loading, getDashboardPath, signOut } = useAuth();
 
   console.log('🔒 ProtectedRoute: Checking auth...', { 
     user: !!user, 
@@ -76,6 +76,13 @@ const ProtectedRoute = ({ component: Component, allowedRoles = [], ...rest }) =>
           console.log('❌ ProtectedRoute: Role not allowed. Redirecting to correct dashboard.');
           const dashboardPath = getDashboardPath();
           return <Redirect to={dashboardPath} />;
+        }
+
+        // Check if account is deactivated (for reseller and consumer)
+        if ((profile.role === 'reseller' || profile.role === 'consumer') && profile.account_status === 'deactive') {
+          console.log('❌ ProtectedRoute: Account is deactivated. Signing out and redirecting.');
+          signOut();
+          return <Redirect to="/login" />;
         }
 
         // All checks passed, render component

@@ -3,6 +3,8 @@ import Account from "views/Account.js";
 import Invoices from "views/Invoices.js";
 import ResellerConsumers from "views/ResellerConsumers.js";
 import ConsumerDetail from "views/ConsumerDetail.js";
+import ActivityLogDetail from "views/ActivityLogDetail.js";
+import Withdraw from "views/Withdraw.js";
 // Import other reseller views here as needed
 
 const resellerRoutes = [
@@ -39,6 +41,25 @@ const resellerRoutes = [
     component: Invoices,
     layout: "/reseller"
   },
+  {
+    path: "/withdraw",
+    name: "Withdraw",
+    icon: "nc-icon nc-money-coins",
+    component: Withdraw,
+    layout: "/reseller"
+  },
+  {
+    path: "/activity-logs/:id",
+    component: ActivityLogDetail,
+    layout: "/reseller",
+    invisible: true // Hidden from sidebar
+  },
+  {
+    path: "/logs/:id",
+    component: ActivityLogDetail,
+    layout: "/reseller",
+    invisible: true // Hidden from sidebar
+  }
 ];
 
 export default resellerRoutes;

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card } from 'react-bootstrap';
 import { useLocation } from 'react-router-dom';
-import { FileText, Download, Eye, Search, DollarSign, Calendar, User, Building, CheckCircle, XCircle, Clock, Loader } from 'lucide-react';
+import { FileText, Download, Eye, Search, DollarSign, Calendar, User, Building, CheckCircle, XCircle, Clock, Loader, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getAllInvoices, getMyInvoices } from '../api/backend';
 import { useAuth } from '../hooks/useAuth';
+import apiClient from '../services/apiClient';
 
 const Invoices = () => {
   const { profile } = useAuth();
@@ -14,18 +15,48 @@ const Invoices = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
+  const [filterConsumer, setFilterConsumer] = useState('');
+  const [filterConsumerId, setFilterConsumerId] = useState('');
+  const [consumers, setConsumers] = useState([]);
+  const [loadingConsumers, setLoadingConsumers] = useState(false);
+  const [showConsumerSuggestions, setShowConsumerSuggestions] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const invoicesPerPage = 20;
 
+  // Fetch consumers for resellers
+  useEffect(() => {
+    const fetchConsumers = async () => {
+      if (userRole === 'reseller') {
+        setLoadingConsumers(true);
+        try {
+          const result = await apiClient.resellers.getMyConsumers();
+          if (result && result.success && result.data) {
+            setConsumers(result.data);
+          }
+        } catch (err) {
+          console.error('Error fetching consumers:', err);
+        } finally {
+          setLoadingConsumers(false);
+        }
+      }
+    };
+
+    fetchConsumers();
+  }, [userRole]);
+
+  // Fetch all invoices from backend (no search filter)
   useEffect(() => {
     const fetchInvoices = async () => {
       setLoading(true);
       setError(null);
       try {
         const filters = {
-          status: filterStatus !== 'all' ? filterStatus : undefined,
-          search: searchQuery || undefined
+          status: filterStatus !== 'all' ? filterStatus : undefined
+          // Removed search from backend - will filter client-side
         };
 
         let result;
@@ -55,17 +86,93 @@ const Invoices = () => {
     };
 
     fetchInvoices();
-  }, [userRole, filterStatus, searchQuery]);
+  }, [userRole, filterStatus]);
 
-  // Invoices are already filtered by backend, but we can do client-side filtering if needed
-  // Since search and status are handled by backend, we'll just use invoices directly
-  const filteredInvoices = invoices;
+  // Debounce search input
+  useEffect(() => {
+    const debounceTimer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1); // Reset to first page when search changes
+    }, 500);
+
+    return () => clearTimeout(debounceTimer);
+  }, [searchInput]);
+
+  // Reset to first page when consumer filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterConsumerId]);
+
+  // Handle consumer selection from suggestions
+  const handleConsumerSelect = (consumer) => {
+    setFilterConsumer(consumer.full_name || consumer.email || consumer.user_id);
+    setFilterConsumerId(consumer.user_id);
+    setShowConsumerSuggestions(false);
+  };
+
+  // Clear consumer filter
+  const clearConsumerFilter = () => {
+    setFilterConsumer('');
+    setFilterConsumerId('');
+    setShowConsumerSuggestions(false);
+  };
+
+  // Filter consumers based on search input
+  const filteredConsumerSuggestions = consumers.filter(consumer => {
+    if (!filterConsumer) return false;
+    const searchTerm = filterConsumer.toLowerCase();
+    const consumerName = (consumer.full_name || '').toLowerCase();
+    const consumerEmail = (consumer.email || '').toLowerCase();
+    return consumerName.includes(searchTerm) || consumerEmail.includes(searchTerm);
+  }).slice(0, 10); // Limit to 10 suggestions
+
+  // Client-side filtering for search and consumer filter
+  const filteredInvoices = invoices.filter(invoice => {
+    // Filter by consumer (for resellers)
+    if (userRole === 'reseller' && filterConsumerId) {
+      // Try multiple possible fields where consumer ID might be stored
+      const consumerId = invoice.consumer_id || invoice.receiver_id || invoice.receiver?.user_id || (invoice.receiver && typeof invoice.receiver === 'object' ? invoice.receiver.user_id : null);
+      
+      // Convert both to strings for reliable comparison
+      const consumerIdStr = String(consumerId || '');
+      const filterIdStr = String(filterConsumerId || '');
+      
+      if (consumerIdStr !== filterIdStr) {
+        return false;
+      }
+    }
+
+    // Filter by search query
+    if (!searchQuery) return true;
+    
+    const query = searchQuery.toLowerCase();
+    return (
+      (invoice.invoice_number && invoice.invoice_number.toLowerCase().includes(query)) ||
+      (invoice.id && invoice.id.toLowerCase().includes(query)) ||
+      (invoice.consumer_name && invoice.consumer_name.toLowerCase().includes(query)) ||
+      (invoice.consumer_email && invoice.consumer_email.toLowerCase().includes(query)) ||
+      (invoice.reseller_name && invoice.reseller_name.toLowerCase().includes(query)) ||
+      (invoice.total && invoice.total.toString().includes(query))
+    );
+  });
+
+  // Pagination calculations
+  const indexOfLastInvoice = currentPage * invoicesPerPage;
+  const indexOfFirstInvoice = indexOfLastInvoice - invoicesPerPage;
+  const currentInvoices = filteredInvoices.slice(indexOfFirstInvoice, indexOfLastInvoice);
+  const totalPages = Math.ceil(filteredInvoices.length / invoicesPerPage);
+
+  const paginate = (pageNumber) => {
+    if (pageNumber >= 1 && pageNumber <= totalPages) {
+      setCurrentPage(pageNumber);
+    }
+  };
 
   const getStatusColor = (status) => {
     switch (status) {
       case 'paid':
         return { bg: '#f0fdf4', border: '#86efac', text: '#166534', icon: CheckCircle };
-      case 'pending':
+      case 'unpaid':
         return { bg: '#fffbeb', border: '#fde047', text: '#854d0e', icon: Clock };
       case 'overdue':
         return { bg: '#fef2f2', border: '#fecaca', text: '#991b1b', icon: XCircle };
@@ -161,8 +268,8 @@ const Invoices = () => {
                   <input
                     type="text"
                     placeholder="Search invoices, consumers, emails..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
                     style={{
                       width: '100%',
                       padding: '10px 12px 10px 40px',
@@ -173,6 +280,144 @@ const Invoices = () => {
                     }}
                   />
                 </div>
+                {userRole === 'reseller' && (
+                  <div style={{ position: 'relative', flex: '1 1 250px', minWidth: '200px' }}>
+                    <Filter size={18} style={{
+                      position: 'absolute',
+                      left: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: '#9ca3af',
+                      pointerEvents: 'none',
+                      zIndex: 1
+                    }} />
+                    <input
+                      type="text"
+                      placeholder="Filter by consumer name or email..."
+                      value={filterConsumer}
+                      onChange={(e) => {
+                        setFilterConsumer(e.target.value);
+                        setShowConsumerSuggestions(e.target.value.length > 0);
+                        if (!e.target.value) {
+                          setFilterConsumerId('');
+                        }
+                      }}
+                      onFocus={() => {
+                        if (filterConsumer) {
+                          setShowConsumerSuggestions(true);
+                        }
+                      }}
+                      onBlur={() => {
+                        // Delay to allow click on suggestion
+                        setTimeout(() => setShowConsumerSuggestions(false), 200);
+                      }}
+                      disabled={loadingConsumers}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px 10px 36px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        outline: 'none',
+                        backgroundColor: loadingConsumers ? '#f3f4f6' : 'white',
+                        paddingRight: filterConsumerId ? '32px' : '12px'
+                      }}
+                    />
+                    {filterConsumerId && (
+                      <button
+                        type="button"
+                        onClick={clearConsumerFilter}
+                        style={{
+                          position: 'absolute',
+                          right: '8px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          color: '#9ca3af'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
+                        onMouseLeave={(e) => e.currentTarget.style.color = '#9ca3af'}
+                      >
+                        ×
+                      </button>
+                    )}
+                    {/* Consumer Suggestions Dropdown */}
+                    {showConsumerSuggestions && filteredConsumerSuggestions.length > 0 && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        marginTop: '4px',
+                        backgroundColor: 'white',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                        maxHeight: '300px',
+                        overflowY: 'auto',
+                        zIndex: 1000
+                      }}>
+                        {filteredConsumerSuggestions.map((consumer) => (
+                          <div
+                            key={consumer.user_id}
+                            onClick={() => handleConsumerSelect(consumer)}
+                            style={{
+                              padding: '10px 12px',
+                              cursor: 'pointer',
+                              borderBottom: '1px solid #f3f4f6',
+                              transition: 'background-color 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                          >
+                            <div style={{ fontSize: '14px', fontWeight: '500', color: '#1f2937' }}>
+                              {consumer.full_name || 'No Name'}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>
+                              {consumer.email || consumer.user_id}
+                            </div>
+                          </div>
+                        ))}
+                        {filteredConsumerSuggestions.length === 10 && filterConsumer && (
+                          <div style={{
+                            padding: '8px 12px',
+                            fontSize: '12px',
+                            color: '#6b7280',
+                            textAlign: 'center',
+                            borderTop: '1px solid #f3f4f6',
+                            fontStyle: 'italic'
+                          }}>
+                            Showing first 10 results...
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {showConsumerSuggestions && filterConsumer && filteredConsumerSuggestions.length === 0 && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        marginTop: '4px',
+                        backgroundColor: 'white',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                        padding: '12px',
+                        fontSize: '14px',
+                        color: '#6b7280',
+                        zIndex: 1000
+                      }}>
+                        No consumers found matching "{filterConsumer}"
+                      </div>
+                    )}
+                  </div>
+                )}
                 <select
                   value={filterStatus}
                   onChange={(e) => setFilterStatus(e.target.value)}
@@ -188,7 +433,7 @@ const Invoices = () => {
                 >
                   <option value="all">All Status</option>
                   <option value="paid">Paid</option>
-                  <option value="pending">Pending</option>
+                  <option value="unpaid">Unpaid</option>
                   <option value="overdue">Overdue</option>
                 </select>
               </div>
@@ -235,7 +480,7 @@ const Invoices = () => {
                     gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))',
                     gap: '20px'
                   }}>
-                    {filteredInvoices.map((invoice) => {
+                    {currentInvoices.map((invoice) => {
                       const statusStyle = getStatusColor(invoice.status);
                       const StatusIcon = statusStyle.icon;
 
@@ -281,7 +526,9 @@ const Invoices = () => {
                             color: statusStyle.text
                           }}>
                             <StatusIcon size={14} />
-                            <span style={{ textTransform: 'capitalize' }}>{invoice.status}</span>
+                            <span style={{ textTransform: 'capitalize' }}>
+                              {invoice.status}
+                            </span>
                           </div>
 
                           {/* Invoice ID */}
@@ -512,6 +759,140 @@ const Invoices = () => {
                         </div>
                       );
                     })}
+                  </div>
+                </div>
+              )}
+
+              {/* Pagination */}
+              {!loading && filteredInvoices.length > 0 && (
+                <div style={{ 
+                  padding: '16px 24px',
+                  borderTop: '2px solid #f0f0f0',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '16px',
+                  backgroundColor: 'white',
+                  flexShrink: 0
+                }}>
+                  <div style={{ color: '#666', fontSize: '14px' }}>
+                    Showing {indexOfFirstInvoice + 1} to {Math.min(indexOfLastInvoice, filteredInvoices.length)} of {filteredInvoices.length} invoices
+                  </div>
+                  
+                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <button
+                      onClick={() => paginate(currentPage - 1)}
+                      disabled={currentPage === 1}
+                      style={{
+                        padding: '8px 12px',
+                        border: '1px solid #e0e0e0',
+                        borderRadius: '6px',
+                        backgroundColor: currentPage === 1 ? '#f8f9fa' : 'white',
+                        color: currentPage === 1 ? '#ccc' : '#333',
+                        cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (currentPage !== 1) {
+                          e.currentTarget.style.backgroundColor = '#f8f9fa';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (currentPage !== 1) {
+                          e.currentTarget.style.backgroundColor = 'white';
+                        }
+                      }}
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    
+                    {[...Array(totalPages)].map((_, index) => {
+                      const pageNumber = index + 1;
+                      // Show first page, last page, current page, and pages around current
+                      if (
+                        pageNumber === 1 ||
+                        pageNumber === totalPages ||
+                        (pageNumber >= currentPage - 1 && pageNumber <= currentPage + 1)
+                      ) {
+                        return (
+                          <button
+                            key={pageNumber}
+                            onClick={() => paginate(pageNumber)}
+                            style={{
+                              padding: '8px 12px',
+                              border: `1px solid ${currentPage === pageNumber ? '#74317e' : '#e0e0e0'}`,
+                              borderRadius: '6px',
+                              backgroundColor: currentPage === pageNumber ? '#74317e' : 'white',
+                              color: currentPage === pageNumber ? 'white' : '#333',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              fontWeight: currentPage === pageNumber ? '600' : '500',
+                              transition: 'all 0.2s',
+                              minWidth: '40px'
+                            }}
+                            onMouseEnter={(e) => {
+                              if (currentPage !== pageNumber) {
+                                e.currentTarget.style.backgroundColor = '#f8f9fa';
+                                e.currentTarget.style.borderColor = '#74317e';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (currentPage !== pageNumber) {
+                                e.currentTarget.style.backgroundColor = 'white';
+                                e.currentTarget.style.borderColor = '#e0e0e0';
+                              }
+                            }}
+                          >
+                            {pageNumber}
+                          </button>
+                        );
+                      } else if (
+                        pageNumber === currentPage - 2 ||
+                        pageNumber === currentPage + 2
+                      ) {
+                        return (
+                          <span key={pageNumber} style={{ padding: '0 4px', color: '#666' }}>
+                            ...
+                          </span>
+                        );
+                      }
+                      return null;
+                    })}
+                    
+                    <button
+                      onClick={() => paginate(currentPage + 1)}
+                      disabled={currentPage === totalPages}
+                      style={{
+                        padding: '8px 12px',
+                        border: '1px solid #e0e0e0',
+                        borderRadius: '6px',
+                        backgroundColor: currentPage === totalPages ? '#f8f9fa' : 'white',
+                        color: currentPage === totalPages ? '#ccc' : '#333',
+                        cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (currentPage !== totalPages) {
+                          e.currentTarget.style.backgroundColor = '#f8f9fa';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (currentPage !== totalPages) {
+                          e.currentTarget.style.backgroundColor = 'white';
+                        }
+                      }}
+                    >
+                      <ChevronRight size={16} />
+                    </button>
                   </div>
                 </div>
               )}

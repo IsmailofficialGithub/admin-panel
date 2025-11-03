@@ -293,8 +293,8 @@ const Resellers = () => {
         text: 'Active'
       },
       deactive: {
-        backgroundColor: '#fff3cd',
-        color: '#ffc107',
+        backgroundColor: '#f8d7da',
+        color: '#dc3545',
         text: 'Deactive'
       },
       expired_subscription: {
@@ -661,6 +661,15 @@ const Resellers = () => {
                     fontSize: '13px',
                     textTransform: 'uppercase',
                     letterSpacing: '0.5px'
+                  }}>COMMISSION</th>
+                  <th style={{ 
+                    padding: '15px 24px', 
+                    textAlign: 'center',
+                    color: '#555', 
+                    fontWeight: '600', 
+                    fontSize: '13px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
                   }}>CONSUMERS</th>
                   <th style={{ 
                     padding: '15px 24px', 
@@ -733,6 +742,34 @@ const Resellers = () => {
                         month: 'short', 
                         day: 'numeric' 
                       }) : '-'}
+                    </td>
+                    <td style={{ padding: '15px 24px', textAlign: 'center' }}>
+                      {(() => {
+                        const commissionRate = user.commission_rate || user.default_commission || 0;
+                        const commissionType = user.commission_type || 'default';
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                            <span style={{
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              color: '#74317e'
+                            }}>
+                              {parseFloat(commissionRate).toFixed(2)}%
+                            </span>
+                            <span style={{
+                              fontSize: '10px',
+                              color: commissionType === 'custom' ? '#f59e0b' : '#6b7280',
+                              backgroundColor: commissionType === 'custom' ? '#fef3c7' : '#f3f4f6',
+                              padding: '2px 8px',
+                              borderRadius: '10px',
+                              textTransform: 'uppercase',
+                              fontWeight: '500'
+                            }}>
+                              {commissionType === 'custom' ? 'Custom' : 'Default'}
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td style={{ padding: '15px 24px', textAlign: 'center', position: 'relative' }}>
                       <div
@@ -846,11 +883,11 @@ const Resellers = () => {
                                               fontWeight: '600',
                                               backgroundColor: 
                                                 consumer.account_status === 'active' ? '#d4edda' :
-                                                consumer.account_status === 'deactive' ? '#fff3cd' :
+                                                consumer.account_status === 'deactive' ? '#f8d7da' :
                                                 '#f8d7da',
                                               color:
                                                 consumer.account_status === 'active' ? '#155724' :
-                                                consumer.account_status === 'deactive' ? '#856404' :
+                                                consumer.account_status === 'deactive' ? '#dc3545' :
                                                 '#721c24'
                                             }}>
                                               {consumer.account_status}
@@ -1021,13 +1058,19 @@ const Resellers = () => {
                               textAlign: 'left',
                               cursor: 'pointer',
                               fontSize: '14px',
-                              color: '#ffc107',
+                              color: user.account_status === 'deactive' ? '#28a745' : '#dc3545',
                               display: 'flex',
                               alignItems: 'center',
                               gap: '8px',
                               transition: 'background-color 0.2s'
                             }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fffbf0'}
+                            onMouseEnter={(e) => {
+                              if (user.account_status === 'deactive') {
+                                e.currentTarget.style.backgroundColor = '#f0fdf4';
+                              } else {
+                                e.currentTarget.style.backgroundColor = '#fee';
+                              }
+                            }}
                             onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                           >
                             <UserPlus size={16} />
@@ -1315,10 +1358,10 @@ const Resellers = () => {
                     width: '100%',
                     padding: '16px',
                     marginBottom: '8px',
-                    border: '2px solid #ffc107',
+                    border: '2px solid #dc3545',
                     borderRadius: '8px',
-                    backgroundColor: statusUpdateData.currentStatus === 'deactive' ? '#ffc107' : 'white',
-                    color: statusUpdateData.currentStatus === 'deactive' ? 'white' : '#ffc107',
+                    backgroundColor: statusUpdateData.currentStatus === 'deactive' ? '#dc3545' : 'white',
+                    color: statusUpdateData.currentStatus === 'deactive' ? 'white' : '#dc3545',
                     fontSize: '15px',
                     fontWeight: '500',
                     cursor: isUpdatingStatus || statusUpdateData.currentStatus === 'deactive' ? 'not-allowed' : 'pointer',
@@ -1331,14 +1374,14 @@ const Resellers = () => {
                   }}
                   onMouseEnter={(e) => {
                     if (!isUpdatingStatus && statusUpdateData.currentStatus !== 'deactive') {
-                      e.currentTarget.style.backgroundColor = '#ffc107';
+                      e.currentTarget.style.backgroundColor = '#dc3545';
                       e.currentTarget.style.color = 'white';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (statusUpdateData.currentStatus !== 'deactive') {
                       e.currentTarget.style.backgroundColor = 'white';
-                      e.currentTarget.style.color = '#ffc107';
+                      e.currentTarget.style.color = '#dc3545';
                     }
                   }}
                 >

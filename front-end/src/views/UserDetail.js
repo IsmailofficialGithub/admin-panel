@@ -57,7 +57,7 @@ function UserDetail() {
   const getAccountStatusBadge = (status) => {
     const statusColors = {
       active: 'success',
-      deactive: 'secondary',
+      deactive: 'danger',
       expired_subscription: 'danger'
     };
     const statusLabels = {

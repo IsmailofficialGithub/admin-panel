@@ -49,8 +49,23 @@ export {
 } from './invoices';
 
 export {
-  getDashboardStats
+  getDashboardStats,
+  getResellerStats
 } from './dashboard';
+
+export {
+  getActivityLogs,
+  getActivityLogById
+} from './activityLogs';
+
+export {
+  getDefaultCommission,
+  updateDefaultCommission,
+  getMyCommission,
+  getResellerCommission,
+  setResellerCommission,
+  resetResellerCommission
+} from './settings';
 
 // Re-export API client for direct access if needed
 export { default as apiClient } from '../../services/apiClient';

@@ -16,6 +16,10 @@ import ConsumerDetail from "views/ConsumerDetail.js";
 import Account from "views/Account.js";
 import Products from "views/Products.js";
 import Invoices from "views/Invoices.js";
+import ActivityLogs from "views/ActivityLogs.js";
+import ActivityLogDetail from "views/ActivityLogDetail.js";
+import ResellerStatistics from "views/ResellerStatistics.js";
+import AdminSettings from "views/AdminSettings.js";
 
 const dashboardRoutes = [
   // Hidden routes (not shown in sidebar)
@@ -42,6 +46,24 @@ const dashboardRoutes = [
     component: Account,
     layout: "/admin",
     invisible: true // This prevents it from showing in sidebar
+  },
+  {
+    path: "/activity-logs/:id",
+    component: ActivityLogDetail,
+    layout: "/admin",
+    invisible: true // This prevents it from showing in sidebar
+  },
+  {
+    path: "/logs/:id",
+    component: ActivityLogDetail,
+    layout: "/admin",
+    invisible: true // This prevents it from showing in sidebar
+  },
+  {
+    path: "/reseller-statistics",
+    component: ResellerStatistics,
+    layout: "/admin",
+    invisible: true // Hidden from sidebar - accessed from dashboard
   },
   // Sidebar routes
   {
@@ -104,6 +126,20 @@ const dashboardRoutes = [
     name: "Invoices",
     icon: "nc-icon nc-single-copy-04",
     component: Invoices,
+    layout: "/admin"
+  },
+  {
+    path: "/activity-logs",
+    name: "Activity Logs",
+    icon: "nc-icon nc-chart-bar-32",
+    component: ActivityLogs,
+    layout: "/admin"
+  },
+  {
+    path: "/settings",
+    name: "Settings",
+    icon: "nc-icon nc-settings-gear-64",
+    component: AdminSettings,
     layout: "/admin"
   },
   // {

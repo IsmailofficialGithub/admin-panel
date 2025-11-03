@@ -1,6 +1,7 @@
 import { supabase, supabaseAdmin } from '../../config/database.js';
 import { sendWelcomeEmail, sendPasswordResetEmail } from '../../services/emailService.js';
 import { generatePassword } from '../../utils/helpers.js';
+import { logActivity, getActorInfo, getClientIp, getUserAgent } from '../../services/activityLogger.js';
 
 /**
  * Users Controller
@@ -149,6 +150,9 @@ export const createUser = async (req, res) => {
       });
     }
 
+    // Get the user ID of who created this user (from token)
+    const referred_by = req.user && req.user.id ? req.user.id : null;
+
     // Prepare profile data
     const profileData = {
       user_id: newUser.user.id,
@@ -157,6 +161,7 @@ export const createUser = async (req, res) => {
       phone: phone || null,
       country: country || null,
       city: city || null,
+      referred_by: referred_by || null,
     };
 
     // If role is consumer, set trial_expiry to 3 days from now and account_status to active
@@ -192,6 +197,19 @@ export const createUser = async (req, res) => {
     } catch (emailError) {
       console.error('❌ Email send error:', emailError);
     }
+
+    // Log activity
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: newUser.user.id,
+      actionType: 'create',
+      tableName: 'profiles',
+      changedFields: profileData,
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    });
 
     res.status(201).json({
       success: true,
@@ -239,6 +257,13 @@ export const updateUser = async (req, res) => {
     updateData.country = country;
     updateData.city = city;
 
+    // Get old data for logging changed fields
+    const { data: oldUser } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', id)
+      .single();
+
     const { data: updatedUser, error } = await supabase
       .from('profiles')
       .update(updateData)
@@ -252,6 +277,29 @@ export const updateUser = async (req, res) => {
         message: error.message
       });
     }
+
+    // Log activity - track changed fields
+    const changedFields = {};
+    Object.keys(updateData).forEach(key => {
+      if (oldUser && oldUser[key] !== updateData[key]) {
+        changedFields[key] = {
+          old: oldUser[key],
+          new: updateData[key]
+        };
+      }
+    });
+
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: id,
+      actionType: 'update',
+      tableName: 'profiles',
+      changedFields: changedFields,
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    });
 
     res.json({
       success: true,
@@ -282,6 +330,26 @@ export const deleteUser = async (req, res) => {
         message: 'Admin client not configured'
       });
     }
+
+    // Get user data before deletion for logging
+    const { data: deletedUser } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', id)
+      .single();
+
+    // Log activity BEFORE deletion to avoid foreign key constraint violation
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: id,
+      actionType: 'delete',
+      tableName: 'profiles',
+      changedFields: deletedUser || null,
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    });
 
     // Delete user with Supabase Admin
     const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
@@ -479,6 +547,27 @@ export const createReseller = async (req, res) => {
     } catch (emailError) {
       console.error("❌ Email send error:", emailError);
     }
+
+    // Log activity
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: newUser.user.id,
+      actionType: 'create',
+      tableName: 'profiles',
+      changedFields: {
+        user_id: newUser.user.id,
+        full_name,
+        role: 'reseller',
+        phone: phone || null,
+        country: country || null,
+        city: city || null,
+        referred_by: referred_by || null
+      },
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    });
 
     res.status(201).json({
       success: true,

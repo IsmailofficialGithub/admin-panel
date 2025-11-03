@@ -99,17 +99,28 @@ const axiosInstance = axios.create({
  * Request interceptor - Add auth token to all requests
  */
 axiosInstance.interceptors.request.use(
-  (config) => {
+  async (config) => {
     console.log('🔄 API Request:', config.method.toUpperCase(), config.url);
     
-    // Use cached token (synchronous - no waiting!)
-    if (cachedToken) {
-      config.headers.Authorization = `Bearer ${cachedToken}`;
-      console.log('✅ Auth token added from cache');
-    } else {
-      console.warn('⚠️ No cached token available');
+    // Try to get fresh token
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        cachedToken = session.access_token;
+        config.headers.Authorization = `Bearer ${cachedToken}`;
+        console.log('✅ Auth token added from session');
+      } else if (cachedToken) {
+        config.headers.Authorization = `Bearer ${cachedToken}`;
+        console.log('✅ Auth token added from cache');
+      } else {
+        console.warn('⚠️ No cached token available');
+      }
+    } catch (error) {
+      console.warn('⚠️ apiClient: Error getting token:', error);
+      if (cachedToken) {
+        config.headers.Authorization = `Bearer ${cachedToken}`;
+      }
     }
-    
     return config;
   },
   (error) => {
@@ -119,14 +130,14 @@ axiosInstance.interceptors.request.use(
 );
 
 /**
- * Response interceptor - Handle errors globally
+ * Response interceptor - Handle errors globally including account deactivation
  */
 axiosInstance.interceptors.response.use(
   (response) => {
     console.log('✅ API Response:', response.config.url, response.data);
     return response.data;
   },
-  (error) => {
+  async (error) => {
     console.error('❌ API Error Details:', {
       url: error.config?.url,
       method: error.config?.method,
@@ -134,6 +145,34 @@ axiosInstance.interceptors.response.use(
       data: error.response?.data,
       message: error.message
     });
+    
+    // Handle 403 Forbidden errors (account deactivated)
+    if (error.response?.status === 403) {
+      const errorMessage = error.response?.data?.message || '';
+      
+      // Check if account is deactivated
+      if (errorMessage.includes('deactivated') || errorMessage.includes('account has been deactivated')) {
+        // Sign out and clear storage
+        await supabase.auth.signOut();
+        await new Promise(resolve => setTimeout(resolve, 200));
+        localStorage.clear();
+        sessionStorage.clear();
+        
+        // Clear cookies
+        document.cookie.split(";").forEach((c) => {
+          const cookieName = c.split("=")[0].trim();
+          document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=${window.location.hostname};`;
+          document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+        });
+        
+        // Redirect to login
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 500);
+        
+        throw new Error('Your account has been deactivated. Please contact the administrator.');
+      }
+    }
     
     if (error.response) {
       // Server responded with error status
@@ -372,6 +411,11 @@ const apiClient = {
     getConsumerProducts: (consumerId) => axiosInstance.get(`/invoices/consumer/${consumerId}/products`),
 
     /**
+     * Get invoices for a specific consumer
+     */
+    getConsumerInvoices: (consumerId) => axiosInstance.get(`/invoices/consumer/${consumerId}`),
+
+    /**
      * Create invoice with invoice items
      */
     create: (invoiceData) => axiosInstance.post('/invoices', invoiceData),
@@ -383,6 +427,60 @@ const apiClient = {
      * Get dashboard statistics (admin only)
      */
     getStats: () => axiosInstance.get('/dashboard/stats'),
+
+    /**
+     * Get reseller business statistics (admin only)
+     */
+    getResellerStats: (queryString = '') => axiosInstance.get(`/dashboard/reseller-stats${queryString}`),
+  },
+
+  // ==================== ACTIVITY LOGS ====================
+  activityLogs: {
+    /**
+     * Get all activity logs with optional filters
+     */
+    getAll: (queryString = '') => axiosInstance.get(`/activity-logs${queryString}`),
+
+    /**
+     * Get activity log by ID
+     */
+    getById: (id) => axiosInstance.get(`/activity-logs/${id}`),
+  },
+
+  // ==================== SETTINGS ====================
+  settings: {
+    /**
+     * Get default reseller commission
+     */
+    getDefaultCommission: () => axiosInstance.get('/settings/default-commission'),
+
+    /**
+     * Update default reseller commission
+     */
+    updateDefaultCommission: (commissionRate) => axiosInstance.put('/settings/default-commission', { commissionRate }),
+  },
+
+  // ==================== RESELLER COMMISSION ====================
+  resellerCommission: {
+    /**
+     * Get reseller's own commission (effective commission) - for resellers viewing their own
+     */
+    getMyCommission: () => axiosInstance.get('/resellers/my-commission'),
+
+    /**
+     * Get reseller commission (effective commission) - for admins viewing any reseller
+     */
+    getCommission: (resellerId) => axiosInstance.get(`/resellers/${resellerId}/commission`),
+
+    /**
+     * Set custom commission for reseller
+     */
+    setCommission: (resellerId, commissionRate) => axiosInstance.put(`/resellers/${resellerId}/commission`, { commissionRate }),
+
+    /**
+     * Reset reseller commission to default
+     */
+    resetCommission: (resellerId) => axiosInstance.delete(`/resellers/${resellerId}/commission`),
   },
 };
 

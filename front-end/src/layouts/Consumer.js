@@ -1,5 +1,7 @@
 import React from "react";
 import { useLocation, Route, Switch } from "react-router-dom";
+import { useAuth } from "hooks/useAuth";
+import toast from "react-hot-toast";
 
 import AdminNavbar from "components/Navbars/AdminNavbar";
 import Footer from "components/Footer/Footer";
@@ -15,6 +17,18 @@ function ConsumerLayout() {
   const [hasImage, setHasImage] = React.useState(true);
   const location = useLocation();
   const mainPanel = React.useRef(null);
+  const { profile, signOut } = useAuth();
+
+  // Check account status on mount and route changes
+  React.useEffect(() => {
+    if (profile) {
+      // Check if consumer account is deactivated
+      if (profile.role === 'consumer' && profile.account_status === 'deactive') {
+        toast.error('Your account has been deactivated. Please contact the administrator.');
+        signOut();
+      }
+    }
+  }, [profile, location.pathname, signOut]);
 
   const getRoutes = (routes) => {
     return routes.map((prop, key) => {

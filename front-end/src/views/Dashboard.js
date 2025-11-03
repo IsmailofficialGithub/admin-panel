@@ -9,13 +9,19 @@ import {
   Calendar,
   DollarSign,
   FileText,
-  Package
+  Package,
+  TrendingDown,
+  ArrowRight,
+  Eye
 } from 'lucide-react';
 import { Container, Row, Col, Card } from 'react-bootstrap';
-import { getDashboardStats } from '../api/backend';
+import { useHistory } from 'react-router-dom';
+import { getDashboardStats, getResellerStats } from '../api/backend';
 import toast from 'react-hot-toast';
 
 const Dashboard = () => {
+  const history = useHistory();
+  
   // Real data from API
   const [stats, setStats] = useState({
     totalUsers: 0,
@@ -35,6 +41,8 @@ const Dashboard = () => {
   });
 
   const [loading, setLoading] = useState(true);
+  const [resellerStats, setResellerStats] = useState([]);
+  const [resellerStatsLoading, setResellerStatsLoading] = useState(true);
 
   useEffect(() => {
     const fetchDashboardStats = async () => {
@@ -69,7 +77,54 @@ const Dashboard = () => {
       }
     };
 
+    const fetchResellerStats = async () => {
+      setResellerStatsLoading(true);
+      try {
+        const currentDate = new Date();
+        const result = await getResellerStats({
+          month: currentDate.getMonth() + 1,
+          year: currentDate.getFullYear(),
+          status: 'paid',
+          limit: 10
+        });
+        
+        console.log('📊 Reseller Stats Result:', result);
+        console.log('📊 Result type:', typeof result);
+        console.log('📊 Result success:', result?.success);
+        console.log('📊 Result data:', result?.data);
+        console.log('📊 Result data stats:', result?.data?.stats);
+        
+        // Handle different response formats
+        let statsArray = [];
+        
+        if (result && result.success && result.data) {
+          // Standard format: { success: true, data: { stats: [...], summary: {...} } }
+          statsArray = result.data.stats || [];
+          console.log('📊 Setting reseller stats (standard format):', statsArray);
+        } else if (result && result.stats && Array.isArray(result.stats)) {
+          // Direct format: { stats: [...], summary: {...} }
+          statsArray = result.stats;
+          console.log('📊 Setting reseller stats (direct format):', statsArray);
+        } else if (Array.isArray(result)) {
+          // Array format: [...]
+          statsArray = result;
+          console.log('📊 Setting reseller stats (array format):', statsArray);
+        } else {
+          console.warn('⚠️ Unexpected reseller stats format:', result);
+          statsArray = [];
+        }
+        
+        setResellerStats(statsArray);
+      } catch (error) {
+        console.error('❌ Error fetching reseller stats:', error);
+        setResellerStats([]);
+      } finally {
+        setResellerStatsLoading(false);
+      }
+    };
+
     fetchDashboardStats();
+    fetchResellerStats();
   }, []);
 
   const StatCard = ({ title, value, icon: Icon, color, subtitle, trend }) => (
@@ -220,7 +275,67 @@ const Dashboard = () => {
         </p>
       </div>
 
+      {/* Quick Actions */}
+      <div style={{ marginBottom: '32px' }}>
+        <h4 style={{
+          fontSize: '18px',
+          fontWeight: '600',
+          color: '#2c3e50',
+          margin: '0 0 16px 0'
+        }}>
+          Quick Actions
+        </h4>
+      </div>
+      <Row style={{ marginBottom: '32px' }}>
+        <Col xs={12} sm={6} md={4} lg={3} style={{ marginBottom: '16px' }}>
+          <QuickActionCard
+            title="Manage Users"
+            description="View and edit users"
+            icon={Users}
+            color="#74317e"
+            onClick={() => window.location.href = '/admin/users'}
+          />
+        </Col>
+        <Col xs={12} sm={6} md={4} lg={3} style={{ marginBottom: '16px' }}>
+          <QuickActionCard
+            title="View Consumers"
+            description="Manage consumers"
+            icon={UserCheck}
+            color="#10b981"
+            onClick={() => window.location.href = '/admin/consumers'}
+          />
+        </Col>
+        <Col xs={12} sm={6} md={4} lg={3} style={{ marginBottom: '16px' }}>
+          <QuickActionCard
+            title="Manage Resellers"
+            description="View reseller accounts"
+            icon={Store}
+            color="#8b5cf6"
+            onClick={() => window.location.href = '/admin/resellers'}
+          />
+        </Col>
+        <Col xs={12} sm={6} md={4} lg={3} style={{ marginBottom: '16px' }}>
+          <QuickActionCard
+            title="Activity Report"
+            description="View system activity"
+            icon={Activity}
+            color="#f59e0b"
+            onClick={() => alert('Activity reports coming soon!')}
+          />
+        </Col>
+      </Row>
+
       {/* Statistics Cards */}
+      <div style={{ marginBottom: '16px' }}>
+        <h4 style={{
+          fontSize: '18px',
+          fontWeight: '600',
+          color: '#2c3e50',
+          margin: '0 0 16px 0'
+        }}>
+          Statistics
+        </h4>
+      </div>
       <Row style={{ marginBottom: '24px' }}>
         <Col xs={12} sm={6} lg={3} style={{ marginBottom: '24px' }}>
           <StatCard
@@ -296,6 +411,182 @@ const Dashboard = () => {
         </Col>
       </Row>
 
+      {/* Top Resellers by Business */}
+      <Row style={{ marginBottom: '24px' }}>
+        <Col xs={12} style={{ marginBottom: '24px' }}>
+          <Card
+            style={{
+              border: '2px solid #e9ecef',
+              borderRadius: '12px',
+              cursor: 'pointer',
+              transition: 'all 0.3s ease',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.boxShadow = '0 4px 16px rgba(116, 49, 126, 0.2)';
+              e.currentTarget.style.borderColor = '#74317e';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+              e.currentTarget.style.borderColor = '#e9ecef';
+            }}
+            onClick={() => history.push('/admin/reseller-statistics')}
+          >
+            <Card.Header style={{ 
+              backgroundColor: '#74317e', 
+              color: 'white',
+              borderBottom: 'none',
+              borderRadius: '10px 10px 0 0',
+              padding: '12px 16px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Store size={20} />
+                <div>
+                  <h5 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>
+                    Top Resellers (This Month)
+                  </h5>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '11px', opacity: 0.9 }}>
+                    Top 10 by revenue • Click to view all
+                  </p>
+                </div>
+              </div>
+              <ArrowRight size={18} />
+            </Card.Header>
+            <Card.Body style={{ padding: '12px 16px' }}>
+              {resellerStatsLoading ? (
+                <div style={{ textAlign: 'center', padding: '20px' }}>
+                  <div style={{
+                    width: '30px',
+                    height: '30px',
+                    border: '3px solid #f3f3f3',
+                    borderTop: '3px solid #74317e',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite',
+                    margin: '0 auto'
+                  }} />
+                </div>
+              ) : resellerStats.length === 0 ? (
+                <p style={{ textAlign: 'center', color: '#6c757d', margin: '16px 0', fontSize: '14px' }}>
+                  No reseller business data available
+                </p>
+              ) : (
+                <div style={{ 
+                  display: 'flex',
+                  gap: '10px',
+                  overflowX: 'auto',
+                  paddingBottom: '8px',
+                  scrollbarWidth: 'thin',
+                  scrollbarColor: '#74317e #f3f3f3'
+                }}>
+                  {resellerStats.slice(0, 10).map((reseller, index) => (
+                    <div
+                      key={reseller.reseller_id}
+                      style={{
+                        minWidth: '180px',
+                        maxWidth: '200px',
+                        padding: '10px 12px',
+                        backgroundColor: index === 0 ? '#fef3c7' : '#f9fafb',
+                        borderRadius: '8px',
+                        border: index === 0 ? '2px solid #fbbf24' : '1px solid #e5e7eb',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        position: 'relative'
+                      }}
+                    >
+                      <div style={{ marginBottom: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {index === 0 && <span style={{ fontSize: '14px' }}>🏆</span>}
+                            <span style={{ 
+                              fontSize: '10px', 
+                              fontWeight: '600', 
+                              color: '#6b7280',
+                              textTransform: 'uppercase'
+                            }}>
+                              #{index + 1}
+                            </span>
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              history.push(`/admin/reseller/${reseller.reseller_id}`);
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              width: '24px',
+                              height: '24px',
+                              padding: 0,
+                              border: '1px solid #d1d5db',
+                              borderRadius: '4px',
+                              backgroundColor: 'white',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease',
+                              color: '#74317e'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = '#74317e';
+                              e.currentTarget.style.borderColor = '#74317e';
+                              e.currentTarget.style.color = 'white';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = 'white';
+                              e.currentTarget.style.borderColor = '#d1d5db';
+                              e.currentTarget.style.color = '#74317e';
+                            }}
+                            title="View Details"
+                          >
+                            <Eye size={12} />
+                          </button>
+                        </div>
+                        <div style={{ 
+                          fontSize: '12px', 
+                          fontWeight: '600', 
+                          color: '#1f2937',
+                          marginBottom: '6px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          lineHeight: '1.3'
+                        }}>
+                          {reseller.reseller_name}
+                        </div>
+                        <div style={{ 
+                          fontSize: '14px', 
+                          fontWeight: '700', 
+                          color: '#74317e',
+                          marginBottom: '4px'
+                        }}>
+                          ${parseFloat(reseller.total_revenue || 0).toLocaleString('en-US', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                          })}
+                        </div>
+                        <div style={{ 
+                          fontSize: '10px', 
+                          color: '#6b7280',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}>
+                          <FileText size={10} />
+                          <span>{reseller.invoice_count} invoice{reseller.invoice_count !== 1 ? 's' : ''}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
+
       {/* Additional Statistics Row */}
       <Row style={{ marginBottom: '24px' }}>
         <Col xs={12} sm={6} lg={3} style={{ marginBottom: '24px' }}>
@@ -363,56 +654,6 @@ const Dashboard = () => {
               </div>
             </Card.Body>
           </Card>
-        </Col>
-      </Row>
-
-      {/* Quick Actions */}
-      <div style={{ marginBottom: '16px' }}>
-        <h4 style={{
-          fontSize: '18px',
-          fontWeight: '600',
-          color: '#2c3e50',
-          margin: '0 0 16px 0'
-        }}>
-          Quick Actions
-        </h4>
-      </div>
-      <Row>
-        <Col xs={12} sm={6} md={4} lg={3} style={{ marginBottom: '16px' }}>
-          <QuickActionCard
-            title="Manage Users"
-            description="View and edit users"
-            icon={Users}
-            color="#74317e"
-            onClick={() => window.location.href = '/admin/users'}
-          />
-        </Col>
-        <Col xs={12} sm={6} md={4} lg={3} style={{ marginBottom: '16px' }}>
-          <QuickActionCard
-            title="View Consumers"
-            description="Manage consumers"
-            icon={UserCheck}
-            color="#10b981"
-            onClick={() => window.location.href = '/admin/consumers'}
-          />
-        </Col>
-        <Col xs={12} sm={6} md={4} lg={3} style={{ marginBottom: '16px' }}>
-          <QuickActionCard
-            title="Manage Resellers"
-            description="View reseller accounts"
-            icon={Store}
-            color="#8b5cf6"
-            onClick={() => window.location.href = '/admin/resellers'}
-          />
-        </Col>
-        <Col xs={12} sm={6} md={4} lg={3} style={{ marginBottom: '16px' }}>
-          <QuickActionCard
-            title="Activity Report"
-            description="View system activity"
-            icon={Activity}
-            color="#f59e0b"
-            onClick={() => alert('Activity reports coming soon!')}
-          />
         </Col>
       </Row>
 

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useHistory } from 'react-router-dom';
 import { Container, Row, Col, Card, Badge, Button, Table } from 'react-bootstrap';
-import { ArrowLeft, User, Mail, Phone, MapPin, Calendar, Package, Edit, Trash2, Key } from 'lucide-react';
+import { ArrowLeft, User, Mail, Phone, MapPin, Calendar, Package, Edit, Trash2, Key, FileText, DollarSign, Eye, Download } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { getConsumerById, resetConsumerPassword, deleteConsumer } from '../api/backend';
+import { getConsumerInvoices } from '../api/backend/invoices';
 import { useAuth } from '../hooks/useAuth';
 import apiClient from '../services/apiClient';
 
@@ -13,12 +14,15 @@ function ConsumerDetail() {
   const { isAdmin, isReseller } = useAuth();
   const [consumer, setConsumer] = useState(null);
   const [products, setProducts] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [productsLoading, setProductsLoading] = useState(true);
+  const [invoicesLoading, setInvoicesLoading] = useState(true);
 
   useEffect(() => {
     fetchConsumerData();
     fetchConsumerProducts();
+    fetchConsumerInvoices();
   }, [id]);
 
   const fetchConsumerData = async () => {
@@ -83,6 +87,20 @@ function ConsumerDetail() {
     }
   };
 
+  const fetchConsumerInvoices = async () => {
+    setInvoicesLoading(true);
+    try {
+      const response = await getConsumerInvoices(id);
+      if (response && response.success && response.data) {
+        setInvoices(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching consumer invoices:', error);
+    } finally {
+      setInvoicesLoading(false);
+    }
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     const date = new Date(dateString);
@@ -95,10 +113,41 @@ function ConsumerDetail() {
     });
   };
 
+  const formatShortDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
+  const formatCurrency = (amount) => {
+    if (!amount) return '$0.00';
+    const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(numAmount);
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'paid':
+        return { bg: '#f0fdf4', border: '#86efac', text: '#166534' };
+      case 'unpaid':
+        return { bg: '#fffbeb', border: '#fde047', text: '#854d0e' };
+      case 'overdue':
+        return { bg: '#fef2f2', border: '#fecaca', text: '#991b1b' };
+      default:
+        return { bg: '#f3f4f6', border: '#d1d5db', text: '#374151' };
+    }
+  };
+
   const getAccountStatusBadge = (status) => {
     const statusColors = {
       active: 'success',
-      deactive: 'secondary',
+      deactive: 'danger',
       expired_subscription: 'danger'
     };
     const statusLabels = {
@@ -407,6 +456,130 @@ function ConsumerDetail() {
                     ))}
                   </tbody>
                 </Table>
+              )}
+            </Card.Body>
+          </Card>
+
+          {/* Invoices Section */}
+          <Card style={{ marginBottom: '24px' }}>
+            <Card.Header style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #e9ecef' }}>
+              <h5 style={{ margin: 0, fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <FileText size={20} />
+                Invoices ({invoices.length})
+              </h5>
+            </Card.Header>
+            <Card.Body style={{ padding: '24px' }}>
+              {invoicesLoading ? (
+                <div style={{ textAlign: 'center', padding: '20px' }}>
+                  <div style={{
+                    width: '40px',
+                    height: '40px',
+                    border: '4px solid #f3f3f3',
+                    borderTop: '4px solid #74317e',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite',
+                    margin: '0 auto'
+                  }} />
+                </div>
+              ) : invoices.length === 0 ? (
+                <p style={{ color: '#6c757d', textAlign: 'center', margin: 0 }}>No invoices found</p>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <Table striped hover>
+                    <thead>
+                      <tr>
+                        <th>Invoice Number</th>
+                        <th>Date</th>
+                        <th>Due Date</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                        {isAdmin && <th>Reseller</th>}
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invoices.map((invoice) => {
+                        const statusStyle = getStatusColor(invoice.status);
+                        return (
+                          <tr key={invoice.id}>
+                            <td style={{ fontFamily: 'monospace', fontSize: '12px' }}>
+                              {invoice.invoice_number || invoice.id.substring(0, 8)}
+                            </td>
+                            <td>{formatShortDate(invoice.invoice_date)}</td>
+                            <td>{formatShortDate(invoice.due_date)}</td>
+                            <td style={{ fontWeight: '600', color: '#74317e' }}>
+                              {formatCurrency(invoice.total)}
+                            </td>
+                            <td>
+                              <Badge 
+                                style={{
+                                  backgroundColor: statusStyle.bg,
+                                  color: statusStyle.text,
+                                  border: `1px solid ${statusStyle.border}`,
+                                  padding: '4px 8px',
+                                  borderRadius: '4px',
+                                  fontSize: '11px',
+                                  textTransform: 'capitalize'
+                                }}
+                              >
+                                {invoice.status || 'unpaid'}
+                              </Badge>
+                            </td>
+                            {isAdmin && (
+                              <td style={{ fontSize: '12px' }}>
+                                {invoice.reseller_name || 'N/A'}
+                              </td>
+                            )}
+                            <td>
+                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <button
+                                  onClick={() => {
+                                    toast.success('View invoice functionality coming soon');
+                                  }}
+                                  style={{
+                                    padding: '4px 8px',
+                                    backgroundColor: '#74317e',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    fontSize: '11px'
+                                  }}
+                                  title="View Invoice"
+                                >
+                                  <Eye size={12} />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    toast.success('Download invoice functionality coming soon');
+                                  }}
+                                  style={{
+                                    padding: '4px 8px',
+                                    backgroundColor: 'white',
+                                    color: '#74317e',
+                                    border: '1px solid #74317e',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    fontSize: '11px'
+                                  }}
+                                  title="Download Invoice"
+                                >
+                                  <Download size={12} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </Table>
+                </div>
               )}
             </Card.Body>
           </Card>

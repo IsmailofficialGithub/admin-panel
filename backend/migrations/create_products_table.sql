@@ -98,3 +98,6 @@ INSERT INTO products (name, description, price) VALUES
 ON CONFLICT DO NOTHING;
 
 
+
+
+
