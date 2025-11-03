@@ -46,7 +46,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         trial_expiry_date: trialDate,
         country: consumer.country || '',
         city: consumer.city || '',
-        subscribed_products: consumerProducts
+        subscribed_products: consumerProducts || []
       });
       
       // If consumer has a country, find and set it
