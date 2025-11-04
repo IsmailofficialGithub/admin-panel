@@ -176,7 +176,7 @@ deploy_frontend() {
     
     # Install/update dependencies
     log_info "Installing frontend dependencies..."
-    npm install || {
+    npm install --legacy-peer-deps || {
         log_error "Failed to install frontend dependencies"
         exit 1
     }
