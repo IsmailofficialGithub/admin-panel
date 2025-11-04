@@ -3,6 +3,14 @@
 *.env
 backend/.env
 front-end/.env
+*.env.backup
+*.env.local
+
+# Server-specific files (preserved during deployment)
+ecosystem.config.cjs
+ecosystem.config.cjs.backup
+server-nginx.conf
+server-pm2.config.js
 
 # Dependencies
 node_modules/
@@ -22,5 +30,10 @@ dist/
 .DS_Store
 Thumbs.db
 
-
+# Deployment
 .deploy.txt
+*.backup
+
+# Logs
+logs/
+*.log
