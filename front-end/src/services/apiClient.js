@@ -6,7 +6,7 @@
 import axios from 'axios';
 import { supabase } from '../lib/supabase/Production/client';
 
-const API_BASE_URL = process.env.REACT_APP_Server_Url || 'http://localhost:5000/api';
+const API_BASE_URL = process.env.REACT_APP_Server_Url ;
 
 /**
  * Token cache - updated by auth state listener
