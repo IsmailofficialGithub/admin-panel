@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card } from 'react-bootstrap';
 import { useLocation } from 'react-router-dom';
-import { FileText, Download, Eye, Search, DollarSign, Calendar, User, Building, CheckCircle, XCircle, Clock, Loader, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
+import { FileText, Download, Eye, Search, DollarSign, Calendar, User, Building, CheckCircle, XCircle, Clock, Loader, ChevronLeft, ChevronRight, Filter, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getAllInvoices, getMyInvoices } from '../api/backend';
 import { useAuth } from '../hooks/useAuth';
 import apiClient from '../services/apiClient';
+import { getConsumers } from '../api/backend/consumers';
+import { getResellers } from '../api/backend/resellers';
 
 const Invoices = () => {
   const { profile } = useAuth();
@@ -21,13 +23,23 @@ const Invoices = () => {
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterConsumer, setFilterConsumer] = useState('');
   const [filterConsumerId, setFilterConsumerId] = useState('');
+  const [filterReseller, setFilterReseller] = useState('');
+  const [filterResellerId, setFilterResellerId] = useState('');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
+  const [filterAmountMin, setFilterAmountMin] = useState('');
+  const [filterAmountMax, setFilterAmountMax] = useState('');
   const [consumers, setConsumers] = useState([]);
+  const [resellers, setResellers] = useState([]);
   const [loadingConsumers, setLoadingConsumers] = useState(false);
+  const [loadingResellers, setLoadingResellers] = useState(false);
   const [showConsumerSuggestions, setShowConsumerSuggestions] = useState(false);
+  const [showResellerSuggestions, setShowResellerSuggestions] = useState(false);
+  const [showFilterModal, setShowFilterModal] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const invoicesPerPage = 20;
 
-  // Fetch consumers for resellers
+  // Fetch consumers for resellers and admins
   useEffect(() => {
     const fetchConsumers = async () => {
       if (userRole === 'reseller') {
@@ -42,10 +54,43 @@ const Invoices = () => {
         } finally {
           setLoadingConsumers(false);
         }
+      } else if (userRole === 'admin') {
+        setLoadingConsumers(true);
+        try {
+          const result = await getConsumers({});
+          if (result && !result.error && Array.isArray(result)) {
+            setConsumers(result);
+          }
+        } catch (err) {
+          console.error('Error fetching consumers:', err);
+        } finally {
+          setLoadingConsumers(false);
+        }
       }
     };
 
     fetchConsumers();
+  }, [userRole]);
+
+  // Fetch resellers for admin
+  useEffect(() => {
+    const fetchResellers = async () => {
+      if (userRole === 'admin') {
+        setLoadingResellers(true);
+        try {
+          const result = await getResellers({});
+          if (result && !result.error && Array.isArray(result)) {
+            setResellers(result);
+          }
+        } catch (err) {
+          console.error('Error fetching resellers:', err);
+        } finally {
+          setLoadingResellers(false);
+        }
+      }
+    };
+
+    fetchResellers();
   }, [userRole]);
 
   // Fetch all invoices from backend (no search filter)
@@ -98,10 +143,10 @@ const Invoices = () => {
     return () => clearTimeout(debounceTimer);
   }, [searchInput]);
 
-  // Reset to first page when consumer filter changes
+  // Reset to first page when any filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterConsumerId]);
+  }, [filterConsumerId, filterResellerId, filterDateFrom, filterDateTo, filterAmountMin, filterAmountMax]);
 
   // Handle consumer selection from suggestions
   const handleConsumerSelect = (consumer) => {
@@ -117,6 +162,35 @@ const Invoices = () => {
     setShowConsumerSuggestions(false);
   };
 
+  // Handle reseller selection from suggestions
+  const handleResellerSelect = (reseller) => {
+    setFilterReseller(reseller.full_name || reseller.email || reseller.user_id);
+    setFilterResellerId(reseller.user_id);
+    setShowResellerSuggestions(false);
+  };
+
+  // Clear reseller filter
+  const clearResellerFilter = () => {
+    setFilterReseller('');
+    setFilterResellerId('');
+    setShowResellerSuggestions(false);
+  };
+
+  // Clear all filters
+  const clearAllFilters = () => {
+    setFilterConsumer('');
+    setFilterConsumerId('');
+    setFilterReseller('');
+    setFilterResellerId('');
+    setFilterDateFrom('');
+    setFilterDateTo('');
+    setFilterAmountMin('');
+    setFilterAmountMax('');
+    setFilterStatus('all');
+    setSearchInput('');
+    setSearchQuery('');
+  };
+
   // Filter consumers based on search input
   const filteredConsumerSuggestions = consumers.filter(consumer => {
     if (!filterConsumer) return false;
@@ -126,19 +200,75 @@ const Invoices = () => {
     return consumerName.includes(searchTerm) || consumerEmail.includes(searchTerm);
   }).slice(0, 10); // Limit to 10 suggestions
 
-  // Client-side filtering for search and consumer filter
+  // Filter resellers based on search input
+  const filteredResellerSuggestions = resellers.filter(reseller => {
+    if (!filterReseller) return false;
+    const searchTerm = filterReseller.toLowerCase();
+    const resellerName = (reseller.full_name || '').toLowerCase();
+    const resellerEmail = (reseller.email || '').toLowerCase();
+    return resellerName.includes(searchTerm) || resellerEmail.includes(searchTerm);
+  }).slice(0, 10); // Limit to 10 suggestions
+
+  // Client-side filtering for search and all filters
   const filteredInvoices = invoices.filter(invoice => {
-    // Filter by consumer (for resellers)
-    if (userRole === 'reseller' && filterConsumerId) {
-      // Try multiple possible fields where consumer ID might be stored
+    // Filter by consumer (for resellers and admins)
+    if (filterConsumerId) {
       const consumerId = invoice.consumer_id || invoice.receiver_id || invoice.receiver?.user_id || (invoice.receiver && typeof invoice.receiver === 'object' ? invoice.receiver.user_id : null);
-      
-      // Convert both to strings for reliable comparison
       const consumerIdStr = String(consumerId || '');
       const filterIdStr = String(filterConsumerId || '');
       
       if (consumerIdStr !== filterIdStr) {
         return false;
+      }
+    }
+
+    // Filter by reseller (for admins)
+    if (userRole === 'admin' && filterResellerId) {
+      const resellerId = invoice.reseller_id || invoice.sender_id || invoice.sender?.user_id || (invoice.sender && typeof invoice.sender === 'object' ? invoice.sender.user_id : null);
+      const resellerIdStr = String(resellerId || '');
+      const filterIdStr = String(filterResellerId || '');
+      
+      if (resellerIdStr !== filterIdStr) {
+        return false;
+      }
+    }
+
+    // Filter by date range
+    if (filterDateFrom || filterDateTo) {
+      const invoiceDate = invoice.invoice_date || invoice.created_at;
+      if (invoiceDate) {
+        const invoiceDateObj = new Date(invoiceDate);
+        if (filterDateFrom) {
+          const fromDate = new Date(filterDateFrom);
+          fromDate.setHours(0, 0, 0, 0);
+          if (invoiceDateObj < fromDate) {
+            return false;
+          }
+        }
+        if (filterDateTo) {
+          const toDate = new Date(filterDateTo);
+          toDate.setHours(23, 59, 59, 999);
+          if (invoiceDateObj > toDate) {
+            return false;
+          }
+        }
+      }
+    }
+
+    // Filter by amount range
+    if (filterAmountMin || filterAmountMax) {
+      const invoiceAmount = parseFloat(invoice.total || 0);
+      if (filterAmountMin) {
+        const minAmount = parseFloat(filterAmountMin);
+        if (invoiceAmount < minAmount) {
+          return false;
+        }
+      }
+      if (filterAmountMax) {
+        const maxAmount = parseFloat(filterAmountMax);
+        if (invoiceAmount > maxAmount) {
+          return false;
+        }
       }
     }
 
@@ -280,144 +410,6 @@ const Invoices = () => {
                     }}
                   />
                 </div>
-                {userRole === 'reseller' && (
-                  <div style={{ position: 'relative', flex: '1 1 250px', minWidth: '200px' }}>
-                    <Filter size={18} style={{
-                      position: 'absolute',
-                      left: '12px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      color: '#9ca3af',
-                      pointerEvents: 'none',
-                      zIndex: 1
-                    }} />
-                    <input
-                      type="text"
-                      placeholder="Filter by consumer name or email..."
-                      value={filterConsumer}
-                      onChange={(e) => {
-                        setFilterConsumer(e.target.value);
-                        setShowConsumerSuggestions(e.target.value.length > 0);
-                        if (!e.target.value) {
-                          setFilterConsumerId('');
-                        }
-                      }}
-                      onFocus={() => {
-                        if (filterConsumer) {
-                          setShowConsumerSuggestions(true);
-                        }
-                      }}
-                      onBlur={() => {
-                        // Delay to allow click on suggestion
-                        setTimeout(() => setShowConsumerSuggestions(false), 200);
-                      }}
-                      disabled={loadingConsumers}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px 10px 36px',
-                        border: '1px solid #d1d5db',
-                        borderRadius: '8px',
-                        fontSize: '14px',
-                        outline: 'none',
-                        backgroundColor: loadingConsumers ? '#f3f4f6' : 'white',
-                        paddingRight: filterConsumerId ? '32px' : '12px'
-                      }}
-                    />
-                    {filterConsumerId && (
-                      <button
-                        type="button"
-                        onClick={clearConsumerFilter}
-                        style={{
-                          position: 'absolute',
-                          right: '8px',
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          padding: '4px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          color: '#9ca3af'
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
-                        onMouseLeave={(e) => e.currentTarget.style.color = '#9ca3af'}
-                      >
-                        ×
-                      </button>
-                    )}
-                    {/* Consumer Suggestions Dropdown */}
-                    {showConsumerSuggestions && filteredConsumerSuggestions.length > 0 && (
-                      <div style={{
-                        position: 'absolute',
-                        top: '100%',
-                        left: 0,
-                        right: 0,
-                        marginTop: '4px',
-                        backgroundColor: 'white',
-                        border: '1px solid #d1d5db',
-                        borderRadius: '8px',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                        maxHeight: '300px',
-                        overflowY: 'auto',
-                        zIndex: 1000
-                      }}>
-                        {filteredConsumerSuggestions.map((consumer) => (
-                          <div
-                            key={consumer.user_id}
-                            onClick={() => handleConsumerSelect(consumer)}
-                            style={{
-                              padding: '10px 12px',
-                              cursor: 'pointer',
-                              borderBottom: '1px solid #f3f4f6',
-                              transition: 'background-color 0.2s'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
-                          >
-                            <div style={{ fontSize: '14px', fontWeight: '500', color: '#1f2937' }}>
-                              {consumer.full_name || 'No Name'}
-                            </div>
-                            <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>
-                              {consumer.email || consumer.user_id}
-                            </div>
-                          </div>
-                        ))}
-                        {filteredConsumerSuggestions.length === 10 && filterConsumer && (
-                          <div style={{
-                            padding: '8px 12px',
-                            fontSize: '12px',
-                            color: '#6b7280',
-                            textAlign: 'center',
-                            borderTop: '1px solid #f3f4f6',
-                            fontStyle: 'italic'
-                          }}>
-                            Showing first 10 results...
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {showConsumerSuggestions && filterConsumer && filteredConsumerSuggestions.length === 0 && (
-                      <div style={{
-                        position: 'absolute',
-                        top: '100%',
-                        left: 0,
-                        right: 0,
-                        marginTop: '4px',
-                        backgroundColor: 'white',
-                        border: '1px solid #d1d5db',
-                        borderRadius: '8px',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                        padding: '12px',
-                        fontSize: '14px',
-                        color: '#6b7280',
-                        zIndex: 1000
-                      }}>
-                        No consumers found matching "{filterConsumer}"
-                      </div>
-                    )}
-                  </div>
-                )}
                 <select
                   value={filterStatus}
                   onChange={(e) => setFilterStatus(e.target.value)}
@@ -436,6 +428,55 @@ const Invoices = () => {
                   <option value="unpaid">Unpaid</option>
                   <option value="overdue">Overdue</option>
                 </select>
+                <button
+                  type="button"
+                  onClick={() => setShowFilterModal(true)}
+                  style={{
+                    padding: '10px 16px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    backgroundColor: (filterConsumerId || filterResellerId || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax) ? '#74317e' : 'white',
+                    color: (filterConsumerId || filterResellerId || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax) ? 'white' : '#374151',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontWeight: '500',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!(filterConsumerId || filterResellerId || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax)) {
+                      e.currentTarget.style.backgroundColor = '#f3f4f6';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!(filterConsumerId || filterResellerId || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax)) {
+                      e.currentTarget.style.backgroundColor = 'white';
+                    }
+                  }}
+                >
+                  <Filter size={18} />
+                  Filters
+                  {(filterConsumerId || filterResellerId || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax) && (
+                    <span style={{
+                      backgroundColor: 'rgba(255,255,255,0.3)',
+                      borderRadius: '12px',
+                      padding: '2px 8px',
+                      fontSize: '12px',
+                      fontWeight: '600'
+                    }}>
+                      {[
+                        filterConsumerId && 1,
+                        filterResellerId && 1,
+                        filterDateFrom && 1,
+                        filterDateTo && 1,
+                        filterAmountMin && 1,
+                        filterAmountMax && 1
+                      ].filter(Boolean).length}
+                    </span>
+                  )}
+                </button>
               </div>
             </Card.Header>
 
@@ -900,6 +941,492 @@ const Invoices = () => {
           </Card>
         </Col>
       </Row>
+
+      {/* Filter Modal */}
+      {showFilterModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1050,
+          padding: '20px'
+        }}
+        onClick={() => setShowFilterModal(false)}
+        >
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            maxWidth: '600px',
+            width: '100%',
+            maxHeight: '90vh',
+            overflow: 'auto',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)'
+          }}
+          onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{
+              padding: '24px',
+              borderBottom: '1px solid #e5e7eb',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              position: 'sticky',
+              top: 0,
+              backgroundColor: 'white',
+              zIndex: 10
+            }}>
+              <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '600', color: '#1f2937' }}>
+                Filter Invoices
+              </h3>
+              <button
+                onClick={() => setShowFilterModal(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '24px',
+                  color: '#6b7280',
+                  cursor: 'pointer',
+                  padding: '4px 8px'
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <div style={{ padding: '24px' }}>
+              {/* Consumer Filter */}
+              {(userRole === 'reseller' || userRole === 'admin') && (
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#374151',
+                    marginBottom: '8px'
+                  }}>
+                    Filter by Consumer
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <Filter size={18} style={{
+                      position: 'absolute',
+                      left: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: '#9ca3af',
+                      pointerEvents: 'none',
+                      zIndex: 1
+                    }} />
+                    <input
+                      type="text"
+                      placeholder="Search consumer name or email..."
+                      value={filterConsumer}
+                      onChange={(e) => {
+                        setFilterConsumer(e.target.value);
+                        setShowConsumerSuggestions(e.target.value.length > 0);
+                        if (!e.target.value) {
+                          setFilterConsumerId('');
+                        }
+                      }}
+                      onFocus={() => {
+                        if (filterConsumer) {
+                          setShowConsumerSuggestions(true);
+                        }
+                      }}
+                      onBlur={() => {
+                        setTimeout(() => setShowConsumerSuggestions(false), 200);
+                      }}
+                      disabled={loadingConsumers}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px 10px 36px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        outline: 'none',
+                        backgroundColor: loadingConsumers ? '#f3f4f6' : 'white',
+                        paddingRight: filterConsumerId ? '32px' : '12px'
+                      }}
+                    />
+                    {filterConsumerId && (
+                      <button
+                        type="button"
+                        onClick={clearConsumerFilter}
+                        style={{
+                          position: 'absolute',
+                          right: '8px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          color: '#9ca3af'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
+                        onMouseLeave={(e) => e.currentTarget.style.color = '#9ca3af'}
+                      >
+                        ×
+                      </button>
+                    )}
+                    {showConsumerSuggestions && filteredConsumerSuggestions.length > 0 && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        marginTop: '4px',
+                        backgroundColor: 'white',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                        maxHeight: '300px',
+                        overflowY: 'auto',
+                        zIndex: 1000
+                      }}>
+                        {filteredConsumerSuggestions.map((consumer) => (
+                          <div
+                            key={consumer.user_id}
+                            onClick={() => handleConsumerSelect(consumer)}
+                            style={{
+                              padding: '10px 12px',
+                              cursor: 'pointer',
+                              borderBottom: '1px solid #f3f4f6',
+                              transition: 'background-color 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                          >
+                            <div style={{ fontSize: '14px', fontWeight: '500', color: '#1f2937' }}>
+                              {consumer.full_name || 'No Name'}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>
+                              {consumer.email || consumer.user_id}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Reseller Filter (Admin only) */}
+              {userRole === 'admin' && (
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#374151',
+                    marginBottom: '8px'
+                  }}>
+                    Filter by Reseller
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <Filter size={18} style={{
+                      position: 'absolute',
+                      left: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: '#9ca3af',
+                      pointerEvents: 'none',
+                      zIndex: 1
+                    }} />
+                    <input
+                      type="text"
+                      placeholder="Search reseller name or email..."
+                      value={filterReseller}
+                      onChange={(e) => {
+                        setFilterReseller(e.target.value);
+                        setShowResellerSuggestions(e.target.value.length > 0);
+                        if (!e.target.value) {
+                          setFilterResellerId('');
+                        }
+                      }}
+                      onFocus={() => {
+                        if (filterReseller) {
+                          setShowResellerSuggestions(true);
+                        }
+                      }}
+                      onBlur={() => {
+                        setTimeout(() => setShowResellerSuggestions(false), 200);
+                      }}
+                      disabled={loadingResellers}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px 10px 36px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        outline: 'none',
+                        backgroundColor: loadingResellers ? '#f3f4f6' : 'white',
+                        paddingRight: filterResellerId ? '32px' : '12px'
+                      }}
+                    />
+                    {filterResellerId && (
+                      <button
+                        type="button"
+                        onClick={clearResellerFilter}
+                        style={{
+                          position: 'absolute',
+                          right: '8px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          color: '#9ca3af'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
+                        onMouseLeave={(e) => e.currentTarget.style.color = '#9ca3af'}
+                      >
+                        ×
+                      </button>
+                    )}
+                    {showResellerSuggestions && filteredResellerSuggestions.length > 0 && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        marginTop: '4px',
+                        backgroundColor: 'white',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                        maxHeight: '300px',
+                        overflowY: 'auto',
+                        zIndex: 1000
+                      }}>
+                        {filteredResellerSuggestions.map((reseller) => (
+                          <div
+                            key={reseller.user_id}
+                            onClick={() => handleResellerSelect(reseller)}
+                            style={{
+                              padding: '10px 12px',
+                              cursor: 'pointer',
+                              borderBottom: '1px solid #f3f4f6',
+                              transition: 'background-color 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                          >
+                            <div style={{ fontSize: '14px', fontWeight: '500', color: '#1f2937' }}>
+                              {reseller.full_name || 'No Name'}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>
+                              {reseller.email || reseller.user_id}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Date Range Filter (Admin only) */}
+              {userRole === 'admin' && (
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#374151',
+                    marginBottom: '8px'
+                  }}>
+                    Filter by Invoice Date
+                  </label>
+                  <p style={{
+                    fontSize: '12px',
+                    color: '#6b7280',
+                    margin: '0 0 12px 0'
+                  }}>
+                    Filter invoices by their issue date (when the invoice was created)
+                  </p>
+                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '1 1 200px' }}>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        color: '#6b7280',
+                        marginBottom: '6px'
+                      }}>
+                        From Date
+                      </label>
+                      <input
+                        type="date"
+                        value={filterDateFrom}
+                        onChange={(e) => setFilterDateFrom(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '8px',
+                          fontSize: '14px',
+                          outline: 'none',
+                          cursor: 'pointer'
+                        }}
+                      />
+                    </div>
+                    <div style={{ flex: '1 1 200px' }}>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        color: '#6b7280',
+                        marginBottom: '6px'
+                      }}>
+                        To Date
+                      </label>
+                      <input
+                        type="date"
+                        value={filterDateTo}
+                        onChange={(e) => setFilterDateTo(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '8px',
+                          fontSize: '14px',
+                          outline: 'none',
+                          cursor: 'pointer'
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Amount Range Filter (Admin only) */}
+              {userRole === 'admin' && (
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#374151',
+                    marginBottom: '8px'
+                  }}>
+                    Filter by Amount Range
+                  </label>
+                  <p style={{
+                    fontSize: '12px',
+                    color: '#6b7280',
+                    margin: '0 0 12px 0'
+                  }}>
+                    Filter invoices by their total amount (in USD)
+                  </p>
+                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '1 1 200px' }}>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        color: '#6b7280',
+                        marginBottom: '6px'
+                      }}>
+                        Minimum Amount ($)
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="0.00"
+                        value={filterAmountMin}
+                        onChange={(e) => setFilterAmountMin(e.target.value)}
+                        min="0"
+                        step="0.01"
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '8px',
+                          fontSize: '14px',
+                          outline: 'none'
+                        }}
+                      />
+                    </div>
+                    <div style={{ flex: '1 1 200px' }}>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        color: '#6b7280',
+                        marginBottom: '6px'
+                      }}>
+                        Maximum Amount ($)
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="0.00"
+                        value={filterAmountMax}
+                        onChange={(e) => setFilterAmountMax(e.target.value)}
+                        min="0"
+                        step="0.01"
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '8px',
+                          fontSize: '14px',
+                          outline: 'none'
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '32px', paddingTop: '24px', borderTop: '1px solid #e5e7eb' }}>
+                <button
+                  onClick={() => {
+                    clearAllFilters();
+                    setShowFilterModal(false);
+                  }}
+                  style={{
+                    padding: '10px 20px',
+                    backgroundColor: 'white',
+                    color: '#374151',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Clear All
+                </button>
+                <button
+                  onClick={() => setShowFilterModal(false)}
+                  style={{
+                    padding: '10px 20px',
+                    backgroundColor: '#74317e',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Apply Filters
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Invoice Detail Modal */}
       {showInvoiceModal && selectedInvoice && (
