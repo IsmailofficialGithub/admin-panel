@@ -459,7 +459,9 @@ const Invoices = () => {
   };
 
   const handleCopyInvoiceLink = (invoice) => {
+    console.log("invoice", invoice);
     const baseUrl = window.location.origin;
+    console.log("baseUrl", baseUrl);
     
     // Get invoice data
     const invoiceId = invoice.id || '';
@@ -474,9 +476,10 @@ const Invoices = () => {
       user_id: userId,
       invoice_number: invoiceNumber
     });
+    console.log("params", params);
     
     const invoiceLink = `${baseUrl}/consumer/payment?${params.toString()}`;
-    
+    console.log("invoiceLink", invoiceLink);
     navigator.clipboard.writeText(invoiceLink).then(() => {
       toast.success('Invoice payment link copied to clipboard');
     }).catch(() => {
