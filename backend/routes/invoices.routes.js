@@ -8,6 +8,12 @@ import {
   getConsumerInvoices,
   resendInvoice
 } from './controllers/invoices.controller.js';
+import {
+  submitPayment,
+  getInvoicePayments,
+  reviewPayment,
+  upload
+} from './controllers/invoice_payments.controller.js';
 
 const router = express.Router();
 
@@ -94,6 +100,41 @@ router.post(
   authenticate,
   requireRole(['admin']),
   resendInvoice
+);
+
+/**
+ * @route   POST /api/invoices/:id/payments
+ * @desc    Submit payment for an invoice
+ * @access  Private (Admin, Reseller, Consumer)
+ */
+router.post(
+  '/:id/payments',
+  authenticate,
+  upload.single('proof'), // Handle file upload
+  submitPayment
+);
+
+/**
+ * @route   GET /api/invoices/:id/payments
+ * @desc    Get payments for an invoice
+ * @access  Private (Admin, Reseller, Consumer)
+ */
+router.get(
+  '/:id/payments',
+  authenticate,
+  getInvoicePayments
+);
+
+/**
+ * @route   PATCH /api/invoices/payments/:paymentId
+ * @desc    Approve or reject a payment (admin only)
+ * @access  Private (Admin)
+ */
+router.patch(
+  '/payments/:paymentId',
+  authenticate,
+  requireRole(['admin']),
+  reviewPayment
 );
 
 export default router;

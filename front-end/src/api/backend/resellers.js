@@ -23,8 +23,16 @@ export const getResellers = async (filters = {}) => {
     const queryString = params.toString();
     const response = await apiClient.resellers.getAll(queryString ? `?${queryString}` : '');
     // Backend returns { success: true, count: X, data: [...] }
-    // Extract the resellers array from response.data
-    return response.data || [];
+    // axios interceptor returns response.data directly, which is { success: true, count: X, data: [...] }
+    // Extract the resellers array from response.data.data
+    if (response && response.data && Array.isArray(response.data)) {
+      return response.data;
+    } else if (response && response.success && Array.isArray(response.data)) {
+      return response.data;
+    } else if (Array.isArray(response)) {
+      return response;
+    }
+    return [];
   } catch (error) {
     console.error('getResellers Error:', error);
     return { error: error.message };

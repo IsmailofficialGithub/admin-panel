@@ -1073,11 +1073,12 @@ export const resendInvoice = async (req, res) => {
     
     console.log('Resend invoice request - ID:', id, 'Type:', typeof id);
 
-    // Only admin can resend invoices
-    if (senderRole !== 'admin') {
+    // Admin and reseller can resend invoices
+    // Resellers can only resend invoices they created
+    if (senderRole !== 'admin' && senderRole !== 'reseller') {
       return res.status(403).json({
         error: 'Forbidden',
-        message: 'Admin access required'
+        message: 'Admin or Reseller access required'
       });
     }
 
@@ -1136,6 +1137,14 @@ export const resendInvoice = async (req, res) => {
     }
     
     console.log('Invoice found:', invoice.id);
+
+    // If reseller, check that they created this invoice
+    if (senderRole === 'reseller' && invoice.sender_id !== senderId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You can only resend invoices you created'
+      });
+    }
 
     // Use receiver data from the invoice query
     const receiver = invoice.receiver;

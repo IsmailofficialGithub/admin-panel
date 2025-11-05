@@ -3,8 +3,11 @@ import { X, User, Mail, Lock, Phone, Calendar, CheckCircle, AlertCircle, MapPin,
 import { countries, searchCountries } from '../../utils/countryData';
 import { generatePassword } from '../../utils/passwordGenerator';
 import { getResellers, getProducts } from '../../api/backend';
+import { useAuth } from '../../hooks/useAuth';
 
 const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
+  const { profile } = useAuth();
+  const userRole = profile?.role || 'admin';
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
@@ -26,6 +29,9 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
   const [showProductsDropdown, setShowProductsDropdown] = useState(false);
   const [resellers, setResellers] = useState([]);
   const [loadingResellers, setLoadingResellers] = useState(false);
+  const [resellerSearchTerm, setResellerSearchTerm] = useState('');
+  const [showResellerSuggestions, setShowResellerSuggestions] = useState(false);
+  const [selectedReseller, setSelectedReseller] = useState(null);
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
 
@@ -33,23 +39,9 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState({ type: '', text: '' });
 
-  // Fetch resellers and products when modal opens
+  // Fetch products when modal opens
   useEffect(() => {
     if (isOpen) {
-      const fetchResellers = async () => {
-        setLoadingResellers(true);
-        try {
-          const result = await getResellers();
-          if (result && !result.error) {
-            setResellers(result);
-          }
-        } catch (error) {
-          console.error('Error fetching resellers:', error);
-        } finally {
-          setLoadingResellers(false);
-        }
-      };
-
       const fetchProducts = async () => {
         setLoadingProducts(true);
         try {
@@ -68,10 +60,52 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         }
       };
 
-      fetchResellers();
       fetchProducts();
     }
   }, [isOpen]);
+
+  // Search resellers when user types 2+ characters
+  useEffect(() => {
+    if (resellerSearchTerm.length >= 2) {
+      const fetchResellers = async () => {
+        setLoadingResellers(true);
+        try {
+          const result = await getResellers({ search: resellerSearchTerm });
+          console.log('🔍 Resellers search result:', result);
+          if (result && !result.error) {
+            // Ensure we have an array of resellers
+            let resellersList = [];
+            if (Array.isArray(result)) {
+              resellersList = result;
+            } else if (result.data && Array.isArray(result.data)) {
+              resellersList = result.data;
+            } else if (result.success && Array.isArray(result.data)) {
+              resellersList = result.data;
+            }
+            console.log('📋 Resellers list:', resellersList);
+            console.log('📋 First reseller:', resellersList[0]);
+            setResellers(resellersList);
+          } else {
+            setResellers([]);
+          }
+        } catch (error) {
+          console.error('Error fetching resellers:', error);
+          setResellers([]);
+        } finally {
+          setLoadingResellers(false);
+        }
+      };
+
+      const debounceTimer = setTimeout(() => {
+        fetchResellers();
+      }, 300); // Debounce search
+
+      return () => clearTimeout(debounceTimer);
+    } else {
+      setResellers([]);
+      setShowResellerSuggestions(false);
+    }
+  }, [resellerSearchTerm]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -87,6 +121,22 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
       }));
     }
   };
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showResellerSuggestions && !event.target.closest('.reseller-search-container')) {
+        setShowResellerSuggestions(false);
+      }
+    };
+
+    if (showResellerSuggestions) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [showResellerSuggestions]);
 
   const handlePhoneChange = (e) => {
     const value = e.target.value;
@@ -266,6 +316,22 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         trialExpiryDate = expiryDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
       }
 
+      // Logic: If reseller is assigned, use that reseller ID
+      // If no reseller assigned, use the logged-in user from token
+      const referredBy = (formData.referred_by && formData.referred_by !== '') 
+        ? formData.referred_by 
+        : (selectedReseller?.user_id || profile?.id || profile?.user_id || null);
+      
+      console.log('🔍 Creating consumer with referred_by:', {
+        selectedReseller: selectedReseller,
+        selectedResellerId: selectedReseller?.user_id,
+        profile: profile,
+        profileId: profile?.id,
+        profileUserId: profile?.user_id,
+        formDataReferredBy: formData.referred_by,
+        finalReferredBy: referredBy
+      });
+
       const result = await onCreate({
         email: formData.email.trim(),
         password: formData.password,
@@ -274,7 +340,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         trial_expiry_date: trialExpiryDate,
         country: formData.country.trim() || null,
         city: formData.city.trim() || null,
-        referred_by: formData.referred_by || null,
+        referred_by: referredBy,
         subscribed_products: formData.subscribed_products
       });
 
@@ -294,6 +360,9 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
             referred_by: '',
             subscribed_products: []
           });
+          setSelectedReseller(null);
+          setResellerSearchTerm('');
+          setShowResellerSuggestions(false);
           setSelectedCountry(null);
           setCountrySearch('');
           setShowPassword(false);
@@ -1137,91 +1206,173 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
             )}
           </div>
 
-          {/* Reseller Field (Optional) */}
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{
-              display: 'block',
-              fontSize: '14px',
-              fontWeight: '500',
-              color: '#374151',
-              marginBottom: '8px'
-            }}>
-              Assign to Reseller <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
-            </label>
-            <div style={{ position: 'relative' }}>
-              <div style={{
-                position: 'absolute',
-                left: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: '#9ca3af',
-                zIndex: 1
+          {/* Reseller Field (Optional) - Only for Admin */}
+          {userRole === 'admin' && (
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '14px',
+                fontWeight: '500',
+                color: '#374151',
+                marginBottom: '8px'
               }}>
-                <Users size={18} />
-              </div>
-              <select
-                name="referred_by"
-                value={formData.referred_by}
-                onChange={handleChange}
-                disabled={isSubmitting || loadingResellers}
-                style={{
-                  width: '100%',
-                  padding: '10px 14px 10px 40px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  outline: 'none',
-                  transition: 'all 0.2s',
-                  boxSizing: 'border-box',
-                  opacity: (isSubmitting || loadingResellers) ? 0.6 : 1,
-                  backgroundColor: 'white',
-                  cursor: (isSubmitting || loadingResellers) ? 'not-allowed' : 'pointer',
-                  fontFamily: 'inherit',
-                  color: formData.referred_by ? '#374151' : '#9ca3af',
-                  appearance: 'none',
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 9L1 4h10z'/%3E%3C/svg%3E")`,
-                  backgroundRepeat: 'no-repeat',
-                  backgroundPosition: 'right 12px center',
-                  paddingRight: '40px'
-                }}
-                onFocus={(e) => {
-                  if (!isSubmitting && !loadingResellers) {
-                    e.target.style.borderColor = '#74317e';
-                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                  }
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = '#d1d5db';
-                  e.target.style.boxShadow = 'none';
-                }}
-              >
-                <option value="">No reseller (Admin created)</option>
-                {loadingResellers ? (
-                  <option value="">Loading resellers...</option>
-                ) : (
-                  resellers.map(reseller => (
-                    <option key={reseller.user_id} value={reseller.user_id}>
-                      {reseller.full_name} ({reseller.email})
-                    </option>
-                  ))
+                Assign to Reseller <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+              </label>
+              <div style={{ position: 'relative' }} className="reseller-search-container">
+                <div style={{
+                  position: 'absolute',
+                  left: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#9ca3af',
+                  zIndex: 1,
+                  pointerEvents: 'none'
+                }}>
+                  <Users size={18} />
+                </div>
+                <input
+                  type="text"
+                  placeholder={selectedReseller ? `${selectedReseller.full_name} (${selectedReseller.email})` : "Type at least 2 characters to search resellers..."}
+                  value={selectedReseller ? `${selectedReseller.full_name} (${selectedReseller.email})` : resellerSearchTerm}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setResellerSearchTerm(value);
+                    if (selectedReseller) {
+                      setSelectedReseller(null);
+                      setFormData(prev => ({ ...prev, referred_by: '' }));
+                    }
+                    setShowResellerSuggestions(value.length >= 2);
+                  }}
+                  onFocus={() => {
+                    if (resellerSearchTerm.length >= 2 || resellers.length > 0) {
+                      setShowResellerSuggestions(true);
+                    }
+                  }}
+                  disabled={isSubmitting}
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px 10px 40px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    outline: 'none',
+                    transition: 'all 0.2s',
+                    boxSizing: 'border-box',
+                    opacity: isSubmitting ? 0.6 : 1,
+                    backgroundColor: 'white',
+                    cursor: isSubmitting ? 'not-allowed' : 'text',
+                    fontFamily: 'inherit',
+                    color: selectedReseller ? '#374151' : '#9ca3af'
+                  }}
+                />
+                {selectedReseller && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedReseller(null);
+                      setResellerSearchTerm('');
+                      setFormData(prev => ({ ...prev, referred_by: '' }));
+                      setShowResellerSuggestions(false);
+                    }}
+                    style={{
+                      position: 'absolute',
+                      right: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: '#9ca3af',
+                      padding: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#9ca3af'}
+                  >
+                    <X size={18} />
+                  </button>
                 )}
-              </select>
+                
+                {/* Reseller Suggestions */}
+                {showResellerSuggestions && resellerSearchTerm.length >= 2 && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      marginTop: '4px',
+                      backgroundColor: 'white',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                      maxHeight: '300px',
+                      overflowY: 'auto',
+                      zIndex: 1000
+                    }}
+                    onMouseDown={(e) => e.preventDefault()}
+                  >
+                    {loadingResellers ? (
+                      <div style={{ padding: '12px', textAlign: 'center', color: '#6b7280', fontSize: '14px' }}>
+                        Searching...
+                      </div>
+                    ) : resellers.length > 0 ? (
+                      resellers.map(reseller => (
+                        <div
+                          key={reseller.user_id}
+                          onClick={() => {
+                            console.log('🎯 Reseller selected:', reseller);
+                            setSelectedReseller(reseller);
+                            setFormData(prev => {
+                              console.log('📝 Setting referred_by to:', reseller.user_id);
+                              return { ...prev, referred_by: reseller.user_id };
+                            });
+                            setResellerSearchTerm('');
+                            setShowResellerSuggestions(false);
+                          }}
+                          style={{
+                            padding: '10px 12px',
+                            cursor: 'pointer',
+                            borderBottom: '1px solid #f3f4f6',
+                            transition: 'background-color 0.2s'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                        >
+                          <div style={{ fontSize: '14px', fontWeight: '500', color: '#1f2937' }}>
+                            {reseller.full_name || 'No Name'}
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>
+                            {reseller.email || reseller.user_id}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ padding: '12px', textAlign: 'center', color: '#6b7280', fontSize: '14px' }}>
+                        No resellers found
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              {selectedReseller && (
+                <p style={{
+                  color: '#6b7280',
+                  fontSize: '12px',
+                  marginTop: '6px',
+                  marginBottom: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}>
+                  <span style={{ fontSize: '16px' }}>ℹ️</span>
+                  This consumer will be assigned to: {selectedReseller.full_name}
+                </p>
+              )}
             </div>
-            {formData.referred_by && (
-              <p style={{
-                color: '#6b7280',
-                fontSize: '12px',
-                marginTop: '6px',
-                marginBottom: 0,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}>
-                <span style={{ fontSize: '16px' }}>ℹ️</span>
-                This consumer will be assigned to the selected reseller
-              </p>
-            )}
-          </div>
+          )}
 
           {/* Subscribed Products Field (Multi-select) */}
           <div style={{ marginBottom: '20px' }}>

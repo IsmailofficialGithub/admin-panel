@@ -17,6 +17,7 @@ import ConsumerDetail from "views/ConsumerDetail.js";
 import Account from "views/Account.js";
 import Products from "views/Products.js";
 import Invoices from "views/Invoices.js";
+import InvoicePaymentDetail from "views/InvoicePaymentDetail.js";
 import ActivityLogs from "views/ActivityLogs.js";
 import ActivityLogDetail from "views/ActivityLogDetail.js";
 import ResellerStatistics from "views/ResellerStatistics.js";
@@ -65,6 +66,12 @@ const dashboardRoutes = [
   {
     path: "/logs/:id",
     component: ActivityLogDetail,
+    layout: "/admin",
+    invisible: true // This prevents it from showing in sidebar
+  },
+  {
+    path: "/invoices/:invoiceId/payments",
+    component: InvoicePaymentDetail,
     layout: "/admin",
     invisible: true // This prevents it from showing in sidebar
   },

@@ -85,22 +85,44 @@ const AdminSettings = () => {
     try {
       // Load all reseller settings from API
       const resellerSettingsResult = await getResellerSettings();
-      console.log('📥 Reseller settings result from API:', resellerSettingsResult);
       
       let resellerSettings = {};
-      if (resellerSettingsResult && resellerSettingsResult.success && resellerSettingsResult.data) {
+      // Handle both response structures: { success: true, data: {...} } or direct data object
+      const apiData = resellerSettingsResult?.data || resellerSettingsResult;
+      
+      if (apiData && (resellerSettingsResult?.success !== false)) {
+        // Convert numbers to strings for input fields, null to empty string
+        // Handle 0 explicitly since it's falsy but valid
+        const convertToInputValue = (value) => {
+          if (value === null || value === undefined) {
+            return '';
+          }
+          if (typeof value === 'number') {
+            const stringValue = String(value);
+            return stringValue;
+          }
+          if (typeof value === 'string') {
+            return value;
+          }
+          return String(value);
+        };
+
+        const maxConsumers = convertToInputValue(apiData.maxConsumersPerReseller);
+        const commissionRate = convertToInputValue(apiData.defaultCommissionRate);
+        const minAmount = convertToInputValue(apiData.minInvoiceAmount);
+
         resellerSettings = {
-          maxConsumersPerReseller: resellerSettingsResult.data.maxConsumersPerReseller || '',
-          defaultCommissionRate: resellerSettingsResult.data.defaultCommissionRate || '',
-          minInvoiceAmount: resellerSettingsResult.data.minInvoiceAmount || '',
-          requireResellerApproval: resellerSettingsResult.data.requireResellerApproval || false,
-          allowResellerPriceOverride: resellerSettingsResult.data.allowResellerPriceOverride !== undefined 
-            ? resellerSettingsResult.data.allowResellerPriceOverride 
+          maxConsumersPerReseller: maxConsumers,
+          defaultCommissionRate: commissionRate,
+          minInvoiceAmount: minAmount,
+          requireResellerApproval: apiData.requireResellerApproval === true || apiData.requireResellerApproval === 'true',
+          allowResellerPriceOverride: apiData.allowResellerPriceOverride !== undefined 
+            ? (apiData.allowResellerPriceOverride === true || apiData.allowResellerPriceOverride === 'true')
             : true
         };
-        console.log('✅ Loaded reseller settings from API:', resellerSettings);
       } else {
         console.warn('⚠️ Could not load reseller settings from API, using defaults');
+        console.warn('Response:', resellerSettingsResult);
       }
 
       // Load from localStorage as fallback for other settings
@@ -132,8 +154,7 @@ const AdminSettings = () => {
           ...localStorageSettings,
           ...resellerSettings
         };
-        
-        console.log('🔄 Updated settings:', newSettings);
+      
         return newSettings;
       });
     } catch (error) {
@@ -158,18 +179,19 @@ const AdminSettings = () => {
     try {
       // Save all reseller settings to API if on resellers tab
       if (activeMainTab === 'general' && activeSubTab === 'resellers') {
-        console.log('🔄 Saving reseller settings:', {
-          maxConsumersPerReseller: settings.maxConsumersPerReseller,
-          defaultCommissionRate: settings.defaultCommissionRate,
-          minInvoiceAmount: settings.minInvoiceAmount,
-          requireResellerApproval: settings.requireResellerApproval,
-          allowResellerPriceOverride: settings.allowResellerPriceOverride
-        });
+       
         
+        // Convert string values to numbers for API (empty strings become null)
         const resellerSettingsToSave = {
-          maxConsumersPerReseller: settings.maxConsumersPerReseller || null,
-          defaultCommissionRate: settings.defaultCommissionRate || null,
-          minInvoiceAmount: settings.minInvoiceAmount || null,
+          maxConsumersPerReseller: settings.maxConsumersPerReseller === '' || settings.maxConsumersPerReseller === null 
+            ? null 
+            : (typeof settings.maxConsumersPerReseller === 'string' ? parseInt(settings.maxConsumersPerReseller) : settings.maxConsumersPerReseller),
+          defaultCommissionRate: settings.defaultCommissionRate === '' || settings.defaultCommissionRate === null
+            ? null
+            : (typeof settings.defaultCommissionRate === 'string' ? parseFloat(settings.defaultCommissionRate) : settings.defaultCommissionRate),
+          minInvoiceAmount: settings.minInvoiceAmount === '' || settings.minInvoiceAmount === null
+            ? null
+            : (typeof settings.minInvoiceAmount === 'string' ? parseFloat(settings.minInvoiceAmount) : settings.minInvoiceAmount),
           requireResellerApproval: settings.requireResellerApproval || false,
           allowResellerPriceOverride: settings.allowResellerPriceOverride !== undefined 
             ? settings.allowResellerPriceOverride 
@@ -177,7 +199,6 @@ const AdminSettings = () => {
         };
         
         const result = await updateResellerSettings(resellerSettingsToSave);
-        console.log('📥 Reseller settings update result:', result);
         
         // Check if result indicates success
         if (result && result.success === true) {
@@ -572,12 +593,12 @@ const AdminSettings = () => {
                   <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
                     Maximum Consumers per Reseller
                   </label>
-                  <input
-                    type="number"
-                    value={settings.maxConsumersPerReseller || ''}
-                    onChange={(e) => handleChange('maxConsumersPerReseller', parseInt(e.target.value) || '')}
-                    placeholder="Unlimited"
-                    min={0}
+                                      <input
+                      type="number"
+                      value={settings.maxConsumersPerReseller || ''}
+                      onChange={(e) => handleChange('maxConsumersPerReseller', e.target.value === '' ? '' : e.target.value)}
+                      placeholder="Unlimited"
+                      min={0}
                     style={{
                       width: '100%',
                       padding: '10px 12px',
@@ -592,18 +613,18 @@ const AdminSettings = () => {
                   <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
                     Default Commission Rate (%)
                   </label>
-                  <input
-                    type="number"
-                    value={settings.defaultCommissionRate ?? ''}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      // Allow empty string for clearing, otherwise parse as float
-                      handleChange('defaultCommissionRate', value === '' ? '' : parseFloat(value) || '');
-                    }}
-                    placeholder="Enter commission rate (0-100)"
-                    min={0}
-                    max={100}
-                    step={0.01}
+                                      <input
+                      type="number"
+                      value={settings.defaultCommissionRate ?? ''}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        // Keep as string for consistency with API-loaded values
+                        handleChange('defaultCommissionRate', value === '' ? '' : value);
+                      }}
+                      placeholder="Enter commission rate (0-100)"
+                      min={0}
+                      max={100}
+                      step={0.01}
                     style={{
                       width: '100%',
                       padding: '10px 12px',
@@ -621,13 +642,13 @@ const AdminSettings = () => {
                   <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
                     Minimum Invoice Amount
                   </label>
-                  <input
-                    type="number"
-                    value={settings.minInvoiceAmount || ''}
-                    onChange={(e) => handleChange('minInvoiceAmount', parseFloat(e.target.value) || '')}
-                    placeholder="0.00"
-                    min={0}
-                    step={0.01}
+                                      <input
+                      type="number"
+                      value={settings.minInvoiceAmount || ''}
+                      onChange={(e) => handleChange('minInvoiceAmount', e.target.value === '' ? '' : e.target.value)}
+                      placeholder="0.00"
+                      min={0}
+                      step={0.01}
                     style={{
                       width: '100%',
                       padding: '10px 12px',

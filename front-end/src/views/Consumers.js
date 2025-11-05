@@ -168,12 +168,15 @@ const Consumers = () => {
 
   const handleCreateConsumer = async (consumerData) => {
     try {
+      const loadingToast = toast.loading(`Creating consumer ${consumerData.full_name || consumerData.email}...`);
+      
       // Call backend API to create consumer
       const result = await createConsumer(consumerData);
       
       if (!result.success) {
         // Extract error message from result
         const errorMessage = result.message || result.error || 'Failed to create consumer';
+        toast.error(`Error: ${errorMessage}`, { id: loadingToast });
         return { error: errorMessage };
       }
       
@@ -192,18 +195,23 @@ const Consumers = () => {
       
       setUsers(prevUsers => [newConsumer, ...prevUsers]);
       
+      toast.success(`Consumer "${consumerData.full_name || consumerData.email}" created successfully!`, { id: loadingToast });
+      
       return { success: true };
     } catch (err) {
       console.error('Error creating consumer:', err);
       // Axios interceptor throws Error with message extracted from API response
       // So err.message should contain the actual API error message
       const errorMessage = err.message || 'Failed to create consumer. Please try again.';
+      toast.error(`Error: ${errorMessage}`);
       return { error: errorMessage };
     }
   };
 
   const handleUpdateConsumer = async (updatedConsumer) => {
     try {
+      const loadingToast = toast.loading(`Updating consumer ${updatedConsumer.full_name || updatedConsumer.email}...`);
+      
       // Call API to update consumer using user_id
       const result = await updateConsumer(updatedConsumer.user_id, {
         full_name: updatedConsumer.full_name,
@@ -215,7 +223,7 @@ const Consumers = () => {
       });
       
       if (result.error) {
-        toast.error(`Error updating consumer: ${result.error}`);
+        toast.error(`Error updating consumer: ${result.error}`, { id: loadingToast });
         console.error('Update error:', result.error);
         return;
       }
@@ -236,14 +244,15 @@ const Consumers = () => {
         })
       );
       
-      toast.success('Consumer updated successfully!');
+      toast.success(`Consumer "${updatedConsumer.full_name || updatedConsumer.email}" updated successfully!`, { id: loadingToast });
       
       // Close modal
       setIsUpdateModalOpen(false);
       setSelectedConsumer(null);
     } catch (err) {
       console.error('Error updating consumer:', err);
-      toast.error('Failed to update consumer. Please try again.');
+      const errorMessage = err.message || 'Failed to update consumer. Please try again.';
+      toast.error(`Error: ${errorMessage}`);
     }
   };
 
@@ -252,12 +261,13 @@ const Consumers = () => {
       if (!deleteUserData) return;
 
       setIsDeleting(true);
+      const loadingToast = toast.loading(`Deleting consumer "${deleteUserData.name || deleteUserData.id}"...`);
 
       // Call backend API to delete consumer
       const result = await deleteConsumer(deleteUserData.id);
       
       if (result.error) {
-        toast.error(`Error deleting consumer: ${result.error}`);
+        toast.error(`Error deleting consumer: ${result.error}`, { id: loadingToast });
         console.error('Delete consumer error:', result.error);
         setIsDeleting(false);
         return;
@@ -268,7 +278,7 @@ const Consumers = () => {
         prevUsers.filter(user => user.user_id !== deleteUserData.id)
       );
       
-      toast.success('Consumer deleted successfully!');
+      toast.success(`Consumer "${deleteUserData.name || deleteUserData.id}" deleted successfully!`, { id: loadingToast });
       
       // Close modal
       setShowDeleteModal(false);
@@ -276,7 +286,8 @@ const Consumers = () => {
       setIsDeleting(false);
     } catch (err) {
       console.error('Error deleting consumer:', err);
-      toast.error('Failed to delete consumer. Please try again.');
+      const errorMessage = err.message || 'Failed to delete consumer. Please try again.';
+      toast.error(`Error: ${errorMessage}`);
       setIsDeleting(false);
     }
   };
@@ -292,12 +303,13 @@ const Consumers = () => {
       if (!statusUpdateData || !selectedStatus) return;
 
       setIsUpdatingStatus(true);
+      const loadingToast = toast.loading(`Updating account status for "${statusUpdateData.name || statusUpdateData.id}"...`);
 
       // Call backend API to update account status
       const result = await updateConsumerAccountStatus(statusUpdateData.id, selectedStatus, null);
       
       if (result.error) {
-        toast.error(`Error updating status: ${result.error}`);
+        toast.error(`Error updating status: ${result.error}`, { id: loadingToast });
         console.error('Update status error:', result.error);
         setIsUpdatingStatus(false);
         return;
@@ -319,12 +331,14 @@ const Consumers = () => {
       // Show appropriate success message based on status
       let successMessage = `Account status updated to ${selectedStatus}!`;
       if (selectedStatus === 'expired_subscription') {
-        successMessage = 'Account marked as expired!';
+        successMessage = `Account "${statusUpdateData.name || statusUpdateData.id}" marked as expired!`;
       } else if (selectedStatus === 'active') {
-        successMessage = 'Account activated!';
+        successMessage = `Account "${statusUpdateData.name || statusUpdateData.id}" activated!`;
+      } else {
+        successMessage = `Account "${statusUpdateData.name || statusUpdateData.id}" status updated to ${selectedStatus}!`;
       }
       
-      toast.success(successMessage);
+      toast.success(successMessage, { id: loadingToast });
       
       // Close modal
       setShowStatusConfirmModal(false);

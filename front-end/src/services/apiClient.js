@@ -103,6 +103,12 @@ axiosInstance.interceptors.request.use(
   async (config) => {
     console.log('🔄 API Request:', config.method.toUpperCase(), config.url);
     
+    // For FormData, let the browser set Content-Type with boundary
+    // Don't set Content-Type header for FormData
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
+    }
+    
     // Try to get fresh token
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -431,6 +437,43 @@ const apiClient = {
      * Resend invoice email (admin only)
      */
     resend: (invoiceId) => axiosInstance.post(`/invoices/${invoiceId}/resend`),
+
+    /**
+     * Submit payment for an invoice
+     */
+    submitPayment: async (invoiceId, paymentData, proofFile) => {
+      const formData = new FormData();
+      
+      // Add all payment fields
+      Object.keys(paymentData).forEach(key => {
+        if (paymentData[key] !== null && paymentData[key] !== undefined && paymentData[key] !== '') {
+          formData.append(key, paymentData[key]);
+        }
+      });
+      
+      // Add file if present
+      if (proofFile) {
+        formData.append('proof', proofFile);
+      }
+      
+      // Content-Type will be set automatically by axios for FormData
+      return axiosInstance.post(`/invoices/${invoiceId}/payments`, formData);
+    },
+
+    /**
+     * Get payments for an invoice
+     */
+    getInvoicePayments: (invoiceId) => axiosInstance.get(`/invoices/${invoiceId}/payments`),
+
+    /**
+     * Review payment (approve/reject) - Admin only
+     */
+    reviewPayment: (paymentId, status, reviewNotes) => {
+      return axiosInstance.patch(`/invoices/payments/${paymentId}`, {
+        status,
+        review_notes: reviewNotes
+      });
+    },
   },
 
   // ==================== DASHBOARD ====================

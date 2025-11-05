@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card } from 'react-bootstrap';
-import { useLocation } from 'react-router-dom';
-import { FileText, Download, Eye, Search, DollarSign, Calendar, User, Building, CheckCircle, XCircle, Clock, Loader, ChevronLeft, ChevronRight, Filter, X, Mail, Copy, Send, ArrowDown } from 'lucide-react';
+import { useLocation, useHistory } from 'react-router-dom';
+import { FileText, Download, Eye, Search, DollarSign, Calendar, User, Building, CheckCircle, XCircle, Clock, Loader, ChevronLeft, ChevronRight, Filter, X, Mail, Copy, Send, ArrowDown, Upload, Settings } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getAllInvoices, getMyInvoices } from '../api/backend';
 import { useAuth } from '../hooks/useAuth';
@@ -12,6 +12,7 @@ import { getResellers } from '../api/backend/resellers';
 const Invoices = () => {
   const { profile } = useAuth();
   const userRole = profile?.role || 'admin';
+  const history = useHistory();
   
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -44,6 +45,30 @@ const Invoices = () => {
   const [resendInvoiceLoading, setResendInvoiceLoading] = useState(false);
   const [resendInvoiceStatus, setResendInvoiceStatus] = useState(null); // 'success' | 'error' | null
   const [arrowDirection, setArrowDirection] = useState({ x: 0, y: 0 }); // Random direction for arrow
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState(null);
+  const [paymentFormData, setPaymentFormData] = useState({
+    paymentMode: '',
+    paymentDate: new Date().toISOString().split('T')[0],
+    amount: '',
+    proof: null,
+    notes: '',
+    // Bank Transfer fields
+    bankName: '',
+    accountNumber: '',
+    transactionReference: '',
+    utrNumber: '',
+    // Online Payment fields (Stripe, PayPal, etc.)
+    transactionId: '',
+    paymentGateway: '',
+    // Card fields
+    cardLastFour: '',
+    cardholderName: '',
+    // Cheque fields
+    chequeNumber: '',
+    chequeBankName: ''
+  });
+  const [submittingPayment, setSubmittingPayment] = useState(false);
   const invoicesPerPage = 20;
 
   // Debounce consumer search - only trigger when 3+ characters
@@ -159,43 +184,44 @@ const Invoices = () => {
     fetchResellers();
   }, [debouncedResellerSearch, userRole]);
 
-  // Fetch all invoices from backend (no search filter)
-  useEffect(() => {
-    const fetchInvoices = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const filters = {
-          status: filterStatus !== 'all' ? filterStatus : undefined
-          // Removed search from backend - will filter client-side
-        };
+  // Define fetchInvoices function outside useEffect so it can be called from payment handler
+  const fetchInvoices = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const filters = {
+        status: filterStatus !== 'all' ? filterStatus : undefined
+        // Removed search from backend - will filter client-side
+      };
 
-        let result;
-        if (userRole === 'admin') {
-          result = await getAllInvoices(filters);
-        } else if (userRole === 'reseller') {
-          result = await getMyInvoices(filters);
-        } else {
-          // Consumer or other roles - for now, return empty
-          setInvoices([]);
-          setLoading(false);
-          return;
-        }
-
-        if (result && result.success && result.data) {
-          setInvoices(result.data);
-        } else {
-          throw new Error(result?.error || 'Failed to fetch invoices');
-        }
-      } catch (err) {
-        console.error('Error fetching invoices:', err);
-        setError(err.message || 'Failed to load invoices');
-        toast.error(err.message || 'Failed to load invoices');
-      } finally {
+      let result;
+      if (userRole === 'admin') {
+        result = await getAllInvoices(filters);
+      } else if (userRole === 'reseller') {
+        result = await getMyInvoices(filters);
+      } else {
+        // Consumer or other roles - for now, return empty
+        setInvoices([]);
         setLoading(false);
+        return;
       }
-    };
 
+      if (result && result.success && result.data) {
+        setInvoices(result.data);
+      } else {
+        throw new Error(result?.error || 'Failed to fetch invoices');
+      }
+    } catch (err) {
+      console.error('Error fetching invoices:', err);
+      setError(err.message || 'Failed to load invoices');
+      toast.error(err.message || 'Failed to load invoices');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch invoices on mount and when filters change
+  useEffect(() => {
     fetchInvoices();
   }, [userRole, filterStatus]);
 
@@ -364,6 +390,8 @@ const Invoices = () => {
     switch (status) {
       case 'paid':
         return { bg: '#f0fdf4', border: '#86efac', text: '#166534', icon: CheckCircle };
+      case 'under_review':
+        return { bg: '#fef3c7', border: '#fde68a', text: '#92400e', icon: Clock };
       case 'unpaid':
         return { bg: '#fffbeb', border: '#fde047', text: '#854d0e', icon: Clock };
       case 'overdue':
@@ -489,6 +517,170 @@ const Invoices = () => {
       copyToClipboardFallback(invoiceLink);
     }
   };
+
+  const handlePaymentSubmit = async (e) => {
+    e.preventDefault();
+    
+    // Validate form
+    if (!paymentFormData.paymentMode) {
+      toast.error('Please select a payment mode');
+      return;
+    }
+    
+    if (!paymentFormData.amount || parseFloat(paymentFormData.amount) <= 0) {
+      toast.error('Please enter a valid payment amount');
+      return;
+    }
+    
+    if (!paymentFormData.paymentDate) {
+      toast.error('Please select a payment date');
+      return;
+    }
+    
+    // Validate conditional fields based on payment mode
+    if (paymentFormData.paymentMode === 'bank_transfer') {
+      if (!paymentFormData.bankName) {
+        toast.error('Please enter bank name');
+        return;
+      }
+      if (!paymentFormData.transactionReference && !paymentFormData.utrNumber) {
+        toast.error('Please enter transaction reference or UTR number');
+        return;
+      }
+    }
+    
+    if (paymentFormData.paymentMode === 'stripe' || 
+        paymentFormData.paymentMode === 'paypal' || 
+        paymentFormData.paymentMode === 'online_payment') {
+      if (!paymentFormData.transactionId) {
+        toast.error('Please enter transaction ID');
+        return;
+      }
+    }
+    
+    if (paymentFormData.paymentMode === 'credit_card' || 
+        paymentFormData.paymentMode === 'debit_card') {
+      if (!paymentFormData.cardLastFour) {
+        toast.error('Please enter card last 4 digits');
+        return;
+      }
+    }
+    
+    if (paymentFormData.paymentMode === 'cheque') {
+      if (!paymentFormData.chequeNumber) {
+        toast.error('Please enter cheque number');
+        return;
+      }
+      if (!paymentFormData.chequeBankName) {
+        toast.error('Please enter bank name');
+        return;
+      }
+    }
+    
+    setSubmittingPayment(true);
+    
+    try {
+      // Prepare payment data
+      const paymentData = {
+        payment_mode: paymentFormData.paymentMode,
+        payment_date: paymentFormData.paymentDate,
+        amount: parseFloat(paymentFormData.amount),
+        notes: paymentFormData.notes || '',
+        // Bank Transfer fields
+        ...(paymentFormData.paymentMode === 'bank_transfer' && {
+          bank_name: paymentFormData.bankName,
+          account_number: paymentFormData.accountNumber || null,
+          transaction_reference: paymentFormData.transactionReference || paymentFormData.utrNumber || null,
+          utr_number: paymentFormData.utrNumber || paymentFormData.transactionReference || null
+        }),
+        // Online Payment fields
+        ...((paymentFormData.paymentMode === 'stripe' || 
+             paymentFormData.paymentMode === 'paypal' || 
+             paymentFormData.paymentMode === 'online_payment') && {
+          transaction_id: paymentFormData.transactionId,
+          payment_gateway: paymentFormData.paymentGateway || paymentFormData.paymentMode
+        }),
+        // Card fields
+        ...((paymentFormData.paymentMode === 'credit_card' || 
+             paymentFormData.paymentMode === 'debit_card') && {
+          card_last_four: paymentFormData.cardLastFour,
+          cardholder_name: paymentFormData.cardholderName || null
+        }),
+        // Cheque fields
+        ...(paymentFormData.paymentMode === 'cheque' && {
+          cheque_number: paymentFormData.chequeNumber,
+          cheque_bank_name: paymentFormData.chequeBankName
+        })
+      };
+      
+      // Submit payment to backend API
+      const result = await apiClient.invoices.submitPayment(
+        selectedInvoiceForPayment?.id,
+        paymentData,
+        paymentFormData.proof
+      );
+      
+      if (result && result.success) {
+        toast.success(result.message || 'Payment submitted successfully! Awaiting approval.');
+        
+        // Close modal and reset form
+        setShowPaymentModal(false);
+        setSelectedInvoiceForPayment(null);
+        setPaymentFormData({
+          paymentMode: '',
+          paymentDate: new Date().toISOString().split('T')[0],
+          amount: '',
+          proof: null,
+          notes: '',
+          bankName: '',
+          accountNumber: '',
+          transactionReference: '',
+          utrNumber: '',
+          transactionId: '',
+          paymentGateway: '',
+          cardLastFour: '',
+          cardholderName: '',
+          chequeNumber: '',
+          chequeBankName: ''
+        });
+        
+        // Refresh invoices list to show updated status
+        await fetchInvoices();
+      } else {
+        toast.error(result?.message || 'Failed to submit payment');
+        return;
+      }
+      
+    } catch (error) {
+      console.error('Error submitting payment:', error);
+      toast.error(error?.message || 'Failed to submit payment details');
+    } finally {
+      setSubmittingPayment(false);
+    }
+  };
+
+  const handleProofFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // Validate file size (e.g., max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error('File size must be less than 5MB');
+        return;
+      }
+      
+      // Validate file type
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
+      if (!allowedTypes.includes(file.type)) {
+        toast.error('Please upload a valid file (JPEG, PNG, or PDF)');
+        return;
+      }
+      
+      setPaymentFormData(prev => ({
+        ...prev,
+        proof: file
+      }));
+    }
+  };
   
   const copyToClipboardFallback = (text) => {
     try {
@@ -605,6 +797,7 @@ const Invoices = () => {
                   >
                     <option value="all">All Status</option>
                     <option value="paid">Paid</option>
+                    <option value="under_review">Under Review</option>
                     <option value="unpaid">Unpaid</option>
                     <option value="overdue">Overdue</option>
                   </select>
@@ -685,6 +878,33 @@ const Invoices = () => {
                     }}
                   >
                     Paid
+                  </span>
+                  <div style={{ 
+                    width: '1px', 
+                    height: '16px', 
+                    backgroundColor: '#d1d5db',
+                    margin: '0 4px'
+                  }}></div>
+                  <span
+                    onClick={() => setFilterStatus('under_review')}
+                    style={{
+                      fontSize: '14px',
+                      color: '#3b82f6',
+                      cursor: 'pointer',
+                      textDecoration: filterStatus === 'under_review' ? 'underline' : 'none',
+                      fontWeight: filterStatus === 'under_review' ? '600' : '400',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.textDecoration = 'underline';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (filterStatus !== 'under_review') {
+                        e.currentTarget.style.textDecoration = 'none';
+                      }
+                    }}
+                  >
+                    Under Review
                   </span>
                   <div style={{ 
                     width: '1px', 
@@ -832,7 +1052,7 @@ const Invoices = () => {
                           }}>
                             <StatusIcon size={14} />
                             <span style={{ textTransform: 'capitalize' }}>
-                              {invoice.status}
+                              {invoice.status === 'under_review' ? 'Under Review' : invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
                             </span>
                           </div>
 
@@ -953,12 +1173,30 @@ const Invoices = () => {
                                 {formatCurrency(invoice.total)}
                               </p>
                             </div>
-                            {invoice.status !== 'paid' && (
+                            {invoice.status !== 'paid' && invoice.status !== 'under_review' && (
                               <div style={{ display: 'flex', gap: '8px' }}>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    toast.success('Pay flow coming soon');
+                                    setSelectedInvoiceForPayment(invoice);
+                                    setPaymentFormData({
+                                      paymentMode: '',
+                                      paymentDate: new Date().toISOString().split('T')[0],
+                                      amount: invoice.total || '',
+                                      proof: null,
+                                      notes: '',
+                                      bankName: '',
+                                      accountNumber: '',
+                                      transactionReference: '',
+                                      utrNumber: '',
+                                      transactionId: '',
+                                      paymentGateway: '',
+                                      cardLastFour: '',
+                                      cardholderName: '',
+                                      chequeNumber: '',
+                                      chequeBankName: ''
+                                    });
+                                    setShowPaymentModal(true);
                                   }}
                                   style={{
                                     padding: '6px 10px',
@@ -2095,123 +2333,223 @@ const Invoices = () => {
               </button>
             </div>
             <div style={{ padding: '24px' }}>
-              {/* Invoice Header */}
-              <div style={{ marginBottom: '24px' }}>
-                <h4 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '600', color: '#1f2937' }}>
-                  {selectedInvoice.id}
-                </h4>
-                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '14px', color: '#6b7280' }}>
-                  <span>Date: {formatDate(selectedInvoice.invoice_date)}</span>
-                  <span>Due: {formatDate(selectedInvoice.due_date)}</span>
-                </div>
-              </div>
-
-              {/* Consumer Info */}
-              <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#f9fafb', borderRadius: '8px' }}>
-                <h5 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#374151' }}>
-                  Bill To:
-                </h5>
-                <p style={{ margin: '4px 0', fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>
-                  {selectedInvoice.consumer_name}
-                </p>
-                <p style={{ margin: '4px 0', fontSize: '14px', color: '#6b7280' }}>
-                  {selectedInvoice.consumer_email}
-                </p>
-                <p style={{ margin: '4px 0', fontSize: '14px', color: '#6b7280' }}>
-                  {selectedInvoice.billing_address}
-                </p>
-              </div>
-
-              {/* Products/Services */}
-              <div style={{ marginBottom: '24px' }}>
-                <h5 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#374151' }}>
-                  Products/Services:
-                </h5>
-                <div style={{
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '8px',
-                  overflow: 'hidden'
-                }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead style={{ backgroundColor: '#f9fafb' }}>
-                      <tr>
-                        <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#374151', borderBottom: '1px solid #e5e7eb' }}>
-                          Product
-                        </th>
-                        <th style={{ padding: '12px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#374151', borderBottom: '1px solid #e5e7eb' }}>
-                          Amount
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedInvoice.products.map((product, idx) => (
-                        <tr key={idx}>
-                          <td style={{ padding: '12px', fontSize: '14px', color: '#1f2937', borderBottom: '1px solid #f3f4f6' }}>
-                            {typeof product === 'object' ? product.name : String(product)}
-                          </td>
-                          <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', color: '#1f2937', borderBottom: '1px solid #f3f4f6' }}>
-                            {typeof product === 'object' ? formatCurrency(product.total ?? (Number(product.price || 0) * Number(product.quantity || 1))) : formatCurrency(0)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Totals */}
-              <div style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                marginBottom: '24px'
-              }}>
-                <div style={{ width: '250px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px', color: '#6b7280' }}>
-                    <span>Subtotal:</span>
-                    <span>{formatCurrency(selectedInvoice.amount)}</span>
+              {/* Show simplified modal for under_review or paid invoices */}
+              {(selectedInvoice.status === 'under_review' || selectedInvoice.status === 'paid') ? (
+                <>
+                  {/* Invoice Basic Info */}
+                  <div style={{ marginBottom: '24px' }}>
+                    <h4 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '600', color: '#1f2937' }}>
+                      {selectedInvoice.invoice_number || selectedInvoice.id}
+                    </h4>
+                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '14px', color: '#6b7280', marginBottom: '16px' }}>
+                      <span>Date: {formatDate(selectedInvoice.invoice_date)}</span>
+                      <span>Due: {formatDate(selectedInvoice.due_date)}</span>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px', color: '#6b7280' }}>
-                    <span>Tax:</span>
-                    <span>{formatCurrency(selectedInvoice.tax)}</span>
+
+                  {/* Consumer Info */}
+                  <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#f9fafb', borderRadius: '8px' }}>
+                    <h5 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#374151' }}>
+                      Bill To:
+                    </h5>
+                    <p style={{ margin: '4px 0', fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>
+                      {selectedInvoice.consumer_name}
+                    </p>
+                    <p style={{ margin: '4px 0', fontSize: '14px', color: '#6b7280' }}>
+                      {selectedInvoice.consumer_email}
+                    </p>
                   </div>
+
+                  {/* Total Amount */}
+                  <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd' }}>
+                    <p style={{ margin: '0 0 8px 0', fontSize: '12px', color: '#6b7280' }}>Total Amount</p>
+                    <p style={{ margin: 0, fontSize: '28px', fontWeight: '700', color: '#74317e' }}>
+                      {formatCurrency(selectedInvoice.total)}
+                    </p>
+                  </div>
+
+                  {/* Status */}
+                  <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#f9fafb', borderRadius: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '14px', fontWeight: '600', color: '#374151' }}>Status:</span>
+                      <span style={{
+                        padding: '4px 12px',
+                        borderRadius: '20px',
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        backgroundColor: getStatusColor(selectedInvoice.status).bg,
+                        color: getStatusColor(selectedInvoice.status).text,
+                        border: `1px solid ${getStatusColor(selectedInvoice.status).border}`
+                      }}>
+                        {selectedInvoice.status === 'under_review' ? 'Under Review' : selectedInvoice.status.charAt(0).toUpperCase() + selectedInvoice.status.slice(1)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* View Full Details Button */}
+                  <div style={{ marginBottom: '24px', padding: '20px', backgroundColor: '#fef3c7', borderRadius: '8px', border: '1px solid #fde68a', textAlign: 'center' }}>
+                    <p style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#92400e', fontWeight: '500' }}>
+                      View complete invoice details including payment information, proof images, and all transaction data
+                    </p>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setShowInvoiceModal(false);
+                        // Small delay to ensure modal closes before navigation
+                        setTimeout(() => {
+                          history.push(`/admin/invoices/${selectedInvoice.id}/payments`);
+                        }, 100);
+                      }}
+                      style={{
+                        padding: '12px 24px',
+                        backgroundColor: '#74317e',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#5a2460';
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = '#74317e';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                      }}
+                    >
+                      <Eye size={18} />
+                      View Full Details
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Original Detailed Modal for other statuses */}
+                  <div style={{ marginBottom: '24px' }}>
+                    <h4 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '600', color: '#1f2937' }}>
+                      {selectedInvoice.id}
+                    </h4>
+                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '14px', color: '#6b7280' }}>
+                      <span>Date: {formatDate(selectedInvoice.invoice_date)}</span>
+                      <span>Due: {formatDate(selectedInvoice.due_date)}</span>
+                    </div>
+                  </div>
+
+                  {/* Consumer Info */}
+                  <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#f9fafb', borderRadius: '8px' }}>
+                    <h5 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#374151' }}>
+                      Bill To:
+                    </h5>
+                    <p style={{ margin: '4px 0', fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>
+                      {selectedInvoice.consumer_name}
+                    </p>
+                    <p style={{ margin: '4px 0', fontSize: '14px', color: '#6b7280' }}>
+                      {selectedInvoice.consumer_email}
+                    </p>
+                    <p style={{ margin: '4px 0', fontSize: '14px', color: '#6b7280' }}>
+                      {selectedInvoice.billing_address}
+                    </p>
+                  </div>
+
+                  {/* Products/Services */}
+                  <div style={{ marginBottom: '24px' }}>
+                    <h5 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#374151' }}>
+                      Products/Services:
+                    </h5>
+                    <div style={{
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '8px',
+                      overflow: 'hidden'
+                    }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead style={{ backgroundColor: '#f9fafb' }}>
+                          <tr>
+                            <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#374151', borderBottom: '1px solid #e5e7eb' }}>
+                              Product
+                            </th>
+                            <th style={{ padding: '12px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#374151', borderBottom: '1px solid #e5e7eb' }}>
+                              Amount
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedInvoice.products && selectedInvoice.products.map((product, idx) => (
+                            <tr key={idx}>
+                              <td style={{ padding: '12px', fontSize: '14px', color: '#1f2937', borderBottom: '1px solid #f3f4f6' }}>
+                                {typeof product === 'object' ? product.name : String(product)}
+                              </td>
+                              <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', color: '#1f2937', borderBottom: '1px solid #f3f4f6' }}>
+                                {typeof product === 'object' ? formatCurrency(product.total ?? (Number(product.price || 0) * Number(product.quantity || 1))) : formatCurrency(0)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Totals */}
                   <div style={{
                     display: 'flex',
-                    justifyContent: 'space-between',
-                    paddingTop: '12px',
-                    borderTop: '2px solid #e5e7eb',
-                    fontSize: '16px',
-                    fontWeight: '600',
-                    color: '#1f2937'
+                    justifyContent: 'flex-end',
+                    marginBottom: '24px'
                   }}>
-                    <span>Total:</span>
-                    <span style={{ color: '#74317e' }}>{formatCurrency(selectedInvoice.total)}</span>
+                    <div style={{ width: '250px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px', color: '#6b7280' }}>
+                        <span>Subtotal:</span>
+                        <span>{formatCurrency(selectedInvoice.amount)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px', color: '#6b7280' }}>
+                        <span>Tax:</span>
+                        <span>{formatCurrency(selectedInvoice.tax)}</span>
+                      </div>
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        paddingTop: '12px',
+                        borderTop: '2px solid #e5e7eb',
+                        fontSize: '16px',
+                        fontWeight: '600',
+                        color: '#1f2937'
+                      }}>
+                        <span>Total:</span>
+                        <span style={{ color: '#74317e' }}>{formatCurrency(selectedInvoice.total)}</span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
 
-              {/* Status and Payment Info */}
-              <div style={{ padding: '16px', backgroundColor: '#f9fafb', borderRadius: '8px', marginBottom: '24px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '14px', fontWeight: '600', color: '#374151' }}>Status:</span>
-                  <span style={{
-                    padding: '4px 12px',
-                    borderRadius: '20px',
-                    fontSize: '12px',
-                    fontWeight: '500',
-                    backgroundColor: getStatusColor(selectedInvoice.status).bg,
-                    color: getStatusColor(selectedInvoice.status).text,
-                    border: `1px solid ${getStatusColor(selectedInvoice.status).border}`
-                  }}>
-                    {selectedInvoice.status.charAt(0).toUpperCase() + selectedInvoice.status.slice(1)}
-                  </span>
-                </div>
-                {selectedInvoice.payment_date && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '14px', color: '#6b7280' }}>
-                    <span>Payment Date:</span>
-                    <span>{formatDate(selectedInvoice.payment_date)}</span>
+                  {/* Status and Payment Info */}
+                  <div style={{ padding: '16px', backgroundColor: '#f9fafb', borderRadius: '8px', marginBottom: '24px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '14px', fontWeight: '600', color: '#374151' }}>Status:</span>
+                      <span style={{
+                        padding: '4px 12px',
+                        borderRadius: '20px',
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        backgroundColor: getStatusColor(selectedInvoice.status).bg,
+                        color: getStatusColor(selectedInvoice.status).text,
+                        border: `1px solid ${getStatusColor(selectedInvoice.status).border}`
+                      }}>
+                        {selectedInvoice.status === 'under_review' ? 'Under Review' : selectedInvoice.status.charAt(0).toUpperCase() + selectedInvoice.status.slice(1)}
+                      </span>
+                    </div>
+                    {selectedInvoice.payment_date && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '14px', color: '#6b7280' }}>
+                        <span>Payment Date:</span>
+                        <span>{formatDate(selectedInvoice.payment_date)}</span>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </>
+              )}
 
               {/* Actions */}
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
@@ -2230,7 +2568,7 @@ const Invoices = () => {
                 >
                   Close
                 </button>
-                {userRole === 'admin' && (
+                {(userRole === 'admin' || userRole === 'reseller') && (
                   <>
                     <button
                       onClick={() => handleCopyInvoiceLink(selectedInvoice)}
@@ -2358,9 +2696,29 @@ const Invoices = () => {
                     </button>
                   </>
                 )}
-                {selectedInvoice.status !== 'paid' && (
+                {selectedInvoice.status !== 'paid' && selectedInvoice.status !== 'under_review' && (
                   <button
-                    onClick={() => toast.success('Pay flow coming soon')}
+                    onClick={() => {
+                      setSelectedInvoiceForPayment(selectedInvoice);
+                      setPaymentFormData({
+                        paymentMode: '',
+                        paymentDate: new Date().toISOString().split('T')[0],
+                        amount: selectedInvoice.total || '',
+                        proof: null,
+                        notes: '',
+                        bankName: '',
+                        accountNumber: '',
+                        transactionReference: '',
+                        utrNumber: '',
+                        transactionId: '',
+                        paymentGateway: '',
+                        cardLastFour: '',
+                        cardholderName: '',
+                        chequeNumber: '',
+                        chequeBankName: ''
+                      });
+                      setShowPaymentModal(true);
+                    }}
                     style={{
                       padding: '10px 20px',
                       backgroundColor: '#74317e',
@@ -2396,6 +2754,705 @@ const Invoices = () => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Modal */}
+      {showPaymentModal && selectedInvoiceForPayment && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1050,
+          padding: '20px'
+        }}
+        onClick={() => setShowPaymentModal(false)}
+        >
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            maxWidth: '600px',
+            width: '100%',
+            maxHeight: '90vh',
+            overflow: 'auto',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)'
+          }}
+          onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{
+              padding: '24px',
+              borderBottom: '1px solid #e5e7eb',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              position: 'sticky',
+              top: 0,
+              backgroundColor: 'white',
+              zIndex: 10
+            }}>
+              <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '600', color: '#1f2937' }}>
+                Submit Payment Details
+              </h3>
+              <button
+                onClick={() => setShowPaymentModal(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '24px',
+                  color: '#6b7280',
+                  cursor: 'pointer',
+                  padding: '4px 8px'
+                }}
+              >
+                ×
+              </button>
+            </div>
+            
+            <form onSubmit={handlePaymentSubmit} style={{ padding: '24px' }}>
+              {/* Invoice Info */}
+              <div style={{
+                padding: '16px',
+                backgroundColor: '#f9fafb',
+                borderRadius: '8px',
+                marginBottom: '24px'
+              }}>
+                <p style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: '600', color: '#374151' }}>
+                  Invoice: {selectedInvoiceForPayment.invoice_number || selectedInvoiceForPayment.id}
+                </p>
+                <p style={{ margin: '0 0 8px 0', fontSize: '14px', color: '#6b7280' }}>
+                  Amount Due: <span style={{ fontWeight: '600', color: '#74317e' }}>
+                    {formatCurrency(selectedInvoiceForPayment.total)}
+                  </span>
+                </p>
+                <p style={{ margin: 0, fontSize: '14px', color: '#6b7280' }}>
+                  Consumer: {selectedInvoiceForPayment.consumer_name || 'N/A'}
+                </p>
+              </div>
+
+              {/* Payment Mode */}
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  color: '#374151',
+                  marginBottom: '8px'
+                }}>
+                  Payment Mode <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <select
+                  value={paymentFormData.paymentMode}
+                  onChange={(e) => {
+                    const newMode = e.target.value;
+                    setPaymentFormData(prev => ({
+                      ...prev,
+                      paymentMode: newMode,
+                      // Reset mode-specific fields when changing payment mode
+                      bankName: '',
+                      accountNumber: '',
+                      transactionReference: '',
+                      utrNumber: '',
+                      transactionId: '',
+                      paymentGateway: '',
+                      cardLastFour: '',
+                      cardholderName: '',
+                      chequeNumber: '',
+                      chequeBankName: ''
+                    }));
+                  }}
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    color: '#1f2937',
+                    backgroundColor: 'white',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="">Select payment mode</option>
+                  <option value="cash">Cash</option>
+                  <option value="bank_transfer">Bank Transfer</option>
+                  <option value="stripe">Stripe</option>
+                  <option value="paypal">PayPal</option>
+                  <option value="online_payment">Other Online Payment</option>
+                  <option value="credit_card">Credit Card</option>
+                  <option value="debit_card">Debit Card</option>
+                  <option value="cheque">Cheque</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+
+              {/* Payment Date */}
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  color: '#374151',
+                  marginBottom: '8px'
+                }}>
+                  Payment Date <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="date"
+                  value={paymentFormData.paymentDate}
+                  onChange={(e) => setPaymentFormData(prev => ({ ...prev, paymentDate: e.target.value }))}
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    color: '#1f2937',
+                    backgroundColor: 'white'
+                  }}
+                />
+              </div>
+
+              {/* Payment Amount */}
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  color: '#374151',
+                  marginBottom: '8px'
+                }}>
+                  Payment Amount <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={paymentFormData.amount}
+                  onChange={(e) => setPaymentFormData(prev => ({ ...prev, amount: e.target.value }))}
+                  required
+                  placeholder="Enter payment amount"
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    color: '#1f2937',
+                    backgroundColor: 'white'
+                  }}
+                />
+              </div>
+
+              {/* Conditional Fields Based on Payment Mode */}
+              
+              {/* Bank Transfer Fields */}
+              {paymentFormData.paymentMode === 'bank_transfer' && (
+                <>
+                  <div style={{ marginBottom: '24px' }}>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      color: '#374151',
+                      marginBottom: '8px'
+                    }}>
+                      Bank Name <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={paymentFormData.bankName}
+                      onChange={(e) => setPaymentFormData(prev => ({ ...prev, bankName: e.target.value }))}
+                      required
+                      placeholder="Enter bank name"
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        color: '#1f2937',
+                        backgroundColor: 'white'
+                      }}
+                    />
+                  </div>
+                  <div style={{ marginBottom: '24px' }}>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      color: '#374151',
+                      marginBottom: '8px'
+                    }}>
+                      Account Number / IBAN
+                    </label>
+                    <input
+                      type="text"
+                      value={paymentFormData.accountNumber}
+                      onChange={(e) => setPaymentFormData(prev => ({ ...prev, accountNumber: e.target.value }))}
+                      placeholder="Enter account number or IBAN"
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        color: '#1f2937',
+                        backgroundColor: 'white'
+                      }}
+                    />
+                  </div>
+                  <div style={{ marginBottom: '24px' }}>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      color: '#374151',
+                      marginBottom: '8px'
+                    }}>
+                      Transaction Reference / UTR Number <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={paymentFormData.transactionReference || paymentFormData.utrNumber}
+                      onChange={(e) => setPaymentFormData(prev => ({ 
+                        ...prev, 
+                        transactionReference: e.target.value,
+                        utrNumber: e.target.value
+                      }))}
+                      required
+                      placeholder="Enter transaction reference or UTR number"
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        color: '#1f2937',
+                        backgroundColor: 'white'
+                      }}
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Stripe, PayPal, or Other Online Payment Fields */}
+              {(paymentFormData.paymentMode === 'stripe' || 
+                paymentFormData.paymentMode === 'paypal' || 
+                paymentFormData.paymentMode === 'online_payment') && (
+                <>
+                  <div style={{ marginBottom: '24px' }}>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      color: '#374151',
+                      marginBottom: '8px'
+                    }}>
+                      Transaction ID <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={paymentFormData.transactionId}
+                      onChange={(e) => setPaymentFormData(prev => ({ ...prev, transactionId: e.target.value }))}
+                      required
+                      placeholder="Enter transaction ID or payment ID"
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        color: '#1f2937',
+                        backgroundColor: 'white'
+                      }}
+                    />
+                  </div>
+                  {paymentFormData.paymentMode === 'online_payment' && (
+                    <div style={{ marginBottom: '24px' }}>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#374151',
+                        marginBottom: '8px'
+                      }}>
+                        Payment Gateway
+                      </label>
+                      <input
+                        type="text"
+                        value={paymentFormData.paymentGateway}
+                        onChange={(e) => setPaymentFormData(prev => ({ ...prev, paymentGateway: e.target.value }))}
+                        placeholder="e.g., Razorpay, Square, etc."
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '8px',
+                          fontSize: '14px',
+                          color: '#1f2937',
+                          backgroundColor: 'white'
+                        }}
+                      />
+                    </div>
+                  )}
+                  {paymentFormData.paymentMode === 'stripe' && (
+                    <div style={{
+                      padding: '12px',
+                      backgroundColor: '#f0f9ff',
+                      borderRadius: '8px',
+                      marginBottom: '24px',
+                      fontSize: '13px',
+                      color: '#0369a1'
+                    }}>
+                      ℹ️ Stripe payments are automatically verified. Transaction ID is required for record keeping.
+                    </div>
+                  )}
+                  {paymentFormData.paymentMode === 'paypal' && (
+                    <div style={{
+                      padding: '12px',
+                      backgroundColor: '#fef3c7',
+                      borderRadius: '8px',
+                      marginBottom: '24px',
+                      fontSize: '13px',
+                      color: '#92400e'
+                    }}>
+                      ℹ️ PayPal Transaction ID format: Txn-XXXXXXXXXXXX
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Credit/Debit Card Fields */}
+              {(paymentFormData.paymentMode === 'credit_card' || 
+                paymentFormData.paymentMode === 'debit_card') && (
+                <>
+                  <div style={{ marginBottom: '24px' }}>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      color: '#374151',
+                      marginBottom: '8px'
+                    }}>
+                      Card Last 4 Digits <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={paymentFormData.cardLastFour}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/\D/g, '').slice(0, 4);
+                        setPaymentFormData(prev => ({ ...prev, cardLastFour: value }));
+                      }}
+                      required
+                      placeholder="Enter last 4 digits (e.g., 1234)"
+                      maxLength={4}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        color: '#1f2937',
+                        backgroundColor: 'white'
+                      }}
+                    />
+                  </div>
+                  <div style={{ marginBottom: '24px' }}>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      color: '#374151',
+                      marginBottom: '8px'
+                    }}>
+                      Cardholder Name
+                    </label>
+                    <input
+                      type="text"
+                      value={paymentFormData.cardholderName}
+                      onChange={(e) => setPaymentFormData(prev => ({ ...prev, cardholderName: e.target.value }))}
+                      placeholder="Enter cardholder name"
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        color: '#1f2937',
+                        backgroundColor: 'white'
+                      }}
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Cheque Fields */}
+              {paymentFormData.paymentMode === 'cheque' && (
+                <>
+                  <div style={{ marginBottom: '24px' }}>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      color: '#374151',
+                      marginBottom: '8px'
+                    }}>
+                      Cheque Number <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={paymentFormData.chequeNumber}
+                      onChange={(e) => setPaymentFormData(prev => ({ ...prev, chequeNumber: e.target.value }))}
+                      required
+                      placeholder="Enter cheque number"
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        color: '#1f2937',
+                        backgroundColor: 'white'
+                      }}
+                    />
+                  </div>
+                  <div style={{ marginBottom: '24px' }}>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      color: '#374151',
+                      marginBottom: '8px'
+                    }}>
+                      Bank Name (Issued From) <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={paymentFormData.chequeBankName}
+                      onChange={(e) => setPaymentFormData(prev => ({ ...prev, chequeBankName: e.target.value }))}
+                      required
+                      placeholder="Enter bank name"
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        color: '#1f2937',
+                        backgroundColor: 'white'
+                      }}
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Payment Proof - Hidden for cash payments */}
+              {paymentFormData.paymentMode !== 'cash' && (
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#374151',
+                    marginBottom: '8px'
+                  }}>
+                    Payment Proof (Receipt/Transaction Screenshot)
+                    {paymentFormData.paymentMode === 'stripe' || 
+                     paymentFormData.paymentMode === 'paypal' || 
+                     paymentFormData.paymentMode === 'online_payment' ? (
+                      <span style={{ fontSize: '12px', fontWeight: '400', color: '#6b7280', marginLeft: '8px' }}>
+                        (Recommended)
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '12px', fontWeight: '400', color: '#6b7280', marginLeft: '8px' }}>
+                        (Optional)
+                      </span>
+                    )}
+                  </label>
+                <div style={{
+                  border: '2px dashed #d1d5db',
+                  borderRadius: '8px',
+                  padding: '20px',
+                  textAlign: 'center',
+                  backgroundColor: '#f9fafb',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = '#74317e';
+                  e.currentTarget.style.backgroundColor = '#f3f4f6';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#d1d5db';
+                  e.currentTarget.style.backgroundColor = '#f9fafb';
+                }}
+                >
+                  <input
+                    type="file"
+                    id="proof-upload"
+                    accept="image/jpeg,image/png,image/jpg,application/pdf"
+                    onChange={handleProofFileChange}
+                    style={{ display: 'none' }}
+                  />
+                  <label
+                    htmlFor="proof-upload"
+                    style={{
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}
+                  >
+                    <Upload size={32} color="#74317e" />
+                    <span style={{ fontSize: '14px', color: '#6b7280' }}>
+                      {paymentFormData.proof ? (
+                        <span style={{ color: '#74317e', fontWeight: '500' }}>
+                          {paymentFormData.proof.name}
+                        </span>
+                      ) : (
+                        'Click to upload or drag and drop'
+                      )}
+                    </span>
+                    <span style={{ fontSize: '12px', color: '#9ca3af' }}>
+                      JPEG, PNG, or PDF (max 5MB)
+                    </span>
+                  </label>
+                </div>
+                {paymentFormData.proof && (
+                  <button
+                    type="button"
+                    onClick={() => setPaymentFormData(prev => ({ ...prev, proof: null }))}
+                    style={{
+                      marginTop: '8px',
+                      padding: '6px 12px',
+                      backgroundColor: '#fee2e2',
+                      color: '#dc2626',
+                      border: 'none',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Remove file
+                  </button>
+                )}
+                </div>
+              )}
+
+              {/* Notes */}
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  color: '#374151',
+                  marginBottom: '8px'
+                }}>
+                  Additional Notes
+                </label>
+                <textarea
+                  value={paymentFormData.notes}
+                  onChange={(e) => setPaymentFormData(prev => ({ ...prev, notes: e.target.value }))}
+                  placeholder="Add any additional information about the payment..."
+                  rows={4}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    color: '#1f2937',
+                    backgroundColor: 'white',
+                    resize: 'vertical',
+                    fontFamily: 'inherit'
+                  }}
+                />
+              </div>
+
+              {/* Form Actions */}
+              <div style={{
+                display: 'flex',
+                gap: '12px',
+                justifyContent: 'flex-end',
+                paddingTop: '16px',
+                borderTop: '1px solid #e5e7eb'
+              }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPaymentModal(false);
+                    setSelectedInvoiceForPayment(null);
+                    setPaymentFormData({
+                      paymentMode: '',
+                      paymentDate: new Date().toISOString().split('T')[0],
+                      amount: '',
+                      proof: null,
+                      notes: '',
+                      bankName: '',
+                      accountNumber: '',
+                      transactionReference: '',
+                      utrNumber: '',
+                      transactionId: '',
+                      paymentGateway: '',
+                      cardLastFour: '',
+                      cardholderName: '',
+                      chequeNumber: '',
+                      chequeBankName: ''
+                    });
+                  }}
+                  style={{
+                    padding: '10px 20px',
+                    backgroundColor: 'white',
+                    color: '#374151',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingPayment}
+                  style={{
+                    padding: '10px 20px',
+                    backgroundColor: submittingPayment ? '#9ca3af' : '#74317e',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: submittingPayment ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  {submittingPayment ? (
+                    <>
+                      <Settings size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                      Submitting...
+                    </>
+                  ) : (
+                    <>
+                      <DollarSign size={16} />
+                      Submit Payment
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

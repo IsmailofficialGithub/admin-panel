@@ -79,6 +79,11 @@ export const createConsumer = async (consumerData) => {
       role: 'consumer'
     };
     
+    // Add referred_by if provided (reseller ID or admin ID)
+    if (consumerData.referred_by !== undefined && consumerData.referred_by !== null && consumerData.referred_by !== '') {
+      requestData.referred_by = consumerData.referred_by;
+    }
+    
     // Add subscribed_products if provided
     if (consumerData.subscribed_products !== undefined) {
       requestData.subscribed_products = consumerData.subscribed_products || [];
