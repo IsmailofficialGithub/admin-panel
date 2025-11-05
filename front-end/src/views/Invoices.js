@@ -408,7 +408,6 @@ const Invoices = () => {
     try {
       // Get invoice ID - handle different possible ID fields
       const invoiceId = invoice.id || invoice.invoice_id || invoice.invoiceId;
-      console.log('Resending invoice with ID:', invoiceId, 'Invoice object:', invoice);
       
       if (!invoiceId) {
         toast.error('Invoice ID not found');
@@ -459,9 +458,7 @@ const Invoices = () => {
   };
 
   const handleCopyInvoiceLink = (invoice) => {
-    console.log("invoice", invoice);
     const baseUrl = window.location.origin;
-    console.log("baseUrl", baseUrl);
     
     // Get invoice data
     const invoiceId = invoice.id || '';
@@ -476,22 +473,45 @@ const Invoices = () => {
       user_id: userId,
       invoice_number: invoiceNumber
     });
-    console.log("params", params);
     
     const invoiceLink = `${baseUrl}/consumer/payment?${params.toString()}`;
-    console.log("invoiceLink", invoiceLink);
-    navigator.clipboard.writeText(invoiceLink).then(() => {
-      toast.success('Invoice payment link copied to clipboard');
-    }).catch(() => {
-      // Fallback for older browsers
+    
+    // Check if clipboard API is available (requires HTTPS or localhost)
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(invoiceLink).then(() => {
+        toast.success('Invoice payment link copied to clipboard');
+      }).catch(() => {
+        // Fallback if clipboard API fails
+        copyToClipboardFallback(invoiceLink);
+      });
+    } else {
+      // Fallback for HTTP connections or older browsers
+      copyToClipboardFallback(invoiceLink);
+    }
+  };
+  
+  const copyToClipboardFallback = (text) => {
+    try {
       const textArea = document.createElement('textarea');
-      textArea.value = invoiceLink;
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      textArea.style.top = '-999999px';
       document.body.appendChild(textArea);
+      textArea.focus();
       textArea.select();
-      document.execCommand('copy');
+      const successful = document.execCommand('copy');
       document.body.removeChild(textArea);
-      toast.success('Invoice payment link copied to clipboard');
-    });
+      
+      if (successful) {
+        toast.success('Invoice payment link copied to clipboard');
+      } else {
+        toast.error('Failed to copy link. Please copy manually.');
+      }
+    } catch (err) {
+      console.error('Fallback copy failed:', err);
+      toast.error('Failed to copy link. Please copy manually.');
+    }
   };
 
   return (
