@@ -19,8 +19,8 @@ EMAIL_PORT=587
 EMAIL_USER=your-email@gmail.com
 EMAIL_PASSWORD=your-app-password
 
-# Optional: Custom sender name (default: "Duha Nashrah.AI")
-EMAIL_SENDER_NAME=Duha Nashrah.AI
+# Optional: Custom sender name (default: "Duha Nashrah")
+EMAIL_SENDER_NAME=Duha Nashrah
 ```
 
 ---
@@ -30,7 +30,7 @@ EMAIL_SENDER_NAME=Duha Nashrah.AI
 ### **1. Welcome Email (User Creation)**
 
 **Triggered:** When admin creates a new user  
-**Sender:** `"Duha Nashrah.AI" <your-email@gmail.com>`  
+**Sender:** `"Duha Nashrah" <your-email@gmail.com>`  
 **Subject:** `New User Created: {full_name}`  
 **Template:** Beautiful HTML template with credentials
 
@@ -39,7 +39,7 @@ EMAIL_SENDER_NAME=Duha Nashrah.AI
 // backend/services/emailService.js
 export const sendWelcomeEmail = async ({ email, full_name, password }) => {
   const mailOptions = {
-    from: `"Duha Nashrah.AI" <${process.env.EMAIL_USER}>`,
+    from: `"Duha Nashrah" <${process.env.EMAIL_USER}>`,
     to: email,
     subject: `New User Created: ${full_name}`,
     html: htmlContent,
@@ -51,7 +51,7 @@ export const sendWelcomeEmail = async ({ email, full_name, password }) => {
 ### **2. Password Reset Email**
 
 **Triggered:** When admin resets user password  
-**Sender:** `"Duha Nashrah.AI" <your-email@gmail.com>`  
+**Sender:** `"Duha Nashrah" <your-email@gmail.com>`  
 **Subject:** `Password Reset: {full_name}`  
 **Template:** HTML template with new password
 
@@ -106,7 +106,7 @@ Configure Supabase to use your own SMTP server and disable default emails:
 4. Backend sends ONLY custom email via Nodemailer
    - Beautiful HTML template
    - Includes credentials
-   - From: "Duha Nashrah.AI"
+   - From: "Duha Nashrah"
    ↓
 5. User receives ONE email with all info ✅
 ```
@@ -233,7 +233,7 @@ curl -X POST http://localhost:5000/api/users \
 
 **Check:**
 1. Backend console shows: `✅ Custom welcome email sent to: test@example.com`
-2. User receives email from "Duha Nashrah.AI"
+2. User receives email from "Duha Nashrah"
 3. Email subject: "New User Created: Test User"
 4. **NO** email from Supabase ✅
 
@@ -331,7 +331,7 @@ EMAIL_PASSWORD=your-app-password
 ```
 
 ### **Features:**
-✅ Custom sender: "Duha Nashrah.AI"  
+✅ Custom sender: "Duha Nashrah"  
 ✅ Welcome email with credentials  
 ✅ Password reset email  
 ✅ Beautiful HTML templates  

@@ -32,7 +32,7 @@ class Footer extends Component {
             </ul> */}
             <p className="copyright text-center">
               © {new Date().getFullYear()}{" "}
-              <a href="https://duhanashrah.ai/" target="_blank" rel="noopener noreferrer">Dua Nashrah.AI</a>, made with
+              <a href="https://duhanashrah.ai/" target="_blank" rel="noopener noreferrer">Duha Nashrah</a>, made with
               love for a better web
             </p>
           </nav>

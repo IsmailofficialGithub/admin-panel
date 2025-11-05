@@ -52,7 +52,7 @@ export const sendWelcomeEmail = async ({ email, full_name, password }) => {
     });
 
     const ownerMail = {
-      from: `"Duha Nashrah.AI" <${process.env.AdminEmail}>`,
+      from: `"Duha Nashrah" <${process.env.AdminEmail}>`,
       to: email,
       subject: `New User Created: ${full_name}`,
       html: htmlContent,
@@ -99,7 +99,7 @@ export const sendPasswordResetEmail = async ({
     });
 
     const resetMail = {
-      from: `"Duha Nashrah.AI" <${process.env.AdminEmail}>`,
+      from: `"Duha Nashrah" <${process.env.AdminEmail}>`,
       to: email,
       subject: `Password Reset: ${full_name}`,
       html: htmlContent,
@@ -167,7 +167,7 @@ export const sendTrialPeriodChangeEmail = async ({
     });
 
     const mail = {
-      from: `"Duha Nashrah.AI" <${process.env.AdminEmail}>`,
+      from: `"Duha Nashrah" <${process.env.AdminEmail}>`,
       to: email,
       subject: `Trial Period Updated: ${full_name}`,
       html: htmlContent,
@@ -217,7 +217,7 @@ export const sendTrialExtensionEmail = async ({
     });
 
     const mail = {
-      from: `"Duha Nashrah.AI" <${process.env.AdminEmail}>`,
+      from: `"Duha Nashrah" <${process.env.AdminEmail}>`,
       to: email,
       subject: `Trial Extended: ${full_name}`,
       html: htmlContent,
@@ -277,7 +277,7 @@ export const sendInvoiceCreatedEmail = async ({ email, full_name, invoice_number
       website_url,
     });
     const mail = {
-      from: `"Duha Nashrah.AI" <${process.env.AdminEmail}>`,
+      from: `"Duha Nashrah" <${process.env.AdminEmail}>`,
       to: email,
       subject: `Invoice Created: ${invoice_number}`,
       html: htmlContent,

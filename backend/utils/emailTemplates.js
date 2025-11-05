@@ -876,7 +876,7 @@ export const InvoiceCreatedTemplate = ({
             <tr>
               <td align="center" bgcolor="#04f6f1" style="padding:40px 30px; background:linear-gradient(135deg, rgba(4,246,241,0.9), rgba(21,214,231,0.8)); text-align:center;">
                 <p style="margin:0; color:#1a1a1a; font-size:16px; font-weight:600;">
-                  Proceed to payment on <span style="color:#863793; font-weight:700;">Duha Nashrah.AI</span>
+                  Proceed to payment on <span style="color:#863793; font-weight:700;">Duha Nashrah</span>
                 </p>
                 <h2 style="margin:15px 0 25px 0; color:#000; font-size:34px; font-weight:700;"></h2>
                 <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center">
