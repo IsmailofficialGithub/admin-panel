@@ -64,7 +64,9 @@ export {
   getMyCommission,
   getResellerCommission,
   setResellerCommission,
-  resetResellerCommission
+  resetResellerCommission,
+  getResellerSettings,
+  updateResellerSettings
 } from './settings';
 
 // Re-export API client for direct access if needed

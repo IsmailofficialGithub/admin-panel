@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../hooks/useAuth';
-import { getDefaultCommission, updateDefaultCommission } from '../api/backend';
+import { getDefaultCommission, updateDefaultCommission, getResellerSettings, updateResellerSettings } from '../api/backend';
 
 const AdminSettings = () => {
   const { profile } = useAuth();
@@ -83,43 +83,25 @@ const AdminSettings = () => {
   const loadSettings = async () => {
     setLoading(true);
     try {
-      // Load default commission from API first
-      let apiCommissionRate = null;
-      const commissionResult = await getDefaultCommission();
-      console.log('📥 Commission result from API:', commissionResult);
-      console.log('📥 Type of commissionResult:', typeof commissionResult);
+      // Load all reseller settings from API
+      const resellerSettingsResult = await getResellerSettings();
+      console.log('📥 Reseller settings result from API:', resellerSettingsResult);
       
-      // Handle different response structures
-      if (commissionResult) {
-        console.log('🔍 Checking commissionResult structure:');
-        console.log('  - commissionResult.success:', commissionResult.success);
-        console.log('  - commissionResult.data:', commissionResult.data);
-        console.log('  - commissionResult.commissionRate:', commissionResult.commissionRate);
-        console.log('  - commissionResult.data?.commissionRate:', commissionResult.data?.commissionRate);
-        
-        // Structure 1: { success: true, data: { commissionRate: 11, ... } } - standard backend response
-        if (commissionResult.success && commissionResult.data && commissionResult.data.commissionRate !== undefined) {
-          apiCommissionRate = parseFloat(commissionResult.data.commissionRate);
-          console.log('✅ Extracted from structure 1 (success.data.commissionRate):', apiCommissionRate);
-        }
-        // Structure 2: { commissionRate: 11, ... } - direct data (if response.data is unwrapped somehow)
-        else if (commissionResult.commissionRate !== undefined) {
-          apiCommissionRate = parseFloat(commissionResult.commissionRate);
-          console.log('✅ Extracted from structure 2 (direct commissionRate):', apiCommissionRate);
-        }
-        // Structure 3: { success: true, commissionRate: 11, ... } - flattened response
-        else if (commissionResult.success && commissionResult.commissionRate !== undefined) {
-          apiCommissionRate = parseFloat(commissionResult.commissionRate);
-          console.log('✅ Extracted from structure 3 (success.commissionRate):', apiCommissionRate);
-        } else {
-          console.warn('⚠️ Could not extract commissionRate from any known structure');
-          console.warn('⚠️ Full commissionResult:', JSON.stringify(commissionResult, null, 2));
-        }
+      let resellerSettings = {};
+      if (resellerSettingsResult && resellerSettingsResult.success && resellerSettingsResult.data) {
+        resellerSettings = {
+          maxConsumersPerReseller: resellerSettingsResult.data.maxConsumersPerReseller || '',
+          defaultCommissionRate: resellerSettingsResult.data.defaultCommissionRate || '',
+          minInvoiceAmount: resellerSettingsResult.data.minInvoiceAmount || '',
+          requireResellerApproval: resellerSettingsResult.data.requireResellerApproval || false,
+          allowResellerPriceOverride: resellerSettingsResult.data.allowResellerPriceOverride !== undefined 
+            ? resellerSettingsResult.data.allowResellerPriceOverride 
+            : true
+        };
+        console.log('✅ Loaded reseller settings from API:', resellerSettings);
       } else {
-        console.warn('⚠️ commissionResult is null or undefined');
+        console.warn('⚠️ Could not load reseller settings from API, using defaults');
       }
-      
-      console.log('📊 Final apiCommissionRate:', apiCommissionRate);
 
       // Load from localStorage as fallback for other settings
       const savedSettings = localStorage.getItem('adminSettings');
@@ -132,24 +114,26 @@ const AdminSettings = () => {
         }
       }
 
-      // Remove defaultCommissionRate from localStorage if it exists (it's managed by API)
-      if (localStorageSettings.defaultCommissionRate !== undefined) {
-        delete localStorageSettings.defaultCommissionRate;
-        // Update localStorage without defaultCommissionRate
+      // Remove reseller settings from localStorage (they're managed by API)
+      const resellerSettingsKeys = ['maxConsumersPerReseller', 'defaultCommissionRate', 'minInvoiceAmount', 'requireResellerApproval', 'allowResellerPriceOverride'];
+      resellerSettingsKeys.forEach(key => {
+        if (localStorageSettings[key] !== undefined) {
+          delete localStorageSettings[key];
+        }
+      });
+      if (Object.keys(localStorageSettings).length !== JSON.parse(savedSettings || '{}').length) {
         localStorage.setItem('adminSettings', JSON.stringify(localStorageSettings));
       }
 
-      // Merge settings - always use API value for defaultCommissionRate
+      // Merge settings - always use API values for reseller settings
       setSettings(prev => {
         const newSettings = {
           ...prev,
           ...localStorageSettings,
-          // Always use API value for defaultCommissionRate (never from localStorage)
-          defaultCommissionRate: apiCommissionRate !== null && !isNaN(apiCommissionRate) ? apiCommissionRate : ''
+          ...resellerSettings
         };
         
-        console.log('🔄 Setting defaultCommissionRate to:', newSettings.defaultCommissionRate);
-        console.log('📋 Full newSettings:', newSettings);
+        console.log('🔄 Updated settings:', newSettings);
         return newSettings;
       });
     } catch (error) {
@@ -172,40 +156,56 @@ const AdminSettings = () => {
     setSaveStatus(null);
     
     try {
-      // Save default commission to API if on resellers tab
+      // Save all reseller settings to API if on resellers tab
       if (activeMainTab === 'general' && activeSubTab === 'resellers') {
-        const commissionValue = settings.defaultCommissionRate;
+        console.log('🔄 Saving reseller settings:', {
+          maxConsumersPerReseller: settings.maxConsumersPerReseller,
+          defaultCommissionRate: settings.defaultCommissionRate,
+          minInvoiceAmount: settings.minInvoiceAmount,
+          requireResellerApproval: settings.requireResellerApproval,
+          allowResellerPriceOverride: settings.allowResellerPriceOverride
+        });
         
-        // Only update if value is provided and valid
-        if (commissionValue !== null && commissionValue !== undefined && commissionValue !== '') {
-          console.log('🔄 Updating default commission:', commissionValue);
-          const commissionResult = await updateDefaultCommission(parseFloat(commissionValue));
-          console.log('📥 Commission update result:', commissionResult);
-          
-          // Check if result indicates success
-          if (commissionResult && commissionResult.success === true) {
-            toast.success(commissionResult.message || 'Default commission updated successfully!');
-            // Reload settings from API to get the latest value
+        const resellerSettingsToSave = {
+          maxConsumersPerReseller: settings.maxConsumersPerReseller || null,
+          defaultCommissionRate: settings.defaultCommissionRate || null,
+          minInvoiceAmount: settings.minInvoiceAmount || null,
+          requireResellerApproval: settings.requireResellerApproval || false,
+          allowResellerPriceOverride: settings.allowResellerPriceOverride !== undefined 
+            ? settings.allowResellerPriceOverride 
+            : true
+        };
+        
+        const result = await updateResellerSettings(resellerSettingsToSave);
+        console.log('📥 Reseller settings update result:', result);
+        
+        // Check if result indicates success
+        if (result && result.success === true) {
+          toast.success(result.message || 'Reseller settings updated successfully!');
+          // Reload settings from API to get the latest values
+          await loadSettings();
+        } else {
+          // If result doesn't have success: true, it might still be successful (check response structure)
+          if (result && !result.error) {
+            // No error field means it might be successful
+            toast.success('Reseller settings updated successfully!');
             await loadSettings();
           } else {
-            // If result doesn't have success: true, it might still be successful (check response structure)
-            if (commissionResult && !commissionResult.error) {
-              // No error field means it might be successful
-              toast.success('Default commission updated successfully!');
-              await loadSettings();
-            } else {
-              throw new Error(commissionResult?.error || commissionResult?.message || 'Failed to update default commission');
-            }
+            throw new Error(result?.error || result?.message || 'Failed to update reseller settings');
           }
         }
       }
 
-      // Save to localStorage for other settings (exclude defaultCommissionRate since it's managed by API)
-      const { defaultCommissionRate, ...settingsForLocalStorage } = settings;
+      // Save to localStorage for other settings (exclude reseller settings since they're managed by API)
+      const resellerSettingsKeys = ['maxConsumersPerReseller', 'defaultCommissionRate', 'minInvoiceAmount', 'requireResellerApproval', 'allowResellerPriceOverride'];
+      const settingsForLocalStorage = { ...settings };
+      resellerSettingsKeys.forEach(key => {
+        delete settingsForLocalStorage[key];
+      });
       localStorage.setItem('adminSettings', JSON.stringify(settingsForLocalStorage));
       
       setSaveStatus('success');
-      // Only show generic success toast if we didn't already show one for commission
+      // Only show generic success toast if we didn't already show one for reseller settings
       if (!(activeMainTab === 'general' && activeSubTab === 'resellers')) {
         toast.success('Settings saved successfully!');
       }

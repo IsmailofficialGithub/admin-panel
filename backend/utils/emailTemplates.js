@@ -141,8 +141,8 @@ export const AdminEmailTemplateUserCreated = ({
                         Having trouble with the button?<br/>Copy and paste this URL into your browser:
                       </p>
                       <p style="margin:10px 0 0 0;">
-                        <a href="${website_url}/consumer/payment?amount=${total}&invoice_id=${invoice_id}&user_id=${user_id}&invoice_number=${encodeURIComponent(invoice_number)}" style="color:#863793; text-decoration:none; font-size:13px; font-weight:600; word-break: break-all;">
-                          ${website_url}/consumer/payment?amount=${total}&invoice_id=${invoice_id}&user_id=${user_id}&invoice_number=${encodeURIComponent(invoice_number)}
+                        <a href="${website_url}/login" style="color:#863793; text-decoration:none; font-size:13px; font-weight:600; word-break: break-all;">
+                          ${website_url}/login
                         </a>
                       </p>
                     </td>
@@ -303,8 +303,8 @@ export const PasswordResetTemplate = ({
                         Having trouble with the button?<br/>Copy and paste this URL into your browser:
                       </p>
                       <p style="margin:10px 0 0 0;">
-                        <a href="${website_url}/consumer/payment?amount=${total}&invoice_id=${invoice_id}&user_id=${user_id}&invoice_number=${encodeURIComponent(invoice_number)}" style="color:#863793; text-decoration:none; font-size:13px; font-weight:600; word-break: break-all;">
-                          ${website_url}/consumer/payment?amount=${total}&invoice_id=${invoice_id}&user_id=${user_id}&invoice_number=${encodeURIComponent(invoice_number)}
+                        <a href="${website_url}/login" style="color:#863793; text-decoration:none; font-size:13px; font-weight:600; word-break: break-all;">
+                          ${website_url}/login
                         </a>
                       </p>
                     </td>
@@ -485,8 +485,8 @@ export const TrialPeriodChangeTemplate = ({
                         Having trouble with the button?<br/>Copy and paste this URL into your browser:
                       </p>
                       <p style="margin:10px 0 0 0;">
-                        <a href="${website_url}/consumer/payment?amount=${total}&invoice_id=${invoice_id}&user_id=${user_id}&invoice_number=${encodeURIComponent(invoice_number)}" style="color:#863793; text-decoration:none; font-size:13px; font-weight:600; word-break: break-all;">
-                          ${website_url}/consumer/payment?amount=${total}&invoice_id=${invoice_id}&user_id=${user_id}&invoice_number=${encodeURIComponent(invoice_number)}
+                        <a href="${website_url}/login" style="color:#863793; text-decoration:none; font-size:13px; font-weight:600; word-break: break-all;">
+                          ${website_url}/login
                         </a>
                       </p>
                     </td>

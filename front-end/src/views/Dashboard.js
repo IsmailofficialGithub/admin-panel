@@ -12,7 +12,15 @@ import {
   Package,
   TrendingDown,
   ArrowRight,
-  Eye
+  Eye,
+  Trophy,
+  Award,
+  Crown,
+  Gem,
+  Star,
+  Sparkles,
+  Medal,
+  Zap
 } from 'lucide-react';
 import { Container, Row, Col, Card } from 'react-bootstrap';
 import { useHistory } from 'react-router-dom';
@@ -276,16 +284,7 @@ const Dashboard = () => {
       </div>
 
       {/* Quick Actions */}
-      <div style={{ marginBottom: '32px' }}>
-        <h4 style={{
-          fontSize: '18px',
-          fontWeight: '600',
-          color: '#2c3e50',
-          margin: '0 0 16px 0'
-        }}>
-          Quick Actions
-        </h4>
-      </div>
+   
       <Row style={{ marginBottom: '32px' }}>
         <Col xs={12} sm={6} md={4} lg={3} style={{ marginBottom: '16px' }}>
           <QuickActionCard
@@ -446,10 +445,10 @@ const Dashboard = () => {
                 <Store size={20} />
                 <div>
                   <h5 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>
-                    Top Resellers (This Month)
+                    Leader Board (This Month)
                   </h5>
                   <p style={{ margin: '2px 0 0 0', fontSize: '11px', opacity: 0.9 }}>
-                    Top 10 by revenue • Click to view all
+                    Top 10 by commission • Click to view all
                   </p>
                 </div>
               </div>
@@ -481,33 +480,150 @@ const Dashboard = () => {
                   scrollbarWidth: 'thin',
                   scrollbarColor: '#74317e #f3f3f3'
                 }}>
-                  {resellerStats.slice(0, 10).map((reseller, index) => (
+                  {resellerStats.slice(0, 10).map((reseller, index) => {
+                    // Determine tier based on specific rank position
+                    let tier = null;
+                    let tierColor = '#6b7280';
+                    let tierBgColor = '#f9fafb';
+                    let tierBorderColor = '#e5e7eb';
+                    let TierIcon = null;
+                    const rank = index + 1;
+                    
+                    switch(rank) {
+                      case 1:
+                        // Rank 1: Conqueror
+                        tier = 'Conqueror';
+                        tierColor = '#dc2626';
+                        tierBgColor = '#fef2f2';
+                        tierBorderColor = '#fca5a5';
+                        TierIcon = Trophy;
+                        break;
+                      case 2:
+                        // Rank 2: Ace
+                        tier = 'Ace';
+                        tierColor = '#3b82f6';
+                        tierBgColor = '#eff6ff';
+                        tierBorderColor = '#93c5fd';
+                        TierIcon = Award;
+                        break;
+                      case 3:
+                        // Rank 3: Crown
+                        tier = 'Crown';
+                        tierColor = '#8b5cf6';
+                        tierBgColor = '#f5f3ff';
+                        tierBorderColor = '#c4b5fd';
+                        TierIcon = Crown;
+                        break;
+                      case 4:
+                        // Rank 4: Diamond
+                        tier = 'Diamond';
+                        tierColor = '#06b6d4';
+                        tierBgColor = '#ecfeff';
+                        tierBorderColor = '#67e8f9';
+                        TierIcon = Gem;
+                        break;
+                      case 5:
+                        // Rank 5: Platinum
+                        tier = 'Platinum';
+                        tierColor = '#e5e7eb';
+                        tierBgColor = '#f9fafb';
+                        tierBorderColor = '#d1d5db';
+                        TierIcon = Star;
+                        break;
+                      case 6:
+                        // Rank 6: Gold
+                        tier = 'Gold';
+                        tierColor = '#f59e0b';
+                        tierBgColor = '#fffbeb';
+                        tierBorderColor = '#fde047';
+                        TierIcon = Sparkles;
+                        break;
+                      case 7:
+                        // Rank 7: Silver
+                        tier = 'Silver';
+                        tierColor = '#9ca3af';
+                        tierBgColor = '#f3f4f6';
+                        tierBorderColor = '#d1d5db';
+                        TierIcon = Medal;
+                        break;
+                      case 8:
+                        // Rank 8: Bronze
+                        tier = 'Bronze';
+                        tierColor = '#d97706';
+                        tierBgColor = '#fffbeb';
+                        tierBorderColor = '#fbbf24';
+                        TierIcon = Zap;
+                        break;
+                      case 9:
+                        // Rank 9: Copper
+                        tier = 'Copper';
+                        tierColor = '#b45309';
+                        tierBgColor = '#fef3c7';
+                        tierBorderColor = '#fcd34d';
+                        TierIcon = Star;
+                        break;
+                      case 10:
+                        // Rank 10: Iron
+                        tier = 'Iron';
+                        tierColor = '#6b7280';
+                        tierBgColor = '#f9fafb';
+                        tierBorderColor = '#d1d5db';
+                        TierIcon = Medal;
+                        break;
+                      default:
+                        // Fallback
+                        tier = null;
+                        tierColor = '#6b7280';
+                        tierBgColor = '#f9fafb';
+                        tierBorderColor = '#e5e7eb';
+                        TierIcon = null;
+                        break;
+                    }
+                    
+                    return (
                     <div
                       key={reseller.reseller_id}
                       style={{
                         minWidth: '180px',
                         maxWidth: '200px',
                         padding: '10px 12px',
-                        backgroundColor: index === 0 ? '#fef3c7' : '#f9fafb',
+                        backgroundColor: tierBgColor,
                         borderRadius: '8px',
-                        border: index === 0 ? '2px solid #fbbf24' : '1px solid #e5e7eb',
+                        border: `2px solid ${tierBorderColor}`,
                         display: 'flex',
                         flexDirection: 'column',
                         justifyContent: 'space-between',
-                        position: 'relative'
+                        position: 'relative',
+                        boxShadow: `0 2px 8px ${tierBorderColor}40`
                       }}
                     >
                       <div style={{ marginBottom: '8px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            {index === 0 && <span style={{ fontSize: '14px' }}>🏆</span>}
+                            {tier && TierIcon && (
+                              <>
+                                <TierIcon 
+                                  size={14} 
+                                  style={{ color: tierColor }}
+                                />
+                                <span style={{ 
+                                  fontSize: '10px', 
+                                  fontWeight: '700', 
+                                  color: tierColor,
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.5px'
+                                }}>
+                                  {tier}
+                                </span>
+                              </>
+                            )}
                             <span style={{ 
                               fontSize: '10px', 
                               fontWeight: '600', 
                               color: '#6b7280',
                               textTransform: 'uppercase'
                             }}>
-                              #{index + 1}
+                              #{rank}
                             </span>
                           </div>
                           <button
@@ -559,7 +675,7 @@ const Dashboard = () => {
                         <div style={{ 
                           fontSize: '14px', 
                           fontWeight: '700', 
-                          color: '#74317e',
+                          color: tierColor,
                           marginBottom: '4px'
                         }}>
                           ${parseFloat(reseller.total_revenue || 0).toLocaleString('en-US', {
@@ -579,7 +695,8 @@ const Dashboard = () => {
                         </div>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </Card.Body>

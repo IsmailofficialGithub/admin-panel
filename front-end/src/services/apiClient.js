@@ -414,12 +414,23 @@ const apiClient = {
     /**
      * Get invoices for a specific consumer
      */
-    getConsumerInvoices: (consumerId) => axiosInstance.get(`/invoices/consumer/${consumerId}`),
+    getConsumerInvoices: (consumerId, params = {}) => {
+      const queryParams = new URLSearchParams();
+      if (params.page) queryParams.append('page', params.page);
+      if (params.limit) queryParams.append('limit', params.limit);
+      const queryString = queryParams.toString();
+      return axiosInstance.get(`/invoices/consumer/${consumerId}${queryString ? `?${queryString}` : ''}`);
+    },
 
     /**
      * Create invoice with invoice items
      */
     create: (invoiceData) => axiosInstance.post('/invoices', invoiceData),
+
+    /**
+     * Resend invoice email (admin only)
+     */
+    resend: (invoiceId) => axiosInstance.post(`/invoices/${invoiceId}/resend`),
   },
 
   // ==================== DASHBOARD ====================
@@ -459,6 +470,49 @@ const apiClient = {
      * Update default reseller commission
      */
     updateDefaultCommission: (commissionRate) => axiosInstance.put('/settings/default-commission', { commissionRate }),
+
+    /**
+     * Get all reseller settings
+     */
+    getResellerSettings: () => axiosInstance.get('/settings/reseller'),
+
+    /**
+     * Update all reseller settings
+     */
+    updateResellerSettings: (settings) => axiosInstance.put('/settings/reseller', settings),
+  },
+
+  // ==================== OFFERS ====================
+  offers: {
+    /**
+     * Get all offers with pagination and filters
+     */
+    getAll: (queryString = '') => axiosInstance.get(`/offers${queryString}`),
+
+    /**
+     * Get a single offer by ID
+     */
+    getById: (id) => axiosInstance.get(`/offers/${id}`),
+
+    /**
+     * Create a new offer
+     */
+    create: (offerData) => axiosInstance.post('/offers', offerData),
+
+    /**
+     * Update an offer
+     */
+    update: (id, offerData) => axiosInstance.put(`/offers/${id}`, offerData),
+
+    /**
+     * Delete an offer
+     */
+    delete: (id) => axiosInstance.delete(`/offers/${id}`),
+
+    /**
+     * Get active offer for a specific date (or current date)
+     */
+    getActiveOffer: (date) => axiosInstance.get(`/offers/active/${date || ''}`),
   },
 
   // ==================== RESELLER COMMISSION ====================

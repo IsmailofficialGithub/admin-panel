@@ -5,7 +5,8 @@ import {
   getAllInvoices,
   getMyInvoices,
   createInvoice,
-  getConsumerInvoices
+  getConsumerInvoices,
+  resendInvoice
 } from './controllers/invoices.controller.js';
 
 const router = express.Router();
@@ -81,6 +82,18 @@ router.post(
   authenticate,
   requireRole(['admin', 'reseller']),
   createInvoice
+);
+
+/**
+ * @route   POST /api/invoices/:id/resend
+ * @desc    Resend invoice email (admin only)
+ * @access  Private (Admin)
+ */
+router.post(
+  '/:id/resend',
+  authenticate,
+  requireRole(['admin']),
+  resendInvoice
 );
 
 export default router;

@@ -237,6 +237,13 @@ export const createReseller = async (req, res) => {
       });
     }
 
+    // Check if admin approval is required for new resellers
+    const { getResellerSettings } = await import('../../utils/resellerSettings.js');
+    const resellerSettings = await getResellerSettings();
+    
+    // If admin approval is required, set account_status to 'pending' instead of 'active'
+    const accountStatus = resellerSettings.requireResellerApproval ? 'pending' : 'active';
+
     // Get the user ID of who created this reseller (from token)
     const referred_by = req.user && req.user.id ? req.user.id : null;
 
@@ -279,7 +286,8 @@ export const createReseller = async (req, res) => {
       city: city || null,
       referred_by: referred_by || null,
       commission_rate: null, // Explicitly set to NULL to use default
-      commission_updated_at: null
+      commission_updated_at: null,
+      account_status: accountStatus // Set based on approval requirement
     };
 
     const { error: insertError } = await supabaseAdmin
@@ -686,6 +694,28 @@ export const createMyConsumer = async (req, res) => {
         error: 'Configuration Error',
         message: 'Admin client not configured'
       });
+    }
+
+    // Check max consumers per reseller limit
+    const { getResellerSettings } = await import('../../utils/resellerSettings.js');
+    const resellerSettings = await getResellerSettings();
+    
+    if (resellerSettings.maxConsumersPerReseller !== null && resellerSettings.maxConsumersPerReseller > 0) {
+      // Count current consumers for this reseller
+      const { count: currentConsumerCount, error: countError } = await supabaseAdmin
+        .from('profiles')
+        .select('*', { count: 'exact', head: true })
+        .eq('referred_by', resellerId)
+        .eq('role', 'consumer');
+
+      if (countError) {
+        console.error('Error counting consumers:', countError);
+      } else if (currentConsumerCount >= resellerSettings.maxConsumersPerReseller) {
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: `Maximum consumers limit reached. You can only have ${resellerSettings.maxConsumersPerReseller} consumer(s).`
+        });
+      }
     }
 
     // Create user with Supabase Admin
@@ -1152,10 +1182,10 @@ export const resetMyConsumerPassword = async (req, res) => {
       try {
         await sendPasswordResetEmail({
           email: authUser.user.email,
-          password: newPassword,
+          new_password: newPassword,
           full_name: consumer.full_name || 'User'
         });
-        console.log('✅ Password reset email sent');
+        console.log('✅ Password reset email sent with generated password');
       } catch (emailError) {
         console.error('Email sending error:', emailError);
       }
@@ -1211,8 +1241,9 @@ export const createConsumerAdmin = async (req, res) => {
     }
 
     // If referred_by is provided, verify the reseller exists (only if explicitly provided in body)
+    let isReferredByReseller = false;
     if (referred_by && referred_by !== req.user?.id) {
-      const { data: reseller, error: resellerError } = await supabase
+      const { data: reseller, error: resellerError } = await supabaseAdmin
         .from('profiles')
         .select('user_id, role')
         .eq('user_id', referred_by)
@@ -1224,6 +1255,31 @@ export const createConsumerAdmin = async (req, res) => {
           error: 'Bad Request',
           message: 'Invalid referred_by: Reseller not found'
         });
+      }
+      isReferredByReseller = true;
+    }
+
+    // Check max consumers per reseller limit if referred_by is a reseller
+    if (isReferredByReseller) {
+      const { getResellerSettings } = await import('../../utils/resellerSettings.js');
+      const resellerSettings = await getResellerSettings();
+      
+      if (resellerSettings.maxConsumersPerReseller !== null && resellerSettings.maxConsumersPerReseller > 0) {
+        // Count current consumers for this reseller
+        const { count: currentConsumerCount, error: countError } = await supabaseAdmin
+          .from('profiles')
+          .select('*', { count: 'exact', head: true })
+          .eq('referred_by', referred_by)
+          .eq('role', 'consumer');
+
+        if (countError) {
+          console.error('Error counting consumers:', countError);
+        } else if (currentConsumerCount >= resellerSettings.maxConsumersPerReseller) {
+          return res.status(403).json({
+            error: 'Forbidden',
+            message: `Maximum consumers limit reached for this reseller. The reseller can only have ${resellerSettings.maxConsumersPerReseller} consumer(s).`
+          });
+        }
       }
     }
 

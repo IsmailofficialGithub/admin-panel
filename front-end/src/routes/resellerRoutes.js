@@ -5,6 +5,8 @@ import ResellerConsumers from "views/ResellerConsumers.js";
 import ConsumerDetail from "views/ConsumerDetail.js";
 import ActivityLogDetail from "views/ActivityLogDetail.js";
 import Withdraw from "views/Withdraw.js";
+import ResellerOffers from "views/ResellerOffers.js";
+import EarningsBreakdown from "views/EarningsBreakdown.js";
 // Import other reseller views here as needed
 
 const resellerRoutes = [
@@ -42,10 +44,24 @@ const resellerRoutes = [
     layout: "/reseller"
   },
   {
+    path: "/offers",
+    name: "Offers",
+    icon: "nc-icon nc-tag-content",
+    component: ResellerOffers,
+    layout: "/reseller"
+  },
+  {
     path: "/withdraw",
     name: "Withdraw",
     icon: "nc-icon nc-money-coins",
     component: Withdraw,
+    layout: "/reseller"
+  },
+  {
+    path: "/earnings",
+    name: "Earnings Breakdown",
+    icon: "nc-icon nc-money-coins",
+    component: EarningsBreakdown,
     layout: "/reseller"
   },
   {

@@ -487,11 +487,19 @@ export const updateConsumerAccountStatus = async (req, res) => {
         updateData.trial_expiry = trial_expiry_date;
         console.log('📅 Setting trial_expiry to provided date:', trial_expiry_date);
       } else {
-        // Return error if no trial_expiry_date is provided for active status
-        return res.status(400).json({
-          error: 'Bad Request',
-          message: 'trial_expiry_date is required when setting status to active'
-        });
+        // If no trial_expiry_date provided, use existing trial_expiry or calculate default
+        if (consumer.trial_expiry) {
+          // Keep existing trial_expiry
+          console.log('📅 Keeping existing trial_expiry:', consumer.trial_expiry);
+          updateData.trial_expiry = consumer.trial_expiry;
+        } else {
+          // Calculate default trial expiry (7 days from creation)
+          const createdAt = new Date(consumer.created_at);
+          const defaultTrialExpiry = new Date(createdAt);
+          defaultTrialExpiry.setDate(defaultTrialExpiry.getDate() + 7);
+          updateData.trial_expiry = defaultTrialExpiry.toISOString();
+          console.log('📅 Setting default trial_expiry (7 days from creation):', updateData.trial_expiry);
+        }
       }
     } else if (account_status === 'deactive') {
       // Keep trial_expiry as is for deactive status

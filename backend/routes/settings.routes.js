@@ -2,7 +2,9 @@ import express from 'express';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import {
   getDefaultCommission,
-  updateDefaultCommission
+  updateDefaultCommission,
+  getResellerSettings,
+  updateResellerSettings
 } from './controllers/settings.controller.js';
 
 const router = express.Router();
@@ -20,6 +22,20 @@ router.get('/default-commission', authenticate, requireAdmin, getDefaultCommissi
  * @access  Private (Admin)
  */
 router.put('/default-commission', authenticate, requireAdmin, updateDefaultCommission);
+
+/**
+ * @route   GET /api/settings/reseller
+ * @desc    Get all reseller settings
+ * @access  Private (Admin)
+ */
+router.get('/reseller', authenticate, requireAdmin, getResellerSettings);
+
+/**
+ * @route   PUT /api/settings/reseller
+ * @desc    Update all reseller settings
+ * @access  Private (Admin)
+ */
+router.put('/reseller', authenticate, requireAdmin, updateResellerSettings);
 
 export default router;
 

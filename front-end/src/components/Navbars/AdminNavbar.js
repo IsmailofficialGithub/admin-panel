@@ -145,7 +145,7 @@ function Header() {
                 className="m-0"
                 href={getAccountPath()}
               >
-                <span className="no-icon">Account</span>
+                <span className="no-icon">Profile</span>
               </Nav.Link>
             </Nav.Item>
             {/* <Dropdown as={Nav.Item}>

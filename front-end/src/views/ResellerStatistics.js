@@ -337,6 +337,9 @@ const ResellerStatistics = () => {
                     <th style={{ padding: '12px 16px', fontWeight: '600', fontSize: '12px', color: '#6b7280', textTransform: 'uppercase', textAlign: 'right' }}>
                       Avg. Invoice Value
                     </th>
+                    <th style={{ padding: '12px 16px', fontWeight: '600', fontSize: '12px', color: '#6b7280', textTransform: 'uppercase', textAlign: 'center', width: '100px' }}>
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -398,6 +401,42 @@ const ResellerStatistics = () => {
                           <div style={{ fontSize: '14px', fontWeight: '500', color: '#6b7280' }}>
                             {formatCurrency(avgInvoiceValue)}
                           </div>
+                        </td>
+                        <td style={{ padding: '16px', verticalAlign: 'middle', textAlign: 'center' }}>
+                          <button
+                            onClick={() => history.push(`/admin/reseller/${reseller.reseller_id}/earnings`)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '4px',
+                              padding: '6px 12px',
+                              border: '1px solid #f59e0b',
+                              borderRadius: '6px',
+                              backgroundColor: '#fef3c7',
+                              color: '#f59e0b',
+                              fontSize: '12px',
+                              fontWeight: '500',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease',
+                              minWidth: '80px'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = '#f59e0b';
+                              e.currentTarget.style.color = 'white';
+                              e.currentTarget.style.borderColor = '#f59e0b';
+                              e.currentTarget.style.transform = 'translateX(2px)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = '#fef3c7';
+                              e.currentTarget.style.color = '#f59e0b';
+                              e.currentTarget.style.borderColor = '#f59e0b';
+                              e.currentTarget.style.transform = 'translateX(0)';
+                            }}
+                          >
+                            <TrendingUp size={14} />
+                            Earnings
+                          </button>
                         </td>
                       </tr>
                     );

@@ -374,6 +374,206 @@ export const setResellerCommission = async (req, res) => {
 };
 
 /**
+ * Get all reseller settings
+ * @route   GET /api/settings/reseller
+ * @access  Private (Admin)
+ */
+export const getResellerSettings = async (req, res) => {
+  try {
+    // Get all reseller-related settings
+    const settingKeys = [
+      'max_consumers_per_reseller',
+      'default_reseller_commission',
+      'min_invoice_amount',
+      'require_reseller_approval',
+      'allow_reseller_price_override'
+    ];
+
+    const { data: settings, error } = await supabaseAdmin
+      .from('app_settings')
+      .select('setting_key, setting_value, description, updated_at')
+      .in('setting_key', settingKeys);
+
+    if (error) {
+      console.error('Error fetching reseller settings:', error);
+      return res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to fetch reseller settings'
+      });
+    }
+
+    // Convert array to object with default values
+    const settingsMap = {};
+    settings.forEach(setting => {
+      settingsMap[setting.setting_key] = setting.setting_value;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        maxConsumersPerReseller: settingsMap['max_consumers_per_reseller'] || null,
+        defaultCommissionRate: settingsMap['default_reseller_commission'] ? parseFloat(settingsMap['default_reseller_commission']) : null,
+        minInvoiceAmount: settingsMap['min_invoice_amount'] ? parseFloat(settingsMap['min_invoice_amount']) : null,
+        requireResellerApproval: settingsMap['require_reseller_approval'] === 'true',
+        allowResellerPriceOverride: settingsMap['allow_reseller_price_override'] === 'true'
+      }
+    });
+  } catch (error) {
+    console.error('Error in getResellerSettings:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Update all reseller settings
+ * @route   PUT /api/settings/reseller
+ * @access  Private (Admin)
+ */
+export const updateResellerSettings = async (req, res) => {
+  try {
+    const {
+      maxConsumersPerReseller,
+      defaultCommissionRate,
+      minInvoiceAmount,
+      requireResellerApproval,
+      allowResellerPriceOverride
+    } = req.body;
+
+    const adminId = req.user?.id;
+    const settingsToUpdate = [];
+
+    // Validate and prepare settings for update
+    if (maxConsumersPerReseller !== undefined) {
+      const maxConsumers = maxConsumersPerReseller === '' || maxConsumersPerReseller === null 
+        ? null 
+        : parseInt(maxConsumersPerReseller);
+      if (maxConsumers !== null && (isNaN(maxConsumers) || maxConsumers < 0)) {
+        return res.status(400).json({
+          error: 'Bad Request',
+          message: 'Maximum consumers per reseller must be a positive number or empty'
+        });
+      }
+      settingsToUpdate.push({
+        setting_key: 'max_consumers_per_reseller',
+        setting_value: maxConsumers === null ? '' : maxConsumers.toString(),
+        description: 'Maximum number of consumers allowed per reseller (empty = unlimited)',
+        updated_at: new Date().toISOString(),
+        updated_by: adminId
+      });
+    }
+
+    if (defaultCommissionRate !== undefined && defaultCommissionRate !== null && defaultCommissionRate !== '') {
+      const rate = parseFloat(defaultCommissionRate);
+      if (isNaN(rate) || rate < 0 || rate > 100) {
+        return res.status(400).json({
+          error: 'Bad Request',
+          message: 'Default commission rate must be a number between 0 and 100'
+        });
+      }
+      settingsToUpdate.push({
+        setting_key: 'default_reseller_commission',
+        setting_value: rate.toFixed(2),
+        description: 'Default commission rate for resellers (percentage)',
+        updated_at: new Date().toISOString(),
+        updated_by: adminId
+      });
+    }
+
+    if (minInvoiceAmount !== undefined && minInvoiceAmount !== null && minInvoiceAmount !== '') {
+      const amount = parseFloat(minInvoiceAmount);
+      if (isNaN(amount) || amount < 0) {
+        return res.status(400).json({
+          error: 'Bad Request',
+          message: 'Minimum invoice amount must be a positive number'
+        });
+      }
+      settingsToUpdate.push({
+        setting_key: 'min_invoice_amount',
+        setting_value: amount.toFixed(2),
+        description: 'Minimum invoice amount allowed',
+        updated_at: new Date().toISOString(),
+        updated_by: adminId
+      });
+    }
+
+    if (requireResellerApproval !== undefined) {
+      settingsToUpdate.push({
+        setting_key: 'require_reseller_approval',
+        setting_value: requireResellerApproval ? 'true' : 'false',
+        description: 'Require admin approval for new resellers',
+        updated_at: new Date().toISOString(),
+        updated_by: adminId
+      });
+    }
+
+    if (allowResellerPriceOverride !== undefined) {
+      settingsToUpdate.push({
+        setting_key: 'allow_reseller_price_override',
+        setting_value: allowResellerPriceOverride ? 'true' : 'false',
+        description: 'Allow resellers to override product prices (must be equal or greater than original)',
+        updated_at: new Date().toISOString(),
+        updated_by: adminId
+      });
+    }
+
+    // Upsert all settings
+    const { data: updatedSettings, error: upsertError } = await supabaseAdmin
+      .from('app_settings')
+      .upsert(settingsToUpdate, {
+        onConflict: 'setting_key'
+      })
+      .select();
+
+    if (upsertError) {
+      console.error('Error updating reseller settings:', upsertError);
+      return res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to update reseller settings'
+      });
+    }
+
+    // Log activity
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: null,
+      actionType: 'update',
+      tableName: 'app_settings',
+      changedFields: {
+        settings: settingsToUpdate.map(s => ({
+          key: s.setting_key,
+          value: s.setting_value
+        }))
+      },
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    });
+
+    res.json({
+      success: true,
+      message: 'Reseller settings updated successfully',
+      data: {
+        maxConsumersPerReseller: maxConsumersPerReseller === '' || maxConsumersPerReseller === null ? null : parseInt(maxConsumersPerReseller),
+        defaultCommissionRate: defaultCommissionRate !== undefined && defaultCommissionRate !== null && defaultCommissionRate !== '' ? parseFloat(defaultCommissionRate) : null,
+        minInvoiceAmount: minInvoiceAmount !== undefined && minInvoiceAmount !== null && minInvoiceAmount !== '' ? parseFloat(minInvoiceAmount) : null,
+        requireResellerApproval: requireResellerApproval || false,
+        allowResellerPriceOverride: allowResellerPriceOverride || false
+      }
+    });
+  } catch (error) {
+    console.error('Error in updateResellerSettings:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
+  }
+};
+
+/**
  * Reset reseller commission to default
  * @route   DELETE /api/resellers/:id/commission
  * @access  Private (Admin)

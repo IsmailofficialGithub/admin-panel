@@ -96,10 +96,14 @@ export const createConsumer = async (consumerData) => {
       };
     }
     
-    return { error: 'Failed to create consumer' };
+    // Extract error message from response
+    const errorMessage = response.message || response.error || 'Failed to create consumer';
+    return { success: false, error: errorMessage };
   } catch (error) {
     console.error('createConsumer Error:', error);
-    return { error: error.message };
+    // Extract error message from various possible locations
+    const errorMessage = error.response?.data?.message || error.response?.data?.error || error.message || 'Failed to create consumer';
+    return { success: false, error: errorMessage };
   }
 };
 

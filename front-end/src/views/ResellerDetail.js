@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useHistory } from 'react-router-dom';
 import { Card, Table, Container, Row, Col, Button, Badge } from 'react-bootstrap';
 import { toast } from 'react-hot-toast';
-import { Edit2, Save, X, DollarSign, FileText, TrendingUp, Users } from 'lucide-react';
+import { Edit2, Save, X, DollarSign, FileText, TrendingUp, Users, Tag, Percent, ArrowRight } from 'lucide-react';
 import { getResellerById } from '../api/backend/resellers';
 import { getResellerCommission, setResellerCommission, resetResellerCommission } from '../api/backend';
 import apiClient from '../services/apiClient';
@@ -22,7 +22,10 @@ function ResellerDetail() {
     totalRevenue: 0,
     totalInvoices: 0,
     paidInvoices: 0,
-    unpaidInvoices: 0
+    unpaidInvoices: 0,
+    earningsFromOffers: 0,
+    earningsFromDefault: 0,
+    offerBreakdown: [] // Array of { offerName, amount, commissionPercent }
   });
   const [statsLoading, setStatsLoading] = useState(true);
 
@@ -37,7 +40,10 @@ function ResellerDetail() {
           totalRevenue: 0,
           totalInvoices: 0,
           paidInvoices: 0,
-          unpaidInvoices: 0
+          unpaidInvoices: 0,
+          earningsFromOffers: 0,
+          earningsFromDefault: 0,
+          offerBreakdown: []
         });
         setStatsLoading(false);
         return;
@@ -67,21 +73,61 @@ function ResellerDetail() {
       const invoiceArrays = await Promise.all(invoicePromises);
       const allInvoices = invoiceArrays.flat();
 
-      // Calculate statistics - only count invoices where this reseller is the sender
-      const resellerInvoices = allInvoices.filter(inv => 
-        inv.reseller_id === id || inv.sender_id === id
-      );
+      // Calculate statistics - get all invoices for consumers referred by this reseller
+      // These invoices may have been created by admin or reseller, but they're for this reseller's consumers
+      // We already filtered by consumerIds in the fetch, so all invoices are for referred consumers
+      const resellerInvoices = allInvoices;
 
       // Calculate statistics
       const paidInvoices = resellerInvoices.filter(inv => inv.status === 'paid');
       const unpaidInvoices = resellerInvoices.filter(inv => inv.status === 'unpaid');
-      const totalRevenue = paidInvoices.reduce((sum, inv) => sum + parseFloat(inv.total || 0), 0);
+      const totalRevenue = paidInvoices.reduce((sum, inv) => sum + parseFloat(inv.total_amount || inv.total || 0), 0);
+
+      // Calculate earnings breakdown
+      let earningsFromOffers = 0;
+      let earningsFromDefault = 0;
+      const offerBreakdownMap = new Map(); // Map<offerId, { offerName, totalAmount, commissionPercent }>
+
+      paidInvoices.forEach(inv => {
+        const invoiceAmount = parseFloat(inv.total_amount || inv.total || 0);
+        const commissionPercent = parseFloat(inv.reseller_commission_percentage || 0);
+        
+        if (commissionPercent > 0 && invoiceAmount > 0) {
+          const commissionAmount = (invoiceAmount * commissionPercent) / 100;
+
+          if (inv.applied_offer_id && inv.applied_offer) {
+            // This invoice used an offer
+            earningsFromOffers += commissionAmount;
+            
+            const offerId = inv.applied_offer_id;
+            const offerName = inv.applied_offer.name || `Offer ${offerId.substring(0, 8)}`;
+            
+            if (!offerBreakdownMap.has(offerId)) {
+              offerBreakdownMap.set(offerId, {
+                offerName,
+                totalAmount: 0,
+                commissionPercent: parseFloat(inv.applied_offer.commission_percentage || commissionPercent)
+              });
+            }
+            const offerData = offerBreakdownMap.get(offerId);
+            offerData.totalAmount += commissionAmount;
+          } else {
+            // This invoice used default commission
+            earningsFromDefault += commissionAmount;
+          }
+        }
+      });
+
+      const offerBreakdown = Array.from(offerBreakdownMap.values());
 
       setInvoiceStats({
         totalRevenue,
         totalInvoices: resellerInvoices.length,
         paidInvoices: paidInvoices.length,
-        unpaidInvoices: unpaidInvoices.length
+        unpaidInvoices: unpaidInvoices.length,
+        earningsFromOffers,
+        earningsFromDefault,
+        offerBreakdown
       });
     } catch (error) {
       console.error('Error fetching invoice stats:', error);
@@ -105,7 +151,10 @@ function ResellerDetail() {
         totalRevenue: 0,
         totalInvoices: 0,
         paidInvoices: 0,
-        unpaidInvoices: 0
+        unpaidInvoices: 0,
+        earningsFromOffers: 0,
+        earningsFromDefault: 0,
+        offerBreakdown: []
       });
       setStatsLoading(false);
     }
@@ -763,28 +812,69 @@ function ResellerDetail() {
                     </div>
                   </Col>
                   <Col md={3} style={{ marginBottom: '16px' }}>
-                    <div style={{
-                      padding: '20px',
-                      backgroundColor: '#fef3c7',
-                      borderRadius: '8px',
-                      border: '2px solid #f59e0b',
-                      textAlign: 'center'
-                    }}>
+                    <div 
+                      onClick={() => {
+                        if (invoiceStats.earningsFromOffers > 0 || invoiceStats.earningsFromDefault > 0) {
+                          history.push(`/admin/reseller/${id}/earnings`);
+                        }
+                      }}
+                      style={{
+                        padding: '20px',
+                        backgroundColor: '#fef3c7',
+                        borderRadius: '8px',
+                        border: '2px solid #f59e0b',
+                        textAlign: 'center',
+                        cursor: (invoiceStats.earningsFromOffers > 0 || invoiceStats.earningsFromDefault > 0) ? 'pointer' : 'default',
+                        transition: 'all 0.3s ease',
+                        position: 'relative'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (invoiceStats.earningsFromOffers > 0 || invoiceStats.earningsFromDefault > 0) {
+                          e.currentTarget.style.transform = 'translateY(-3px)';
+                          e.currentTarget.style.boxShadow = '0 4px 12px rgba(245, 158, 11, 0.2)';
+                          const arrow = e.currentTarget.querySelector('.earnings-arrow');
+                          if (arrow) {
+                            arrow.style.transform = 'translateX(3px)';
+                          }
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (invoiceStats.earningsFromOffers > 0 || invoiceStats.earningsFromDefault > 0) {
+                          e.currentTarget.style.transform = 'translateY(0)';
+                          e.currentTarget.style.boxShadow = 'none';
+                          const arrow = e.currentTarget.querySelector('.earnings-arrow');
+                          if (arrow) {
+                            arrow.style.transform = 'translateX(0)';
+                          }
+                        }
+                      }}
+                    >
                       <TrendingUp size={32} color="#f59e0b" style={{ marginBottom: '8px' }} />
-                      <div style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '4px' }}>
+                      <div style={{ 
+                        fontSize: '12px', 
+                        color: '#6c757d', 
+                        fontWeight: '600', 
+                        marginBottom: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px'
+                      }}>
                         RESELLER EARNINGS
-                        {commissionData && (
-                          <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '2px' }}>
-                            ({parseFloat(commissionData.commissionRate || 0).toFixed(2)}% commission)
-                          </div>
+                        {(invoiceStats.earningsFromOffers > 0 || invoiceStats.earningsFromDefault > 0) && (
+                          <ArrowRight 
+                            size={14} 
+                            className="earnings-arrow"
+                            style={{ 
+                              color: '#f59e0b', 
+                              transition: 'transform 0.3s ease',
+                              display: 'inline-block'
+                            }} 
+                          />
                         )}
                       </div>
                       <div style={{ fontSize: '24px', fontWeight: '700', color: '#f59e0b' }}>
-                        {commissionData && invoiceStats.totalRevenue > 0 ? (
-                          formatCurrency((invoiceStats.totalRevenue * parseFloat(commissionData.commissionRate || 0)) / 100)
-                        ) : (
-                          formatCurrency(0)
-                        )}
+                        {formatCurrency(invoiceStats.earningsFromOffers + invoiceStats.earningsFromDefault)}
                       </div>
                     </div>
                   </Col>

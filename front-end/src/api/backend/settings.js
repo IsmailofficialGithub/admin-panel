@@ -196,3 +196,64 @@ export const resetResellerCommission = async (resellerId) => {
   }
 };
 
+/**
+ * Get all reseller settings
+ * @returns {Promise<{success: boolean, data?: object, error?: string}>}
+ */
+export const getResellerSettings = async () => {
+  try {
+    const response = await apiClient.settings.getResellerSettings();
+    console.log('📥 Raw axios response from getResellerSettings:', response);
+    console.log('📥 Response.data:', response.data);
+    
+    if (response && response.data) {
+      return response.data;
+    }
+    return response;
+  } catch (error) {
+    console.error('❌ Error fetching reseller settings:', error);
+    console.error('❌ Error response:', error.response);
+    console.error('❌ Error response data:', error.response?.data);
+    
+    if (error.response && error.response.data && error.response.data.success) {
+      return error.response.data;
+    }
+    
+    return {
+      success: false,
+      error: error.response?.data?.message || error.response?.data?.error || error.message || 'Failed to fetch reseller settings'
+    };
+  }
+};
+
+/**
+ * Update all reseller settings
+ * @param {object} settings - Reseller settings object
+ * @returns {Promise<{success: boolean, message?: string, data?: object, error?: string}>}
+ */
+export const updateResellerSettings = async (settings) => {
+  try {
+    const response = await apiClient.settings.updateResellerSettings(settings);
+    console.log('📥 Raw axios response from updateResellerSettings:', response);
+    console.log('📥 Response.data:', response.data);
+    
+    if (response && response.data) {
+      return response.data;
+    }
+    return response;
+  } catch (error) {
+    console.error('❌ Error updating reseller settings:', error);
+    console.error('❌ Error response:', error.response);
+    console.error('❌ Error response data:', error.response?.data);
+    
+    if (error.response && error.response.data && error.response.data.success) {
+      return error.response.data;
+    }
+    
+    return {
+      success: false,
+      error: error.response?.data?.message || error.response?.data?.error || error.message || 'Failed to update reseller settings'
+    };
+  }
+};
+

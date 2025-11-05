@@ -10,15 +10,19 @@ import {
   Award,
   ShoppingCart,
   Activity,
-  Percent
+  Percent,
+  Tag,
+  ArrowRight
 } from 'lucide-react';
 import { Container, Row, Col, Card, Table, Badge } from 'react-bootstrap';
+import { useHistory } from 'react-router-dom';
 import apiClient from '../services/apiClient';
 import { getMyCommission } from '../api/backend';
 import { useAuth } from '../hooks/useAuth';
 
 const ResellerDashboard = () => {
   const { user } = useAuth();
+  const history = useHistory();
   const [stats, setStats] = useState({
     totalConsumers: 0,
     activeConsumers: 0,
@@ -34,6 +38,11 @@ const ResellerDashboard = () => {
   const [recentConsumers, setRecentConsumers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [commissionData, setCommissionData] = useState(null);
+  const [earningsBreakdown, setEarningsBreakdown] = useState({
+    earningsFromOffers: 0,
+    earningsFromDefault: 0,
+    offerBreakdown: []
+  });
 
   useEffect(() => {
     fetchDashboardData();
@@ -70,6 +79,9 @@ const ResellerDashboard = () => {
           commissionRate: commissionRate
         }));
       }
+      
+      // Store commission rate for use in invoice calculations
+      const defaultCommissionRate = commissionRate;
 
       // Fetch consumers count
       try {
@@ -146,11 +158,20 @@ const ResellerDashboard = () => {
         // Don't break the entire dashboard if consumers fail to load
       }
 
-      // Fetch invoices to calculate revenue
+      // Fetch invoices to calculate revenue (fetch all paid invoices)
       try {
-        const invoicesResponse = await apiClient.invoices.getMyInvoices('?status=paid');
+        // Fetch all paid invoices with a high limit to get all of them
+        const invoicesResponse = await apiClient.invoices.getMyInvoices('?status=paid&page=1&limit=9999');
+        console.log('📊 Invoices Response:', invoicesResponse);
+        
         if (invoicesResponse && invoicesResponse.data) {
           const invoices = invoicesResponse.data.data || invoicesResponse.data || [];
+          console.log('📊 Total paid invoices:', invoices.length);
+          console.log('📊 Sample invoice:', invoices[0]);
+          
+          // Get default commission rate (use the one parsed earlier)
+          // Note: defaultCommissionRate is defined in the outer scope
+          console.log('📊 Default commission rate:', defaultCommissionRate);
           
           // Calculate total revenue from paid invoices
           const totalRevenue = invoices.reduce((sum, inv) => {
@@ -169,9 +190,59 @@ const ResellerDashboard = () => {
               return sum + parseFloat(inv.total_amount || inv.total || 0);
             }, 0);
 
-          // Calculate commission earnings using the commission rate from stats (already set from API)
-          const commissionRate = stats.commissionRate || (commissionData ? parseFloat(commissionData.commissionRate || 0) : 0);
-          const commissionEarned = (totalRevenue * commissionRate) / 100;
+          // Calculate commission earnings breakdown (from offers vs default)
+          let earningsFromOffers = 0;
+          let earningsFromDefault = 0;
+          const offerBreakdownMap = new Map();
+
+          invoices.forEach(inv => {
+            const invoiceAmount = parseFloat(inv.total_amount || inv.total || 0);
+            // Use reseller_commission_percentage from invoice, or fall back to default commission rate
+            let commissionPercent = parseFloat(inv.reseller_commission_percentage || 0);
+            
+            // If commission percentage is 0 or null, use the default commission rate
+            if (commissionPercent === 0 || !inv.reseller_commission_percentage) {
+              commissionPercent = defaultCommissionRate;
+            }
+            
+            if (commissionPercent > 0 && invoiceAmount > 0) {
+              const commissionAmount = (invoiceAmount * commissionPercent) / 100;
+
+              if (inv.applied_offer_id && inv.applied_offer) {
+                // This invoice used an offer
+                earningsFromOffers += commissionAmount;
+                
+                const offerId = inv.applied_offer_id;
+                const offerName = inv.applied_offer.name || `Offer ${offerId.substring(0, 8)}`;
+                
+                if (!offerBreakdownMap.has(offerId)) {
+                  offerBreakdownMap.set(offerId, {
+                    offerName,
+                    totalAmount: 0,
+                    commissionPercent: parseFloat(inv.applied_offer.commission_percentage || commissionPercent)
+                  });
+                }
+                const offerData = offerBreakdownMap.get(offerId);
+                offerData.totalAmount += commissionAmount;
+              } else {
+                // This invoice used default commission
+                earningsFromDefault += commissionAmount;
+              }
+            }
+          });
+
+          console.log('📊 Earnings from offers:', earningsFromOffers);
+          console.log('📊 Earnings from default:', earningsFromDefault);
+          console.log('📊 Total earnings:', earningsFromOffers + earningsFromDefault);
+
+          const offerBreakdown = Array.from(offerBreakdownMap.values());
+          const commissionEarned = earningsFromOffers + earningsFromDefault;
+
+          setEarningsBreakdown({
+            earningsFromOffers,
+            earningsFromDefault,
+            offerBreakdown
+          });
 
           setStats(prev => ({
             ...prev,
@@ -192,23 +263,39 @@ const ResellerDashboard = () => {
     }
   };
 
-  const StatCard = ({ title, value, icon: Icon, color, subtitle, trend }) => (
+  const StatCard = ({ title, value, icon: Icon, color, subtitle, trend, onClick, showArrow }) => (
     <Card 
       style={{
         border: 'none',
         borderRadius: '12px',
         boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
         transition: 'all 0.3s ease',
-        cursor: 'pointer',
-        height: '100%'
+        cursor: onClick ? 'pointer' : 'default',
+        height: '100%',
+        position: 'relative'
       }}
+      onClick={onClick}
       onMouseEnter={(e) => {
-        e.currentTarget.style.transform = 'translateY(-5px)';
-        e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.12)';
+        if (onClick) {
+          e.currentTarget.style.transform = 'translateY(-5px)';
+          e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.12)';
+          // Animate arrow on hover
+          const arrow = e.currentTarget.querySelector('.earnings-arrow');
+          if (arrow) {
+            arrow.style.transform = 'translateX(4px)';
+          }
+        }
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.transform = 'translateY(0)';
-        e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.08)';
+        if (onClick) {
+          e.currentTarget.style.transform = 'translateY(0)';
+          e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.08)';
+          // Reset arrow on hover out
+          const arrow = e.currentTarget.querySelector('.earnings-arrow');
+          if (arrow) {
+            arrow.style.transform = 'translateX(0)';
+          }
+        }
       }}
     >
       <Card.Body style={{ padding: '24px' }}>
@@ -219,9 +306,23 @@ const ResellerDashboard = () => {
               fontSize: '14px',
               color: '#6c757d',
               fontWeight: '500',
-              marginBottom: '8px'
+              marginBottom: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
             }}>
               {title}
+              {showArrow && onClick && (
+                <ArrowRight 
+                  size={16} 
+                  style={{ 
+                    color: color, 
+                    transition: 'transform 0.3s ease',
+                    display: 'inline-block'
+                  }}
+                  className="earnings-arrow"
+                />
+              )}
             </p>
             <h2 style={{
               margin: 0,
@@ -372,9 +473,71 @@ const ResellerDashboard = () => {
             color="#10b981"
             subtitle={stats.commissionRate > 0 ? `(${stats.commissionRate.toFixed(2)}% commission)` : '(0.00% commission)'}
             trend={stats.totalRevenue > 0 ? `Total profit from referred consumers` : 'No revenue yet'}
+            onClick={() => history.push('/reseller/earnings')}
+            showArrow={true}
           />
         </Col>
       </Row>
+
+      {/* Earnings Breakdown Link */}
+      {!loading && (earningsBreakdown.earningsFromOffers > 0 || earningsBreakdown.earningsFromDefault > 0) && (
+        <Row style={{ marginBottom: '24px' }}>
+          <Col xs={12}>
+            <Card style={{
+              border: '1px solid #e5e7eb',
+              borderRadius: '12px',
+              boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+              cursor: 'pointer',
+              transition: 'all 0.3s ease'
+            }}
+            onClick={() => history.push('/reseller/earnings')}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.12)';
+              e.currentTarget.style.borderColor = '#10b981';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.08)';
+              e.currentTarget.style.borderColor = '#e5e7eb';
+            }}
+            >
+              <Card.Body style={{ padding: '24px' }}>
+                <div style={{ 
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <div>
+                    <div style={{ 
+                      fontSize: '18px', 
+                      fontWeight: '600', 
+                      color: '#111827',
+                      marginBottom: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}>
+                      <Percent size={20} color="#10b981" />
+                      Earnings Breakdown
+                    </div>
+                    <div style={{ fontSize: '14px', color: '#6b7280' }}>
+                      View detailed breakdown of earnings from offers and default commission
+                    </div>
+                  </div>
+                  <div style={{ 
+                    fontSize: '24px',
+                    color: '#10b981',
+                    fontWeight: '600'
+                  }}>
+                    →
+                  </div>
+                </div>
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
+      )}
 
       {/* Additional Statistics */}
       <Row style={{ marginBottom: '24px' }}>

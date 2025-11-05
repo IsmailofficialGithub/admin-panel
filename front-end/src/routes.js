@@ -11,6 +11,7 @@ import Notifications from "views/Notifications.js";
 import Upgrade from "views/Upgrade.js";
 import Resellers from "views/Resellers.js";
 import ResellerDetail from "views/ResellerDetail.js";
+import ResellerEarningsBreakdown from "views/ResellerEarningsBreakdown.js";
 import UserDetail from "views/UserDetail.js";
 import ConsumerDetail from "views/ConsumerDetail.js";
 import Account from "views/Account.js";
@@ -20,9 +21,17 @@ import ActivityLogs from "views/ActivityLogs.js";
 import ActivityLogDetail from "views/ActivityLogDetail.js";
 import ResellerStatistics from "views/ResellerStatistics.js";
 import AdminSettings from "views/AdminSettings.js";
+import Offers from "views/Offers.js";
 
 const dashboardRoutes = [
   // Hidden routes (not shown in sidebar)
+  // More specific routes must come first to prevent route conflicts
+  {
+    path: "/reseller/:id/earnings",
+    component: ResellerEarningsBreakdown,
+    layout: "/admin",
+    invisible: true // This prevents it from showing in sidebar
+  },
   {
     path: "/reseller/:id",
     component: ResellerDetail,
@@ -126,6 +135,13 @@ const dashboardRoutes = [
     name: "Invoices",
     icon: "nc-icon nc-single-copy-04",
     component: Invoices,
+    layout: "/admin"
+  },
+  {
+    path: "/offers",
+    name: "Offers",
+    icon: "nc-icon nc-tag-content",
+    component: Offers,
     layout: "/admin"
   },
   {

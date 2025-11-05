@@ -39,23 +39,47 @@ const Withdraw = () => {
         console.warn('⚠️ Withdraw - Commission result structure unexpected:', commissionResult);
       }
       
+      // Store default commission rate for fallback
+      const defaultCommissionRate = commissionRate;
+      
       if (commissionRate > 0) {
         setCommissionRate(commissionRate);
 
-        // Fetch paid invoices to calculate available balance
-        const invoicesResponse = await apiClient.invoices.getMyInvoices('?status=paid');
+        // Fetch all paid invoices to calculate available balance
+        const invoicesResponse = await apiClient.invoices.getMyInvoices('?status=paid&page=1&limit=9999');
+        console.log('📊 Withdraw - Invoices Response:', invoicesResponse);
+        
         if (invoicesResponse && invoicesResponse.data) {
           const invoices = invoicesResponse.data.data || invoicesResponse.data || [];
+          console.log('📊 Withdraw - Total paid invoices:', invoices.length);
           
           // Calculate total revenue from paid invoices
           const totalRevenue = invoices.reduce((sum, inv) => {
             return sum + parseFloat(inv.total_amount || inv.total || 0);
           }, 0);
 
-          // Calculate available balance (total revenue * commission rate)
-          const balance = (totalRevenue * commissionRate) / 100;
-          console.log('📊 Withdraw - Total Revenue:', totalRevenue, 'Commission Rate:', commissionRate, 'Balance:', balance);
-          setAvailableBalance(balance);
+          // Calculate available balance based on actual commission from each invoice
+          // (same logic as ResellerDashboard)
+          let totalEarnings = 0;
+          
+          invoices.forEach(inv => {
+            const invoiceAmount = parseFloat(inv.total_amount || inv.total || 0);
+            // Use reseller_commission_percentage from invoice, or fall back to default commission rate
+            let commissionPercent = parseFloat(inv.reseller_commission_percentage || 0);
+            
+            // If commission percentage is 0 or null, use the default commission rate
+            if (commissionPercent === 0 || !inv.reseller_commission_percentage) {
+              commissionPercent = defaultCommissionRate;
+            }
+            
+            if (commissionPercent > 0 && invoiceAmount > 0) {
+              const commissionAmount = (invoiceAmount * commissionPercent) / 100;
+              totalEarnings += commissionAmount;
+            }
+          });
+
+          console.log('📊 Withdraw - Total Revenue:', totalRevenue, 'Default Commission Rate:', defaultCommissionRate, 'Total Earnings:', totalEarnings);
+          setAvailableBalance(totalEarnings);
         }
       }
     } catch (error) {

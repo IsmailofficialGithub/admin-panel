@@ -475,6 +475,13 @@ export const createReseller = async (req, res) => {
       });
     }
 
+    // Check if admin approval is required for new resellers
+    const { getResellerSettings } = await import('../../utils/resellerSettings.js');
+    const resellerSettings = await getResellerSettings();
+    
+    // If admin approval is required, set account_status to 'pending' instead of 'active'
+    const accountStatus = resellerSettings.requireResellerApproval ? 'pending' : 'active';
+
     // The admin who is sending this request (as "referred_by")
     const referred_by = req.user && req.user.id ? req.user.id : null;
 
@@ -524,7 +531,8 @@ export const createReseller = async (req, res) => {
         phone: phone || null,
         country: country || null,
         city: city || null,
-        referred_by: referred_by || null
+        referred_by: referred_by || null,
+        account_status: accountStatus // Set based on approval requirement
       },
     ]);
 

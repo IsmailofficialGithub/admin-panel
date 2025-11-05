@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card } from 'react-bootstrap';
 import { useLocation } from 'react-router-dom';
-import { FileText, Download, Eye, Search, DollarSign, Calendar, User, Building, CheckCircle, XCircle, Clock, Loader, ChevronLeft, ChevronRight, Filter, X } from 'lucide-react';
+import { FileText, Download, Eye, Search, DollarSign, Calendar, User, Building, CheckCircle, XCircle, Clock, Loader, ChevronLeft, ChevronRight, Filter, X, Mail, Copy, Send, ArrowDown } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getAllInvoices, getMyInvoices } from '../api/backend';
 import { useAuth } from '../hooks/useAuth';
@@ -20,7 +20,7 @@ const Invoices = () => {
   const [searchInput, setSearchInput] = useState('');
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('unpaid');
   const [filterConsumer, setFilterConsumer] = useState('');
   const [filterConsumerId, setFilterConsumerId] = useState('');
   const [filterReseller, setFilterReseller] = useState('');
@@ -36,62 +36,128 @@ const Invoices = () => {
   const [showConsumerSuggestions, setShowConsumerSuggestions] = useState(false);
   const [showResellerSuggestions, setShowResellerSuggestions] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
+  const [consumerSearchTerm, setConsumerSearchTerm] = useState('');
+  const [resellerSearchTerm, setResellerSearchTerm] = useState('');
+  const [debouncedConsumerSearch, setDebouncedConsumerSearch] = useState('');
+  const [debouncedResellerSearch, setDebouncedResellerSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [resendInvoiceLoading, setResendInvoiceLoading] = useState(false);
+  const [resendInvoiceStatus, setResendInvoiceStatus] = useState(null); // 'success' | 'error' | null
+  const [arrowDirection, setArrowDirection] = useState({ x: 0, y: 0 }); // Random direction for arrow
   const invoicesPerPage = 20;
 
-  // Fetch consumers for resellers and admins
+  // Debounce consumer search - only trigger when 3+ characters
+  useEffect(() => {
+    const debounceTimer = setTimeout(() => {
+      if (consumerSearchTerm.trim().length >= 3) {
+        setDebouncedConsumerSearch(consumerSearchTerm.trim());
+      } else {
+        setDebouncedConsumerSearch('');
+        setConsumers([]);
+      }
+    }, 500);
+
+    return () => clearTimeout(debounceTimer);
+  }, [consumerSearchTerm]);
+
+  // Debounce reseller search - only trigger when 3+ characters
+  useEffect(() => {
+    const debounceTimer = setTimeout(() => {
+      if (resellerSearchTerm.trim().length >= 3) {
+        setDebouncedResellerSearch(resellerSearchTerm.trim());
+      } else {
+        setDebouncedResellerSearch('');
+        setResellers([]);
+      }
+    }, 500);
+
+    return () => clearTimeout(debounceTimer);
+  }, [resellerSearchTerm]);
+
+  // Fetch consumers from API when search term is 3+ characters
   useEffect(() => {
     const fetchConsumers = async () => {
-      if (userRole === 'reseller') {
-        setLoadingConsumers(true);
-        try {
+      if (!debouncedConsumerSearch || debouncedConsumerSearch.length < 3) {
+        setConsumers([]);
+        setShowConsumerSuggestions(false);
+        return;
+      }
+
+      setLoadingConsumers(true);
+      try {
+        if (userRole === 'reseller') {
+          // For resellers, fetch their consumers and filter client-side
           const result = await apiClient.resellers.getMyConsumers();
           if (result && result.success && result.data) {
-            setConsumers(result.data);
+            const filtered = result.data.filter(consumer => {
+              const searchLower = debouncedConsumerSearch.toLowerCase();
+              const name = (consumer.full_name || '').toLowerCase();
+              const email = (consumer.email || '').toLowerCase();
+              return name.includes(searchLower) || email.includes(searchLower);
+            });
+            setConsumers(filtered);
+            // Automatically show suggestions if results found
+            if (filtered.length > 0) {
+              setShowConsumerSuggestions(true);
+            }
           }
-        } catch (err) {
-          console.error('Error fetching consumers:', err);
-        } finally {
-          setLoadingConsumers(false);
-        }
-      } else if (userRole === 'admin') {
-        setLoadingConsumers(true);
-        try {
-          const result = await getConsumers({});
+        } else if (userRole === 'admin') {
+          // For admin, use API search
+          const result = await getConsumers({ search: debouncedConsumerSearch });
           if (result && !result.error && Array.isArray(result)) {
             setConsumers(result);
+            // Automatically show suggestions if results found
+            if (result.length > 0) {
+              setShowConsumerSuggestions(true);
+            }
           }
-        } catch (err) {
-          console.error('Error fetching consumers:', err);
-        } finally {
-          setLoadingConsumers(false);
         }
+      } catch (err) {
+        console.error('Error fetching consumers:', err);
+        setConsumers([]);
+        setShowConsumerSuggestions(false);
+      } finally {
+        setLoadingConsumers(false);
       }
     };
 
     fetchConsumers();
-  }, [userRole]);
+  }, [debouncedConsumerSearch, userRole]);
 
-  // Fetch resellers for admin
+  // Fetch resellers from API when search term is 3+ characters
   useEffect(() => {
     const fetchResellers = async () => {
-      if (userRole === 'admin') {
-        setLoadingResellers(true);
-        try {
-          const result = await getResellers({});
-          if (result && !result.error && Array.isArray(result)) {
-            setResellers(result);
-          }
-        } catch (err) {
-          console.error('Error fetching resellers:', err);
-        } finally {
-          setLoadingResellers(false);
+      if (userRole !== 'admin' || !debouncedResellerSearch || debouncedResellerSearch.length < 3) {
+        if (userRole !== 'admin') {
+          setResellers([]);
+        } else if (!debouncedResellerSearch || debouncedResellerSearch.length < 3) {
+          setResellers([]);
+          setShowResellerSuggestions(false);
         }
+        return;
+      }
+
+      setLoadingResellers(true);
+      try {
+        const result = await getResellers({ search: debouncedResellerSearch });
+        if (result && !result.error && Array.isArray(result)) {
+          setResellers(result);
+          // Automatically show suggestions if results found
+          if (result.length > 0) {
+            setShowResellerSuggestions(true);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching resellers:', err);
+        setResellers([]);
+        setShowResellerSuggestions(false);
+      } finally {
+        setLoadingResellers(false);
       }
     };
 
     fetchResellers();
-  }, [userRole]);
+  }, [debouncedResellerSearch, userRole]);
 
   // Fetch all invoices from backend (no search filter)
   useEffect(() => {
@@ -159,7 +225,9 @@ const Invoices = () => {
   const clearConsumerFilter = () => {
     setFilterConsumer('');
     setFilterConsumerId('');
+    setConsumerSearchTerm('');
     setShowConsumerSuggestions(false);
+    setConsumers([]);
   };
 
   // Handle reseller selection from suggestions
@@ -173,7 +241,9 @@ const Invoices = () => {
   const clearResellerFilter = () => {
     setFilterReseller('');
     setFilterResellerId('');
+    setResellerSearchTerm('');
     setShowResellerSuggestions(false);
+    setResellers([]);
   };
 
   // Clear all filters
@@ -186,28 +256,20 @@ const Invoices = () => {
     setFilterDateTo('');
     setFilterAmountMin('');
     setFilterAmountMax('');
-    setFilterStatus('all');
+    setFilterStatus('unpaid');
     setSearchInput('');
     setSearchQuery('');
+    setConsumerSearchTerm('');
+    setResellerSearchTerm('');
+    setConsumers([]);
+    setResellers([]);
   };
 
-  // Filter consumers based on search input
-  const filteredConsumerSuggestions = consumers.filter(consumer => {
-    if (!filterConsumer) return false;
-    const searchTerm = filterConsumer.toLowerCase();
-    const consumerName = (consumer.full_name || '').toLowerCase();
-    const consumerEmail = (consumer.email || '').toLowerCase();
-    return consumerName.includes(searchTerm) || consumerEmail.includes(searchTerm);
-  }).slice(0, 10); // Limit to 10 suggestions
+  // Filter consumers - show all from API (already filtered by search)
+  const filteredConsumerSuggestions = consumers.slice(0, 10); // Limit to 10 suggestions
 
-  // Filter resellers based on search input
-  const filteredResellerSuggestions = resellers.filter(reseller => {
-    if (!filterReseller) return false;
-    const searchTerm = filterReseller.toLowerCase();
-    const resellerName = (reseller.full_name || '').toLowerCase();
-    const resellerEmail = (reseller.email || '').toLowerCase();
-    return resellerName.includes(searchTerm) || resellerEmail.includes(searchTerm);
-  }).slice(0, 10); // Limit to 10 suggestions
+  // Filter resellers - show all from API (already filtered by search)
+  const filteredResellerSuggestions = resellers.slice(0, 10); // Limit to 10 suggestions
 
   // Client-side filtering for search and all filters
   const filteredInvoices = invoices.filter(invoice => {
@@ -339,6 +401,96 @@ const Invoices = () => {
     // In real implementation, download PDF
   };
 
+  const handleResendInvoice = async (invoice) => {
+    setResendInvoiceLoading(true);
+    setResendInvoiceStatus(null);
+    
+    try {
+      // Get invoice ID - handle different possible ID fields
+      const invoiceId = invoice.id || invoice.invoice_id || invoice.invoiceId;
+      console.log('Resending invoice with ID:', invoiceId, 'Invoice object:', invoice);
+      
+      if (!invoiceId) {
+        toast.error('Invoice ID not found');
+        setResendInvoiceLoading(false);
+        return;
+      }
+      
+      const result = await apiClient.invoices.resend(invoiceId);
+      
+      // Axios interceptor returns response.data directly, so result is already the response object
+      if (result && result.success) {
+        // Generate random direction for arrow animation (smaller distance to stay in button)
+        const angle = Math.random() * Math.PI * 2; // Random angle in radians
+        const distance = 30; // Small distance to stay within button area
+        const x = Math.cos(angle) * distance;
+        const y = Math.sin(angle) * distance;
+        setArrowDirection({ x, y });
+        
+        setResendInvoiceStatus('success');
+        toast.success(result.message || 'Invoice email resent successfully');
+        
+        // Reset status after animation completes
+        setTimeout(() => {
+          setResendInvoiceStatus(null);
+          setArrowDirection({ x: 0, y: 0 });
+        }, 2000);
+      } else {
+        setResendInvoiceStatus('error');
+        toast.error(result?.message || 'Failed to resend invoice email');
+        
+        // Reset status after animation
+        setTimeout(() => {
+          setResendInvoiceStatus(null);
+        }, 2000);
+      }
+    } catch (error) {
+      console.error('Error resending invoice:', error);
+      setResendInvoiceStatus('error');
+      toast.error(error?.message || error?.response?.data?.message || 'Failed to resend invoice email');
+      
+      // Reset status after animation
+      setTimeout(() => {
+        setResendInvoiceStatus(null);
+      }, 2000);
+    } finally {
+      setResendInvoiceLoading(false);
+    }
+  };
+
+  const handleCopyInvoiceLink = (invoice) => {
+    const baseUrl = window.location.origin;
+    
+    // Get invoice data
+    const invoiceId = invoice.id || '';
+    const amount = invoice.total || invoice.total_amount || 0;
+    const userId = invoice.receiver_id || invoice.consumer_id || invoice.receiver?.user_id || '';
+    const invoiceNumber = invoice.invoice_number || '';
+    
+    // Build payment link with query parameters
+    const params = new URLSearchParams({
+      amount: parseFloat(amount).toFixed(2),
+      invoice_id: invoiceId,
+      user_id: userId,
+      invoice_number: invoiceNumber
+    });
+    
+    const invoiceLink = `${baseUrl}/consumer/payment?${params.toString()}`;
+    
+    navigator.clipboard.writeText(invoiceLink).then(() => {
+      toast.success('Invoice payment link copied to clipboard');
+    }).catch(() => {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = invoiceLink;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      toast.success('Invoice payment link copied to clipboard');
+    });
+  };
+
   return (
     <Container fluid>
       <Row>
@@ -383,100 +535,189 @@ const Invoices = () => {
               {/* Search and Filter Row */}
               <div style={{ 
                 display: 'flex', 
-                gap: '12px',
-                flexWrap: 'wrap',
-                alignItems: 'center'
+                flexDirection: 'column',
+                gap: '12px'
               }}>
-                <div style={{ position: 'relative', flex: '1 1 300px', minWidth: '200px' }}>
-                  <Search size={18} style={{
-                    position: 'absolute',
-                    left: '12px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    color: '#9ca3af'
-                  }} />
-                  <input
-                    type="text"
-                    placeholder="Search invoices, consumers, emails..."
-                    value={searchInput}
-                    onChange={(e) => setSearchInput(e.target.value)}
+                <div style={{ 
+                  display: 'flex', 
+                  gap: '12px',
+                  flexWrap: 'wrap',
+                  alignItems: 'center'
+                }}>
+                  <div style={{ position: 'relative', flex: '1 1 300px', minWidth: '200px' }}>
+                    <Search size={18} style={{
+                      position: 'absolute',
+                      left: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: '#9ca3af'
+                    }} />
+                    <input
+                      type="text"
+                      placeholder="Search invoices, consumers, emails..."
+                      value={searchInput}
+                      onChange={(e) => setSearchInput(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px 10px 40px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        outline: 'none'
+                      }}
+                    />
+                  </div>
+                  <select
+                    value={filterStatus}
+                    onChange={(e) => setFilterStatus(e.target.value)}
                     style={{
-                      width: '100%',
-                      padding: '10px 12px 10px 40px',
+                      padding: '10px 14px',
                       border: '1px solid #d1d5db',
                       borderRadius: '8px',
                       fontSize: '14px',
-                      outline: 'none'
+                      outline: 'none',
+                      cursor: 'pointer',
+                      backgroundColor: 'white'
                     }}
-                  />
+                  >
+                    <option value="all">All Status</option>
+                    <option value="paid">Paid</option>
+                    <option value="unpaid">Unpaid</option>
+                    <option value="overdue">Overdue</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowFilterModal(true)}
+                    style={{
+                      padding: '10px 16px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      backgroundColor: (filterConsumerId || filterResellerId || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax) ? '#74317e' : 'white',
+                      color: (filterConsumerId || filterResellerId || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax) ? 'white' : '#374151',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontWeight: '500',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!(filterConsumerId || filterResellerId || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax)) {
+                        e.currentTarget.style.backgroundColor = '#f3f4f6';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!(filterConsumerId || filterResellerId || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax)) {
+                        e.currentTarget.style.backgroundColor = 'white';
+                      }
+                    }}
+                  >
+                    <Filter size={18} />
+                    Filters
+                    {(filterConsumerId || filterResellerId || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax) && (
+                      <span style={{
+                        backgroundColor: 'rgba(255,255,255,0.3)',
+                        borderRadius: '12px',
+                        padding: '2px 8px',
+                        fontSize: '12px',
+                        fontWeight: '600'
+                      }}>
+                        {[
+                          filterConsumerId && 1,
+                          filterResellerId && 1,
+                          filterDateFrom && 1,
+                          filterDateTo && 1,
+                          filterAmountMin && 1,
+                          filterAmountMax && 1
+                        ].filter(Boolean).length}
+                      </span>
+                    )}
+                  </button>
                 </div>
-                <select
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                  style={{
-                    padding: '10px 14px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    outline: 'none',
-                    cursor: 'pointer',
-                    backgroundColor: 'white'
-                  }}
-                >
-                  <option value="all">All Status</option>
-                  <option value="paid">Paid</option>
-                  <option value="unpaid">Unpaid</option>
-                  <option value="overdue">Overdue</option>
-                </select>
-                <button
-                  type="button"
-                  onClick={() => setShowFilterModal(true)}
-                  style={{
-                    padding: '10px 16px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    backgroundColor: (filterConsumerId || filterResellerId || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax) ? '#74317e' : 'white',
-                    color: (filterConsumerId || filterResellerId || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax) ? 'white' : '#374151',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontWeight: '500',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!(filterConsumerId || filterResellerId || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax)) {
-                      e.currentTarget.style.backgroundColor = '#f3f4f6';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!(filterConsumerId || filterResellerId || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax)) {
-                      e.currentTarget.style.backgroundColor = 'white';
-                    }
-                  }}
-                >
-                  <Filter size={18} />
-                  Filters
-                  {(filterConsumerId || filterResellerId || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax) && (
-                    <span style={{
-                      backgroundColor: 'rgba(255,255,255,0.3)',
-                      borderRadius: '12px',
-                      padding: '2px 8px',
-                      fontSize: '12px',
-                      fontWeight: '600'
-                    }}>
-                      {[
-                        filterConsumerId && 1,
-                        filterResellerId && 1,
-                        filterDateFrom && 1,
-                        filterDateTo && 1,
-                        filterAmountMin && 1,
-                        filterAmountMax && 1
-                      ].filter(Boolean).length}
-                    </span>
-                  )}
-                </button>
+                {/* Quick Filter Links */}
+                <div style={{ 
+                  display: 'flex', 
+                  gap: '12px',
+                  alignItems: 'center',
+                  flexWrap: 'wrap'
+                }}>
+                  <span
+                    onClick={() => setFilterStatus('paid')}
+                    style={{
+                      fontSize: '14px',
+                      color: '#3b82f6',
+                      cursor: 'pointer',
+                      textDecoration: filterStatus === 'paid' ? 'underline' : 'none',
+                      fontWeight: filterStatus === 'paid' ? '600' : '400',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.textDecoration = 'underline';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (filterStatus !== 'paid') {
+                        e.currentTarget.style.textDecoration = 'none';
+                      }
+                    }}
+                  >
+                    Paid
+                  </span>
+                  <div style={{ 
+                    width: '1px', 
+                    height: '16px', 
+                    backgroundColor: '#d1d5db',
+                    margin: '0 4px'
+                  }}></div>
+                  <span
+                    onClick={() => setFilterStatus('unpaid')}
+                    style={{
+                      fontSize: '14px',
+                      color: '#3b82f6',
+                      cursor: 'pointer',
+                      textDecoration: filterStatus === 'unpaid' ? 'underline' : 'none',
+                      fontWeight: filterStatus === 'unpaid' ? '600' : '400',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.textDecoration = 'underline';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (filterStatus !== 'unpaid') {
+                        e.currentTarget.style.textDecoration = 'none';
+                      }
+                    }}
+                  >
+                    Unpaid
+                  </span>
+                  <div style={{ 
+                    width: '1px', 
+                    height: '16px', 
+                    backgroundColor: '#d1d5db',
+                    margin: '0 4px'
+                  }}></div>
+                  <span
+                    onClick={() => setFilterStatus('all')}
+                    style={{
+                      fontSize: '14px',
+                      color: '#3b82f6',
+                      cursor: 'pointer',
+                      textDecoration: filterStatus === 'all' ? 'underline' : 'none',
+                      fontWeight: filterStatus === 'all' ? '600' : '400',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.textDecoration = 'underline';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (filterStatus !== 'all') {
+                        e.currentTarget.style.textDecoration = 'none';
+                      }
+                    }}
+                  >
+                    All
+                  </span>
+                </div>
               </div>
             </Card.Header>
 
@@ -1023,24 +1264,40 @@ const Invoices = () => {
                     }} />
                     <input
                       type="text"
-                      placeholder="Search consumer name or email..."
+                      placeholder="Type at least 3 characters to search..."
                       value={filterConsumer}
                       onChange={(e) => {
-                        setFilterConsumer(e.target.value);
-                        setShowConsumerSuggestions(e.target.value.length > 0);
-                        if (!e.target.value) {
+                        const value = e.target.value;
+                        setFilterConsumer(value);
+                        setConsumerSearchTerm(value);
+                        setShowConsumerSuggestions(value.length >= 3 && consumers.length > 0);
+                        if (!value) {
                           setFilterConsumerId('');
+                          setConsumerSearchTerm('');
                         }
                       }}
                       onFocus={() => {
-                        if (filterConsumer) {
-                          setShowConsumerSuggestions(true);
+                        if (filterConsumer.length >= 3) {
+                          if (consumers.length > 0) {
+                            setShowConsumerSuggestions(true);
+                          } else if (!loadingConsumers) {
+                            // If no consumers yet but search term is valid, show message
+                            setShowConsumerSuggestions(false);
+                          }
                         }
                       }}
-                      onBlur={() => {
-                        setTimeout(() => setShowConsumerSuggestions(false), 200);
+                      onBlur={(e) => {
+                        // Only hide suggestions if clicking outside the input and suggestion box
+                        const relatedTarget = e.relatedTarget;
+                        if (!relatedTarget || !relatedTarget.closest('.consumer-suggestions-container')) {
+                          setTimeout(() => setShowConsumerSuggestions(false), 200);
+                        }
                       }}
-                      disabled={loadingConsumers}
+                      onMouseDown={(e) => {
+                        // Prevent input from losing focus when clicking inside it
+                        e.preventDefault();
+                        e.currentTarget.focus();
+                      }}
                       style={{
                         width: '100%',
                         padding: '10px 12px 10px 36px',
@@ -1076,7 +1333,13 @@ const Invoices = () => {
                       </button>
                     )}
                     {showConsumerSuggestions && filteredConsumerSuggestions.length > 0 && (
-                      <div style={{
+                      <div 
+                        className="consumer-suggestions-container"
+                        onMouseDown={(e) => {
+                          // Prevent input from losing focus when clicking suggestions
+                          e.preventDefault();
+                        }}
+                        style={{
                         position: 'absolute',
                         top: '100%',
                         left: 0,
@@ -1113,6 +1376,250 @@ const Invoices = () => {
                         ))}
                       </div>
                     )}
+                    {filterConsumer && filterConsumer.length < 3 && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        marginTop: '4px',
+                        backgroundColor: 'white',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                        padding: '12px',
+                        fontSize: '14px',
+                        color: '#6b7280',
+                        zIndex: 1000
+                      }}>
+                        Type at least 3 characters to search...
+                      </div>
+                    )}
+                    {filterConsumer.length >= 3 && loadingConsumers && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        marginTop: '4px',
+                        backgroundColor: 'white',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                        padding: '12px',
+                        fontSize: '14px',
+                        color: '#6b7280',
+                        zIndex: 1000,
+                        textAlign: 'center'
+                      }}>
+                        Searching...
+                      </div>
+                    )}
+                    {filterConsumer.length >= 3 && !loadingConsumers && filteredConsumerSuggestions.length === 0 && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        marginTop: '4px',
+                        backgroundColor: 'white',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                        padding: '12px',
+                        fontSize: '14px',
+                        color: '#6b7280',
+                        zIndex: 1000
+                      }}>
+                        No consumers found matching "{filterConsumer}"
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Consumer Date Range Filter */}
+                  <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e5e7eb' }}>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '13px',
+                      fontWeight: '600',
+                      color: '#374151',
+                      marginBottom: '8px'
+                    }}>
+                      Consumer Invoice Date Range
+                    </label>
+                    <p style={{
+                      fontSize: '11px',
+                      color: '#6b7280',
+                      marginBottom: '12px',
+                      lineHeight: '1.4'
+                    }}>
+                      Filter invoices by date range for this consumer
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div>
+                        <label style={{
+                          display: 'block',
+                          fontSize: '12px',
+                          color: '#6b7280',
+                          marginBottom: '6px'
+                        }}>
+                          From Date
+                        </label>
+                        <input
+                          type="date"
+                          value={filterDateFrom}
+                          onChange={(e) => setFilterDateFrom(e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '6px',
+                            fontSize: '13px',
+                            outline: 'none'
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{
+                          display: 'block',
+                          fontSize: '12px',
+                          color: '#6b7280',
+                          marginBottom: '6px'
+                        }}>
+                          To Date
+                        </label>
+                        <input
+                          type="date"
+                          value={filterDateTo}
+                          onChange={(e) => setFilterDateTo(e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '6px',
+                            fontSize: '13px',
+                            outline: 'none'
+                          }}
+                        />
+                      </div>
+                    </div>
+                    {(filterDateFrom || filterDateTo) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFilterDateFrom('');
+                          setFilterDateTo('');
+                        }}
+                        style={{
+                          marginTop: '8px',
+                          padding: '6px 12px',
+                          fontSize: '12px',
+                          color: '#ef4444',
+                          background: 'none',
+                          border: '1px solid #ef4444',
+                          borderRadius: '6px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Clear Date Range
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Consumer Amount Range Filter */}
+                  <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e5e7eb' }}>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '13px',
+                      fontWeight: '600',
+                      color: '#374151',
+                      marginBottom: '8px'
+                    }}>
+                      Consumer Invoice Amount Range
+                    </label>
+                    <p style={{
+                      fontSize: '11px',
+                      color: '#6b7280',
+                      marginBottom: '12px',
+                      lineHeight: '1.4'
+                    }}>
+                      Filter invoices by amount range for this consumer
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div>
+                        <label style={{
+                          display: 'block',
+                          fontSize: '12px',
+                          color: '#6b7280',
+                          marginBottom: '6px'
+                        }}>
+                          Min Amount
+                        </label>
+                        <input
+                          type="number"
+                          placeholder="0.00"
+                          value={filterAmountMin}
+                          onChange={(e) => setFilterAmountMin(e.target.value)}
+                          min="0"
+                          step="0.01"
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '6px',
+                            fontSize: '13px',
+                            outline: 'none'
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{
+                          display: 'block',
+                          fontSize: '12px',
+                          color: '#6b7280',
+                          marginBottom: '6px'
+                        }}>
+                          Max Amount
+                        </label>
+                        <input
+                          type="number"
+                          placeholder="0.00"
+                          value={filterAmountMax}
+                          onChange={(e) => setFilterAmountMax(e.target.value)}
+                          min="0"
+                          step="0.01"
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '6px',
+                            fontSize: '13px',
+                            outline: 'none'
+                          }}
+                        />
+                      </div>
+                    </div>
+                    {(filterAmountMin || filterAmountMax) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFilterAmountMin('');
+                          setFilterAmountMax('');
+                        }}
+                        style={{
+                          marginTop: '8px',
+                          padding: '6px 12px',
+                          fontSize: '12px',
+                          color: '#ef4444',
+                          background: 'none',
+                          border: '1px solid #ef4444',
+                          borderRadius: '6px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Clear Amount Range
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -1141,24 +1648,40 @@ const Invoices = () => {
                     }} />
                     <input
                       type="text"
-                      placeholder="Search reseller name or email..."
+                      placeholder="Type at least 3 characters to search..."
                       value={filterReseller}
                       onChange={(e) => {
-                        setFilterReseller(e.target.value);
-                        setShowResellerSuggestions(e.target.value.length > 0);
-                        if (!e.target.value) {
+                        const value = e.target.value;
+                        setFilterReseller(value);
+                        setResellerSearchTerm(value);
+                        setShowResellerSuggestions(value.length >= 3 && resellers.length > 0);
+                        if (!value) {
                           setFilterResellerId('');
+                          setResellerSearchTerm('');
                         }
                       }}
                       onFocus={() => {
-                        if (filterReseller) {
-                          setShowResellerSuggestions(true);
+                        if (filterReseller.length >= 3) {
+                          if (resellers.length > 0) {
+                            setShowResellerSuggestions(true);
+                          } else if (!loadingResellers) {
+                            // If no resellers yet but search term is valid, show message
+                            setShowResellerSuggestions(false);
+                          }
                         }
                       }}
-                      onBlur={() => {
-                        setTimeout(() => setShowResellerSuggestions(false), 200);
+                      onBlur={(e) => {
+                        // Only hide suggestions if clicking outside the input and suggestion box
+                        const relatedTarget = e.relatedTarget;
+                        if (!relatedTarget || !relatedTarget.closest('.reseller-suggestions-container')) {
+                          setTimeout(() => setShowResellerSuggestions(false), 200);
+                        }
                       }}
-                      disabled={loadingResellers}
+                      onMouseDown={(e) => {
+                        // Prevent input from losing focus when clicking inside it
+                        e.preventDefault();
+                        e.currentTarget.focus();
+                      }}
                       style={{
                         width: '100%',
                         padding: '10px 12px 10px 36px',
@@ -1194,7 +1717,13 @@ const Invoices = () => {
                       </button>
                     )}
                     {showResellerSuggestions && filteredResellerSuggestions.length > 0 && (
-                      <div style={{
+                      <div 
+                        className="reseller-suggestions-container"
+                        onMouseDown={(e) => {
+                          // Prevent input from losing focus when clicking suggestions
+                          e.preventDefault();
+                        }}
+                        style={{
                         position: 'absolute',
                         top: '100%',
                         left: 0,
@@ -1229,6 +1758,64 @@ const Invoices = () => {
                             </div>
                           </div>
                         ))}
+                      </div>
+                    )}
+                    {filterReseller && filterReseller.length < 3 && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        marginTop: '4px',
+                        backgroundColor: 'white',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                        padding: '12px',
+                        fontSize: '14px',
+                        color: '#6b7280',
+                        zIndex: 1000
+                      }}>
+                        Type at least 3 characters to search...
+                      </div>
+                    )}
+                    {filterReseller.length >= 3 && loadingResellers && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        marginTop: '4px',
+                        backgroundColor: 'white',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                        padding: '12px',
+                        fontSize: '14px',
+                        color: '#6b7280',
+                        zIndex: 1000,
+                        textAlign: 'center'
+                      }}>
+                        Searching...
+                      </div>
+                    )}
+                    {filterReseller.length >= 3 && !loadingResellers && filteredResellerSuggestions.length === 0 && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        marginTop: '4px',
+                        backgroundColor: 'white',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                        padding: '12px',
+                        fontSize: '14px',
+                        color: '#6b7280',
+                        zIndex: 1000
+                      }}>
+                        No resellers found matching "{filterReseller}"
                       </div>
                     )}
                   </div>
@@ -1604,7 +2191,7 @@ const Invoices = () => {
               </div>
 
               {/* Actions */}
-              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                 <button
                   onClick={() => setShowInvoiceModal(false)}
                   style={{
@@ -1620,6 +2207,134 @@ const Invoices = () => {
                 >
                   Close
                 </button>
+                {userRole === 'admin' && (
+                  <>
+                    <button
+                      onClick={() => handleCopyInvoiceLink(selectedInvoice)}
+                      style={{
+                        padding: '10px 20px',
+                        backgroundColor: '#3b82f6',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                      }}
+                    >
+                      <Copy size={16} />
+                      Copy Link
+                    </button>
+                    <button
+                      data-resend-button
+                      onClick={() => handleResendInvoice(selectedInvoice)}
+                      disabled={resendInvoiceLoading}
+                      style={{
+                        padding: '10px 20px',
+                        backgroundColor: resendInvoiceStatus === 'success' ? '#10b981' : resendInvoiceStatus === 'error' ? '#ef4444' : '#10b981',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        cursor: resendInvoiceLoading ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        opacity: resendInvoiceLoading ? 0.7 : 1,
+                        transition: 'all 0.3s ease',
+                        position: 'relative',
+                        overflow: 'visible',
+                        minWidth: '160px',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      {resendInvoiceLoading ? (
+                        <>
+                          <Loader size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                          <span>Loading...</span>
+                        </>
+                      ) : resendInvoiceStatus === 'success' ? (
+                        <>
+                          <div style={{ position: 'relative', width: '16px', height: '16px' }}>
+                            <Send 
+                              size={16} 
+                              className="flying-arrow"
+                              style={{ 
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                ['--arrow-x']: `${arrowDirection.x}px`,
+                                ['--arrow-y']: `${arrowDirection.y}px`
+                              }}
+                            />
+                          </div>
+                          <span>Invoice Sent!</span>
+                        </>
+                      ) : resendInvoiceStatus === 'error' ? (
+                        <>
+                          <ArrowDown 
+                            size={16} 
+                            style={{ 
+                              animation: 'arrowDown 0.6s ease-out',
+                              transform: 'translateY(0)'
+                            }} 
+                          />
+                          <span>Failed</span>
+                        </>
+                      ) : (
+                        <>
+                          <Mail size={16} />
+                          <span>Resend Invoice</span>
+                        </>
+                      )}
+                      <style>{`
+                        @keyframes spin {
+                          from { transform: rotate(0deg); }
+                          to { transform: rotate(360deg); }
+                        }
+                        .flying-arrow {
+                          animation: flyAway 1.5s ease-out forwards !important;
+                        }
+                        @keyframes flyAway {
+                          0% {
+                            transform: translate(0, 0) scale(1) rotate(0deg);
+                            opacity: 1;
+                          }
+                          30% {
+                            transform: translate(calc(var(--arrow-x, 0) * 0.3), calc(var(--arrow-y, 0) * 0.3)) scale(2) rotate(45deg);
+                            opacity: 1;
+                          }
+                          70% {
+                            transform: translate(calc(var(--arrow-x, 0) * 0.7), calc(var(--arrow-y, 0) * 0.7)) scale(3.5) rotate(90deg);
+                            opacity: 0.6;
+                          }
+                          100% {
+                            transform: translate(var(--arrow-x, 0), var(--arrow-y, 0)) scale(5) rotate(180deg);
+                            opacity: 0;
+                          }
+                        }
+                        @keyframes arrowDown {
+                          0% {
+                            transform: translateY(-10px);
+                            opacity: 0;
+                          }
+                          50% {
+                            transform: translateY(5px);
+                            opacity: 1;
+                          }
+                          100% {
+                            transform: translateY(0);
+                            opacity: 1;
+                          }
+                        }
+                      `}</style>
+                    </button>
+                  </>
+                )}
                 {selectedInvoice.status !== 'paid' && (
                   <button
                     onClick={() => toast.success('Pay flow coming soon')}
@@ -1647,9 +2362,13 @@ const Invoices = () => {
                     borderRadius: '8px',
                     fontSize: '14px',
                     fontWeight: '500',
-                    cursor: 'pointer'
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
                   }}
                 >
+                  <Download size={16} />
                   Download PDF
                 </button>
               </div>

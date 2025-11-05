@@ -193,8 +193,11 @@ const ResellerConsumers = () => {
       // Call backend API to create consumer (as reseller)
       const result = await apiClient.resellers.createMyConsumer(consumerData);
       
+      // Check if result indicates failure (even if status is 200)
       if (!result.success) {
-        return { error: result.error || 'Failed to create consumer' };
+        // Extract error message from result
+        const errorMessage = result.message || result.error || 'Failed to create consumer';
+        return { error: errorMessage };
       }
       
       // Add new consumer to the local state matching backend structure
@@ -217,7 +220,10 @@ const ResellerConsumers = () => {
       return { success: true };
     } catch (err) {
       console.error('Error creating consumer:', err);
-      return { error: 'Failed to create consumer. Please try again.' };
+      // Axios interceptor throws Error with message extracted from API response
+      // So err.message should contain the actual API error message
+      const errorMessage = err.message || 'Failed to create consumer. Please try again.';
+      return { error: errorMessage };
     }
   };
 

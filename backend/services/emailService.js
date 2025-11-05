@@ -258,7 +258,8 @@ export default {
  */
 export const sendInvoiceCreatedEmail = async ({ email, full_name, invoice_number, invoice_id = '', user_id = '', issue_date, due_date, subtotal, tax_total, total, items = [], created_by_name = 'Admin', created_by_role = 'admin' }) => {
   try {
-    await transporter.verify();
+    // Removed transporter.verify() - it's slow (2-3 seconds) and not needed for each email
+    // Verification should be done once at server startup if needed
     const website_url = process.env.CLIENT_URL || "http://localhost:3000";
     const htmlContent = InvoiceCreatedTemplate({
       full_name,
