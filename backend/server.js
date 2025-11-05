@@ -58,8 +58,6 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime()
   });
-// TEST: Intentional syntax error - this will cause validation to fail
-const invalidSyntax = ; // Missing value - will crash server
 });
 
 // API Routes
