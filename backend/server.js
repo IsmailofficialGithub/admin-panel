@@ -15,6 +15,7 @@ import invoicesRoutes from './routes/invoices.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import activityLogsRoutes from './routes/activityLogs.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
+import offersRoutes from './routes/offers.routes.js';
 
 // Load environment variables
 dotenv.config();
@@ -57,6 +58,8 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime()
   });
+// TEST: Intentional syntax error - this will cause validation to fail
+const invalidSyntax = ; // Missing value - will crash server
 });
 
 // API Routes
@@ -69,6 +72,7 @@ app.use('/api/invoices', invoicesRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/activity-logs', activityLogsRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/offers', offersRoutes);
 
 // Debug: Log all registered routes
 console.log('✅ Invoice routes registered at /api/invoices');
