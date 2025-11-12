@@ -169,7 +169,7 @@ export const getResellerById = async (req, res) => {
     const { id } = req.params;
 
     const { data: reseller, error } = await supabase
-      .from('profiles')
+      .from('auth_role_with_profiles')
       .select('*')
       .eq('user_id', id)
       .eq('role', 'reseller')
@@ -602,7 +602,6 @@ export const getMyConsumers = async (req, res) => {
   try {
     const resellerId = req.user.id;
 
-    console.log('📋 Fetching consumers for reseller:', resellerId);
 
     const { data: consumers, error } = await supabase
       .from('auth_role_with_profiles')
@@ -1484,6 +1483,536 @@ export const updateResellerAccountStatus = async (req, res) => {
     });
   } catch (error) {
     console.error('Update reseller account status error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
+  }
+};
+
+
+
+/**
+ * Get all referred resellers (reseller can see their own, admin sees all)
+ * @route   GET /api/resellers/referred-resellers
+ * @access  Private (Reseller and Admin)
+ */
+export const getAllReferredResellers = async (req, res) => {
+  try {
+    const currentUserId = req.user.id;
+    const { data: currentUserProfile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('user_id', currentUserId)
+      .single();
+
+    const isAdmin = currentUserProfile?.role === 'admin';
+
+    // Build query
+    let query = supabase
+      .from('auth_role_with_profiles')
+      .select('*')
+      .eq('role', 'reseller');
+
+    // If reseller, only show their referred resellers
+    if (!isAdmin) {
+      query = query.eq('referred_by', currentUserId);
+    }
+
+    const { data: resellers, error } = await query.order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching referred resellers:', error);
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: error.message
+      });
+    }
+
+    res.json({
+      success: true,
+      count: resellers.length,
+      data: resellers
+    });
+  } catch (error) {
+    console.error('Get all referred resellers error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Get reseller's own resellers
+ * @route   GET /api/resellers/my-resellers
+ * @access  Private (Reseller)
+ */
+export const getMyResellers = async (req, res) => {
+  try {
+    const resellerId = req.user.id;
+    const { search } = req.query;
+
+    console.log('🔍 Fetching my resellers with:', { resellerId, search });
+
+    // 1️⃣ Build query: get sub-resellers referred by this reseller
+    let query = supabase
+      .from('auth_role_with_profiles')
+      .select('*')
+      .eq('role', 'reseller')
+      .eq('referred_by', resellerId);
+
+    // Optional search
+    if (search && search.trim() !== '') {
+      const searchTerm = search.trim();
+      query = query.or(`full_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
+      console.log('✅ Searching for:', searchTerm);
+    }
+
+    // Order by created_at
+    query = query.order('created_at', { ascending: false });
+
+    const { data: resellers, error } = await query;
+
+    if (error) {
+      console.error('❌ Error fetching my resellers:', error);
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: error.message
+      });
+    }
+
+    console.log(`✅ Found ${resellers.length} sub-resellers for reseller ${resellerId}`);
+
+    // 2️⃣ Get default commission
+    const { data: defaultSetting } = await supabaseAdmin
+      .from('app_settings')
+      .select('setting_value')
+      .eq('setting_key', 'default_reseller_commission')
+      .single();
+
+    const defaultCommission = defaultSetting ? parseFloat(defaultSetting.setting_value) : 10.00;
+
+    // 3️⃣ Get custom commission info for all found sub-resellers
+    const resellerIds = resellers.map(r => r.user_id);
+    const { data: profilesWithCommission } = await supabaseAdmin
+      .from('profiles')
+      .select('user_id, commission_rate, commission_updated_at')
+      .in('user_id', resellerIds);
+
+    const commissionMap = new Map();
+    if (profilesWithCommission) {
+      profilesWithCommission.forEach(profile => {
+        commissionMap.set(profile.user_id, {
+          commission_rate: profile.commission_rate,
+          commission_updated_at: profile.commission_updated_at
+        });
+      });
+    }
+
+    // 4️⃣ Build enriched reseller data
+    const resellerWithCounts = await Promise.all(
+      resellers.map(async (reseller) => {
+        // Count consumers referred by this sub-reseller
+        const { count, error: referredError } = await supabase
+          .from('auth_role_with_profiles')
+          .select('user_id', { count: 'exact', head: true })
+          .eq('referred_by', reseller.user_id)
+          .eq('role', 'consumer');
+
+        // Commission info
+        const commissionData = commissionMap.get(reseller.user_id);
+        const customCommission = commissionData?.commission_rate ? parseFloat(commissionData.commission_rate) : null;
+        const effectiveCommission = customCommission !== null ? customCommission : defaultCommission;
+        const commissionType = customCommission !== null ? 'custom' : 'default';
+
+        // Attach everything
+        return {
+          ...reseller,
+          referred_count: referredError ? 0 : (typeof count === 'number' ? count : 0),
+          commission_rate: effectiveCommission,
+          commission_type: commissionType,
+          custom_commission: customCommission,
+          default_commission: defaultCommission,
+          commission_updated_at: commissionData?.commission_updated_at || null
+        };
+      })
+    );
+
+    // 5️⃣ Response
+    res.json({
+      success: true,
+      count: resellerWithCounts.length,
+      data: resellerWithCounts,
+      search: search || ''
+    });
+
+  } catch (error) {
+    console.error('Get my resellers error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
+  }
+};
+
+
+/**
+ * Get reseller by ID (reseller can only see their own resellers)
+ * @route   GET /api/resellers/my-resellers/:id
+ * @access  Private (Reseller)
+ */
+export const getMyResellerById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const resellerId = req.user.id;
+
+    // Verify this reseller belongs to the current reseller
+    const { data: reseller, error: checkError } = await supabase
+      .from('auth_role_with_profiles')
+      .select('*')
+      .eq('user_id', id)
+      .eq('role', 'reseller')
+      .eq('referred_by', resellerId)
+      .single();
+
+    if (checkError || !reseller) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Reseller not found or you do not have permission to view it'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: reseller
+    });
+  } catch (error) {
+    console.error('Get my reseller error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Update reseller (reseller can only update their own resellers)
+ * @route   PUT /api/resellers/my-resellers/:id
+ * @access  Private (Reseller)
+ */
+export const updateMyReseller = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const resellerId = req.user.id;
+    const { full_name, phone, country, city } = req.body;
+
+    // Verify this reseller belongs to the current reseller
+    const { data: reseller, error: checkError } = await supabase
+      .from('profiles')
+      .select('referred_by, role')
+      .eq('user_id', id)
+      .eq('role', 'reseller')
+      .single();
+
+    if (checkError || !reseller) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Reseller not found'
+      });
+    }
+
+    if (reseller.referred_by !== resellerId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You can only update resellers you created'
+      });
+    }
+
+    // Validate required fields
+    if (!country || !city || !phone) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Country, city, and phone are required'
+      });
+    }
+
+    const updateData = {};
+    if (full_name !== undefined) updateData.full_name = full_name;
+    updateData.phone = phone;
+    updateData.country = country;
+    updateData.city = city;
+
+    // Get old data for logging
+    const { data: oldReseller } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', id)
+      .single();
+
+    const { data: updatedReseller, error } = await supabase
+      .from('profiles')
+      .update(updateData)
+      .eq('user_id', id)
+      .eq('role', 'reseller')
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: error.message
+      });
+    }
+
+    // Log activity
+    const changedFields = {};
+    Object.keys(updateData).forEach(key => {
+      if (oldReseller && oldReseller[key] !== updateData[key]) {
+        changedFields[key] = {
+          old: oldReseller[key],
+          new: updateData[key]
+        };
+      }
+    });
+
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: id,
+      actionType: 'update',
+      tableName: 'profiles',
+      changedFields: changedFields,
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    });
+
+    res.json({
+      success: true,
+      message: 'Reseller updated successfully',
+      data: updatedReseller
+    });
+  } catch (error) {
+    console.error('Update my reseller error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Create reseller (reseller can create other resellers)
+ * @route   POST /api/resellers/my-resellers
+ * @access  Private (Reseller)
+ */
+export const createMyReseller = async (req, res) => {
+  try {
+    const resellerId = req.user.id;
+    const { email, password, full_name, phone, country, city } = req.body;
+
+    // Validate input
+    if (!email || !password || !full_name || !country || !city) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'FullName, Email, password, country, city are required'
+      });
+    }
+
+    if (!supabaseAdmin) {
+      return res.status(500).json({
+        error: 'Configuration Error',
+        message: 'Admin client not configured'
+      });
+    }
+
+    // Check if admin approval is required for new resellers
+    const { getResellerSettings } = await import('../../utils/resellerSettings.js');
+    const resellerSettings = await getResellerSettings();
+    
+    // If admin approval is required, set account_status to 'pending' instead of 'active'
+    const accountStatus = resellerSettings.requireResellerApproval ? 'pending' : 'active';
+
+    // Create user with Supabase Admin
+    const createUserPayload = {
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: {
+        full_name: full_name || '',
+        country: country || '',
+        city: city || '',
+        role: 'reseller'
+      }
+    };
+
+    // Only include phone if it's defined
+    if (phone) {
+      createUserPayload.phone = phone;
+    }
+
+    const { data: newUser, error: createError } =
+      await supabaseAdmin.auth.admin.createUser(createUserPayload);
+
+    if (createError) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: createError.message
+      });
+    }
+
+    // Update user role in profiles table with referred_by set to reseller's ID
+    const profileData = {
+      user_id: newUser.user.id,
+      full_name,
+      role: 'reseller',
+      phone: phone || null,
+      country: country || null,
+      city: city || null,
+      referred_by: resellerId, // Set to current reseller
+      commission_rate: null,
+      commission_updated_at: null,
+      account_status: accountStatus
+    };
+
+    const { error: insertError } = await supabaseAdmin
+      .from('profiles')
+      .upsert([profileData]);
+
+    if (insertError) {
+      console.error('Error inserting profile:', insertError);
+      return res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'User created but profile insert failed'
+      });
+    }
+
+    // Send welcome email
+    try {
+      await sendWelcomeEmail({
+        email,
+        full_name,
+        password
+      });
+      console.log('✅ Welcome email sent to:', email);
+    } catch (emailError) {
+      console.error('❌ Email send error:', emailError);
+    }
+
+    // Log activity
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: newUser.user.id,
+      actionType: 'create',
+      tableName: 'profiles',
+      changedFields: profileData,
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    });
+
+    res.status(201).json({
+      success: true,
+      user: {
+        id: newUser.user.id,
+        email: newUser.user.email,
+        full_name,
+        role: 'reseller',
+        phone: phone || null,
+        country: country || null,
+        city: city || null,
+      }
+    });
+  } catch (error) {
+    console.error('Error creating reseller:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Internal server error'
+    });
+  }
+};
+
+/**
+ * Delete reseller (reseller can only delete their own resellers)
+ * @route   DELETE /api/resellers/my-resellers/:id
+ * @access  Private (Reseller)
+ */
+export const deleteMyReseller = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const resellerId = req.user.id;
+
+    // Verify this reseller belongs to the current reseller
+    const { data: reseller, error: checkError } = await supabase
+      .from('profiles')
+      .select('referred_by, role')
+      .eq('user_id', id)
+      .eq('role', 'reseller')
+      .single();
+
+    if (checkError || !reseller) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Reseller not found'
+      });
+    }
+
+    if (reseller.referred_by !== resellerId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You can only delete resellers you created'
+      });
+    }
+
+    // Get full reseller data before deletion for logging
+    const { data: fullReseller } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', id)
+      .single();
+
+    // Log activity BEFORE deletion
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: id,
+      actionType: 'delete',
+      tableName: 'profiles',
+      changedFields: fullReseller || reseller || null,
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    });
+
+    // Delete from profiles table
+    const { error: deleteProfileError } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('user_id', id);
+
+    if (deleteProfileError) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: deleteProfileError.message
+      });
+    }
+
+    // Delete from auth
+    if (supabaseAdmin) {
+      const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(id);
+      if (authError) {
+        console.error('Error deleting user from auth:', authError);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Reseller deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete my reseller error:', error);
     res.status(500).json({
       error: 'Internal Server Error',
       message: error.message

@@ -14,13 +14,20 @@ import {
   resetMyConsumerPassword,
   createConsumerAdmin,
   getReferredConsumers,
-  updateResellerAccountStatus
+  updateResellerAccountStatus,
+  getAllReferredResellers,
+  getMyResellers,
+  getMyResellerById,
+  createMyReseller,
+  updateMyReseller,
+  deleteMyReseller
 } from './controllers/resellers.controller.js';
 import {
   getMyCommission,
   getResellerCommission,
   setResellerCommission,
-  resetResellerCommission
+  resetResellerCommission,
+  
 } from './controllers/settings.controller.js';
 
 const router = express.Router();
@@ -93,6 +100,54 @@ router.post('/create-consumer', authenticate, requireAdmin, createConsumerAdmin)
  * RESELLER MANAGEMENT ROUTES
  * ==========================================
  */
+
+/**
+ * @route   GET /api/resellers/referred-resellers
+ * @desc    Get all referred resellers (reseller role and admin only)
+ * @access  Private (Reseller and Admin)
+ */
+router.get('/referred-resellers', authenticate, getAllReferredResellers);
+
+/**
+ * ==========================================
+ * RESELLER'S OWN RESELLERS MANAGEMENT ROUTES
+ * ==========================================
+ */
+
+/**
+ * @route   GET /api/resellers/my-resellers
+ * @desc    Get all resellers created by the logged-in reseller
+ * @access  Private (Reseller)
+ */
+router.get('/my-resellers', authenticate, requireRole(['reseller']), getMyResellers);
+
+/**
+ * @route   POST /api/resellers/my-resellers
+ * @desc    Create new reseller (reseller can create other resellers)
+ * @access  Private (Reseller)
+ */
+router.post('/my-resellers', authenticate, requireRole(['reseller']), createMyReseller);
+
+/**
+ * @route   GET /api/resellers/my-resellers/:id
+ * @desc    Get reseller by ID (reseller can only see their own resellers)
+ * @access  Private (Reseller)
+ */
+router.get('/my-resellers/:id', authenticate, requireRole(['reseller']), getMyResellerById);
+
+/**
+ * @route   PUT /api/resellers/my-resellers/:id
+ * @desc    Update reseller created by reseller
+ * @access  Private (Reseller)
+ */
+router.put('/my-resellers/:id', authenticate, requireRole(['reseller']), updateMyReseller);
+
+/**
+ * @route   DELETE /api/resellers/my-resellers/:id
+ * @desc    Delete reseller created by reseller
+ * @access  Private (Reseller)
+ */
+router.delete('/my-resellers/:id', authenticate, requireRole(['reseller']), deleteMyReseller);
 
 /**
  * @route   GET /api/resellers/:id/referred-consumers

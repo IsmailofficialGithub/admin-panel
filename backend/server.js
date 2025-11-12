@@ -16,6 +16,8 @@ import dashboardRoutes from './routes/dashboard.routes.js';
 import activityLogsRoutes from './routes/activityLogs.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import offersRoutes from './routes/offers.routes.js';
+import invitationsRoutes from './routes/invitations.routes.js';
+import stripeRoutes from './routes/stripe.routes.js';
 
 // Load environment variables
 dotenv.config();
@@ -71,9 +73,12 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/activity-logs', activityLogsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/offers', offersRoutes);
+app.use('/api/invitations', invitationsRoutes);
+app.use('/api/stripe', stripeRoutes);
 
 // Debug: Log all registered routes
 console.log('✅ Invoice routes registered at /api/invoices');
+console.log('✅ Stripe routes registered at /api/stripe');
 // 404 Handler
 app.use((req, res) => {
   res.status(404).json({

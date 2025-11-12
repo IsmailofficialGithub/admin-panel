@@ -6,7 +6,9 @@ import {
   TrialPeriodChangeTemplate,
   TrialExtensionTemplate,
   InvoiceCreatedTemplate,
+  InviteEmailTemplate,
 } from "../utils/emailTemplates.js";
+import { encryptPaymentData } from "../utils/encryption.js";
 
 dotenv.config();
 
@@ -238,12 +240,64 @@ export const sendTrialExtensionEmail = async ({
   }
 };
 
+/**
+ * Send invitation email to user
+ * @param {Object} params - Email parameters
+ * @param {string} params.email - Recipient email
+ * @param {string} params.role - User role (user, reseller, consumer)
+ * @param {string} params.invite_url - Invitation signup URL with token
+ * @param {string} params.inviter_name - Name of person who sent the invite
+ * @returns {Promise<Object>} Email send result
+ */
+export const sendInviteEmail = async ({
+  email,
+  role = 'user',
+  invite_url,
+  inviter_name = 'Admin',
+}) => {
+  try {
+    // Verify transporter is ready
+    await transporter.verify();
+
+    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+
+    const htmlContent = InviteEmailTemplate({
+      email,
+      role,
+      invite_url,
+      website_url,
+      inviter_name,
+    });
+
+    const mail = {
+      from: `"Duha Nashrah" <${process.env.AdminEmail}>`,
+      to: email,
+      subject: `You're Invited to Join as ${role.charAt(0).toUpperCase() + role.slice(1)}!`,
+      html: htmlContent,
+    };
+
+    console.log("📧 Sending invitation email to:", email);
+    await transporter.sendMail(mail);
+    console.log("✅ Invitation email sent successfully");
+
+    return {
+      success: true,
+      message: "Invitation email sent successfully",
+      email,
+    };
+  } catch (error) {
+    console.error("❌ Error sending invitation email:", error);
+    throw error;
+  }
+};
+
 export default {
   transporter,
   sendWelcomeEmail,
   sendPasswordResetEmail,
   sendTrialPeriodChangeEmail,
   sendTrialExtensionEmail,
+  sendInviteEmail,
   testEmailConfiguration,
 };
 
@@ -261,6 +315,23 @@ export const sendInvoiceCreatedEmail = async ({ email, full_name, invoice_number
     // Removed transporter.verify() - it's slow (2-3 seconds) and not needed for each email
     // Verification should be done once at server startup if needed
     const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+    
+    // Encrypt payment data for secure URL
+    let encryptedData = null;
+    if (invoice_id && user_id && invoice_number && total) {
+      try {
+        encryptedData = encryptPaymentData({
+          amount: typeof total === 'number' ? total.toFixed(2) : String(total),
+          invoice_id,
+          user_id,
+          invoice_number
+        });
+      } catch (encryptError) {
+        console.error('Error encrypting payment data:', encryptError);
+        // Continue without encryption if it fails
+      }
+    }
+    
     const htmlContent = InvoiceCreatedTemplate({
       full_name,
       invoice_number,
@@ -275,6 +346,7 @@ export const sendInvoiceCreatedEmail = async ({ email, full_name, invoice_number
       created_by_name,
       created_by_role,
       website_url,
+      encrypted_data: encryptedData, // Pass encrypted data to template
     });
     const mail = {
       from: `"Duha Nashrah" <${process.env.AdminEmail}>`,

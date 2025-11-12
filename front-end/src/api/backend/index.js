@@ -30,7 +30,12 @@ export {
   updateReseller,
   deleteReseller,
   resetResellerPassword,
-  updateResellerAccountStatus
+  updateResellerAccountStatus,
+  getMyResellers,
+  createMyReseller,
+  inviteReseller,
+  updateMyReseller,
+  deleteMyReseller
 } from './resellers';
 
 export {

@@ -370,6 +370,56 @@ const apiClient = {
      * Reset consumer password (as reseller)
      */
     resetMyConsumerPassword: (id) => axiosInstance.post(`/resellers/my-consumers/${id}/reset-password`),
+
+    // ========== RESELLER'S OWN RESELLERS ==========
+    
+    /**
+     * Get all resellers created by the logged-in reseller
+     */
+    getMyResellers: (queryString = '') => axiosInstance.get(`/resellers/my-resellers${queryString}`),
+
+    /**
+     * Create reseller (as reseller)
+     */
+    createMyReseller: (resellerData) => axiosInstance.post('/resellers/my-resellers', resellerData),
+
+    /**
+     * Get reseller by ID (as reseller)
+     */
+    getMyResellerById: (id) => axiosInstance.get(`/resellers/my-resellers/${id}`),
+
+    /**
+     * Update reseller (as reseller)
+     */
+    updateMyReseller: (id, resellerData) => axiosInstance.put(`/resellers/my-resellers/${id}`, resellerData),
+
+    /**
+     * Delete reseller (as reseller)
+     */
+    deleteMyReseller: (id) => axiosInstance.delete(`/resellers/my-resellers/${id}`),
+  },
+
+  // ==================== INVITATIONS ====================
+  invitations: {
+    /**
+     * Invite user/reseller/consumer (admin only)
+     */
+    invite: (inviteData) => axiosInstance.post('/invitations/invite', inviteData),
+
+    /**
+     * Invite reseller (reseller can invite other resellers)
+     */
+    inviteReseller: (email) => axiosInstance.post('/invitations/invite-reseller', { email }),
+
+    /**
+     * Validate invitation token
+     */
+    validateToken: (token) => axiosInstance.get(`/invitations/validate/${token}`),
+
+    /**
+     * Sign up using invitation token
+     */
+    signup: (signupData) => axiosInstance.post('/invitations/signup', signupData),
   },
 
   // ==================== PRODUCTS ====================
@@ -579,6 +629,19 @@ const apiClient = {
      * Reset reseller commission to default
      */
     resetCommission: (resellerId) => axiosInstance.delete(`/resellers/${resellerId}/commission`),
+  },
+
+  // ==================== STRIPE PAYMENTS ====================
+  stripe: {
+    /**
+     * Create payment intent
+     */
+    createPaymentIntent: (encryptedData) => axiosInstance.post('/stripe/create-payment-intent', { encryptedData }),
+
+    /**
+     * Confirm payment
+     */
+    confirmPayment: (paymentIntentId, encryptedData) => axiosInstance.post('/stripe/confirm-payment', { paymentIntentId, encryptedData }),
   },
 };
 

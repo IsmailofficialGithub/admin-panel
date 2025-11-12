@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useHistory } from 'react-router-dom';
+import { useParams, useHistory, useLocation } from 'react-router-dom';
 import { Card, Table, Container, Row, Col, Button, Badge } from 'react-bootstrap';
 import { toast } from 'react-hot-toast';
 import { Edit2, Save, X, DollarSign, FileText, TrendingUp, Users, Tag, Percent, ArrowRight } from 'lucide-react';
@@ -7,12 +7,14 @@ import { getResellerById } from '../api/backend/resellers';
 import { getResellerCommission, setResellerCommission, resetResellerCommission } from '../api/backend';
 import apiClient from '../services/apiClient';
 
-function ResellerDetail() {
+function ResellersResellerDetail() {
   const { id } = useParams();
   const history = useHistory();
+  const location = useLocation();
   const [reseller, setReseller] = useState(null);
   
-  // This component is only for admin view
+  // Check if this is a reseller viewing their own reseller (myreseller route)
+  const isResellerView = location.pathname.includes('/reseller/myreseller/');
   const [consumers, setConsumers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [consumersLoading, setConsumersLoading] = useState(true);
@@ -142,7 +144,7 @@ function ResellerDetail() {
     fetchResellerData();
     fetchReferredConsumers();
     fetchCommissionData();
-  }, [id]);
+  }, [id, isResellerView]);
 
   useEffect(() => {
     if (consumers.length > 0 && id) {
@@ -165,21 +167,76 @@ function ResellerDetail() {
   const fetchResellerData = async () => {
     setLoading(true);
     try {
-      // Admin viewing any reseller
-      const result = await getResellerById(id);
+      let result;
+      
+      // Use different API based on route
+      if (isResellerView) {
+        // Reseller viewing their own reseller
+        const response = await apiClient.resellers.getMyResellerById(id);
+        if (response && response.success) {
+          result = { data: response.data };
+        } else {
+          result = { error: response?.message || 'Failed to load reseller' };
+        }
+      } else {
+        // Admin viewing any reseller
+        result = await getResellerById(id);
+      }
       
       if (result && !result.error) {
         // Extract data from the response structure { success: true, data: {...} }
         const resellerData = result.data || result;
         setReseller(resellerData);
+        
+        // For reseller view, extract commission data from reseller object
+        if (isResellerView && resellerData) {
+          // The reseller data from auth_role_with_profiles should include commission_rate
+          // If commission_rate is null, it means default commission is used
+          const commissionRate = resellerData.commission_rate !== null && resellerData.commission_rate !== undefined 
+            ? resellerData.commission_rate 
+            : (resellerData.commissionRate !== null && resellerData.commissionRate !== undefined 
+              ? resellerData.commissionRate 
+              : null);
+          
+          // Determine commission type: custom if commission_rate is set, default otherwise
+          const commissionType = commissionRate !== null ? 'custom' : 'default';
+          
+          console.log('📊 Setting commission data from reseller object:', {
+            commissionRate,
+            commissionType,
+            resellerData: {
+              commission_rate: resellerData.commission_rate,
+              commissionRate: resellerData.commissionRate
+            }
+          });
+          
+          // For default commission, we might need to get it from settings, but for now
+          // we'll show "Default" and let the backend handle the actual rate calculation
+          const commissionDataToSet = {
+            commissionRate: commissionRate !== null ? parseFloat(commissionRate) : null,
+            commissionType: commissionType,
+            commissionUpdatedAt: resellerData.commission_updated_at || resellerData.commissionUpdatedAt || null
+          };
+          
+          setCommissionData(commissionDataToSet);
+          console.log('✅ Commission data set for reseller view:', commissionDataToSet);
+        }
       } else {
         toast.error('Failed to load reseller details');
-        history.push('/admin/resellers');
+        if (isResellerView) {
+          history.push('/reseller/myreseller');
+        } else {
+          history.push('/admin/resellers');
+        }
       }
     } catch (error) {
       console.error('Error fetching reseller:', error);
       toast.error('Error loading reseller details');
-      history.push('/admin/resellers');
+      if (isResellerView) {
+        history.push('/reseller/myreseller');
+      } else {
+        history.push('/admin/resellers');
+      }
     } finally {
       setLoading(false);
     }
@@ -188,6 +245,15 @@ function ResellerDetail() {
   const fetchReferredConsumers = async () => {
     setConsumersLoading(true);
     try {
+      // Only fetch referred consumers for admin view
+      // For reseller view, this endpoint is not available
+      if (isResellerView) {
+        // For reseller's reseller detail, we can skip this or use a different approach
+        setConsumers([]);
+        setConsumersLoading(false);
+        return;
+      }
+      
       const response = await apiClient.resellers.getReferredConsumers(id);
       if (response) {
         // Extract data from the response structure { success: true, count: X, data: [...] }
@@ -200,13 +266,23 @@ function ResellerDetail() {
       }
     } catch (error) {
       console.error('Error fetching referred consumers:', error);
-      toast.error('Failed to load consumers');
+      // Don't show error toast for reseller view
+      if (!isResellerView) {
+        toast.error('Failed to load consumers');
+      }
     } finally {
       setConsumersLoading(false);
     }
   };
 
   const fetchCommissionData = async () => {
+    // Skip fetching commission data for reseller view (admin-only endpoint)
+    // Commission data is already set from reseller object in fetchResellerData
+    if (isResellerView) {
+      console.log('⏭️ Skipping commission fetch for reseller view (already set from reseller data)');
+      return;
+    }
+    
     try {
       console.log('🔄 Fetching commission for reseller:', id);
       const result = await getResellerCommission(id);
@@ -235,7 +311,10 @@ function ResellerDetail() {
     } catch (error) {
       console.error('❌ Error fetching commission:', error);
       console.error('❌ Error details:', error.response?.data || error.message);
-      toast.error('Failed to load commission data');
+      // Only show error toast for admin view
+      if (!isResellerView) {
+        toast.error('Failed to load commission data');
+      }
     }
   };
 
@@ -443,7 +522,7 @@ function ResellerDetail() {
       <Container fluid>
         <div className="text-center mt-5">
           <h3>Reseller not found</h3>
-          <Button variant="primary" onClick={() => history.push('/admin/resellers')}>
+          <Button variant="primary" onClick={() => history.push(isResellerView ? '/reseller/myreseller' : '/admin/resellers')}>
             Back to Resellers
           </Button>
         </div>
@@ -457,7 +536,7 @@ function ResellerDetail() {
       <Row className="mb-4" style={{ marginTop: '20px' }}>
         <Col md="12">
           <button 
-            onClick={() => history.push('/admin/resellers')}
+            onClick={() => history.push(isResellerView ? '/reseller/myreseller' : '/admin/resellers')}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -733,8 +812,9 @@ function ResellerDetail() {
                             'Loading...'
                           )}
                         </div>
-                        <button
-                          onClick={handleEditCommission}
+                        {!isResellerView && (
+                          <button
+                            onClick={handleEditCommission}
                             disabled={!commissionData || commissionData.commissionRate === undefined}
                             style={{
                               padding: '4px 8px',
@@ -754,7 +834,8 @@ function ResellerDetail() {
                             <Edit2 size={12} />
                             Edit
                           </button>
-                        {commissionData && commissionData.commissionType === 'custom' && (
+                        )}
+                        {!isResellerView && commissionData && commissionData.commissionType === 'custom' && (
                           <button
                             onClick={handleResetCommission}
                             disabled={savingCommission}
@@ -1047,5 +1128,5 @@ function ResellerDetail() {
   );
 }
 
-export default ResellerDetail;
+export default ResellersResellerDetail;
 
