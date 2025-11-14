@@ -43,6 +43,11 @@ jobs:
           SUPABASE_URL: https://test.supabase.co
           SUPABASE_ANON_KEY: test-key
           SUPABASE_SERVICE_ROLE_KEY: test-key
+          # Stripe test key (required for server to start)
+          STRIPE_SECRET_KEY: sk_test_dummy_key_for_validation_only
+          # Other common environment variables
+          JWT_SECRET: test-jwt-secret-key-for-validation
+          SESSION_SECRET: test-session-secret-key
         run: |
           echo "Starting backend server for validation..."
           # Start server in background and capture output
