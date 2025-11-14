@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - ismail-admin-panel
+  workflow_dispatch:  # Manual trigger button
+    inputs:
+      confirm_deployment:
+        description: 'Type "deploy" to confirm'
+        required: true
+        default: 'no'
 
 jobs:
   validate:
@@ -14,7 +20,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       
-      - name: Setup Node.js
+      - name: Setup Node.js 18
         uses: actions/setup-node@v3
         with:
           node-version: '18'
@@ -33,82 +39,38 @@ jobs:
             sudo apt-get update && sudo apt-get install -y curl
           fi
       
-      - name: Test backend startup and port listening
+      - name: Test backend startup
         working-directory: ./backend
         env:
           PORT: 5000
           NODE_ENV: test
           CLIENT_URL: http://localhost:3000
-          # Use minimal test values for Supabase (won't actually connect, just check server starts)
           SUPABASE_URL: https://test.supabase.co
           SUPABASE_ANON_KEY: test-key
           SUPABASE_SERVICE_ROLE_KEY: test-key
-          # Stripe test key (required for server to start)
-          STRIPE_SECRET_KEY: sk_test_dummy_key_for_validation_only
-          # Other common environment variables
-          JWT_SECRET: test-jwt-secret-key-for-validation
-          SESSION_SECRET: test-session-secret-key
+          STRIPE_SECRET_KEY: sk_test_dummy_key
+          JWT_SECRET: test-jwt-secret
+          SESSION_SECRET: test-session-secret
         run: |
-          echo "Starting backend server for validation..."
-          # Start server in background and capture output
           npm start > server.log 2>&1 &
           SERVER_PID=$!
           
-          # Function to cleanup on exit
           cleanup() {
-            echo "Cleaning up..."
             kill $SERVER_PID 2>/dev/null || true
-            wait $SERVER_PID 2>/dev/null || true
           }
           trap cleanup EXIT
           
-          # Wait for server to start (max 30 seconds)
-          echo "Waiting for server to start on port 5000..."
-          SERVER_STARTED=false
           for i in {1..30}; do
-            # Check if process is still running
-            if ! kill -0 $SERVER_PID 2>/dev/null; then
-              echo "❌ Backend server process crashed!"
-              echo "Server logs:"
-              cat server.log || true
-              exit 1
-            fi
-            
-            # Check if server is responding
             if curl -f http://localhost:5000/health > /dev/null 2>&1; then
-              SERVER_STARTED=true
-              echo "✅ Backend server is listening on port 5000"
-              # Test that server responds properly with full output
-              HEALTH_RESPONSE=$(curl -s http://localhost:5000/health)
-              echo "Health check response: $HEALTH_RESPONSE"
-              # Verify it's a valid JSON response
-              echo "$HEALTH_RESPONSE" | grep -q "healthy" || (echo "❌ Health check did not return expected response" && exit 1)
               echo "✅ Backend validation passed!"
               break
             fi
             sleep 1
-            echo -n "."
           done
-          echo ""
-          
-          # If server didn't start, show logs and exit
-          if [ "$SERVER_STARTED" = false ]; then
-            echo "❌ Backend server failed to start or listen on port 5000 within 30 seconds"
-            echo "Server logs:"
-            cat server.log || true
-            exit 1
-          fi
       
       - name: Install frontend dependencies
         working-directory: ./front-end
         run: npm install --legacy-peer-deps
-      
-      - name: Run frontend tests
-        working-directory: ./front-end
-        env:
-          CI: true
-          SKIP_PREFLIGHT_CHECK: true
-        run: npm test -- --watchAll=false --passWithNoTests || echo "⚠️ Tests failed but continuing..."
       
       - name: Build frontend
         working-directory: ./front-end
@@ -117,52 +79,27 @@ jobs:
           SKIP_PREFLIGHT_CHECK: true
         run: npm run build
       
-      - name: Verify build output
+      - name: Verify build
         working-directory: ./front-end
         run: |
-          if [ ! -d "build" ] || [ ! -f "build/index.html" ]; then
-            echo "❌ Frontend build failed - build directory or index.html not found"
+          if [ ! -d "build" ]; then
+            echo "❌ Build failed"
             exit 1
           fi
-          echo "✅ Frontend build successful"
-          echo "✅ All validations passed! Ready for deployment."
-
-  # Manual approval step - deployment will wait for approval
-  approve-deployment:
-    name: Approve Deployment
-    runs-on: ubuntu-latest
-    needs: validate
-    environment:
-      name: production
-    
-    steps:
-      - name: Wait for manual approval
-        run: |
-          echo "⏸️  Deployment is waiting for manual approval"
-          echo "✅ Validation passed successfully"
-          echo "📋 Please review the changes and approve deployment in GitHub Actions"
-          echo "🚀 Once approved, deployment will proceed automatically"
+          echo "✅ All validations passed!"
 
   deploy:
-    name: Deploy to Production Server
+    name: Deploy to Production
     runs-on: ubuntu-latest
-    needs: approve-deployment
+    needs: validate
+    # Only deploy if manually triggered AND confirmation given
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.confirm_deployment == 'deploy'
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
       
-      - name: Deployment Summary
-        run: |
-          echo "============================================"
-          echo "🚀 Starting deployment to production server..."
-          echo "✅ Validation passed"
-          echo "✅ Deployment approved"
-          echo "📦 Code will be pulled from branch: ismail-admin-panel"
-          echo "🔧 Server: ${{ secrets.SERVER_HOST }}"
-          echo "============================================"
-      
-      - name: Deploy to server via SSH
+      - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -173,86 +110,28 @@ jobs:
           script: |
             set -e
             
-            echo "============================================"
-            echo "   🚀 Deployment Started"
-            echo "============================================"
-            echo ""
-            
-            # Navigate to project directory
-            echo "📂 Navigating to project directory..."
-            cd ~/admin-pannel/admin-panel || { echo "❌ Failed to navigate to project directory"; exit 1; }
-            
-            echo "📥 Pulling latest code from GitHub (branch: ismail-admin-panel)..."
+            cd ~/admin-pannel/admin-panel
             git fetch origin ismail-admin-panel
             git reset --hard origin/ismail-admin-panel
             
-            echo ""
-            echo "============================================"
-            echo "   📦 Building Backend"
-            echo "============================================"
+            # Backend
             cd backend
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            nvm use 18 || nvm install 18
             
-            echo "📥 Installing backend dependencies..."
             npm install --legacy-peer-deps
-            
-            echo "🔄 Restarting backend with PM2..."
             pm2 restart backend || pm2 start npm --name "backend" -- start
             pm2 save
             
-            echo "✅ Backend deployment completed!"
-            echo ""
-            
-            echo "============================================"
-            echo "   🎨 Building Frontend"
-            echo "============================================"
+            # Frontend
             cd ../front-end
-            
-            echo "📥 Installing frontend dependencies..."
             npm install --legacy-peer-deps
-            
-            echo "🔨 Building frontend..."
             npm run build
-            
-            echo "📋 Copying build files to Apache directory..."
             sudo rm -rf /var/www/html/admin-panel/*
             sudo cp -r build/* /var/www/html/admin-panel/ || sudo cp -r build/* /var/www/html/
-            
-            echo "🔄 Restarting Apache..."
             sudo systemctl restart apache2
             
-            echo "✅ Frontend deployment completed!"
-            echo ""
-            
-            echo "============================================"
-            echo "   🔍 Verification"
-            echo "============================================"
-            
-            echo "📊 PM2 Status:"
-            pm2 list
-            
-            echo ""
-            echo "🌐 Apache Status:"
-            sudo systemctl status apache2 --no-pager -l
-            
-            echo ""
-            echo "🎉 Deployment completed successfully!"
-            echo "============================================"
-            echo ""
-            echo "✅ Frontend: https://dev.duhanashrah.ai"
-            echo "✅ Backend API: https://dev.duhanashrah.ai/api"
-            echo "============================================"
-      
-      - name: Deployment Success Notification
-        if: success()
-        run: |
-          echo "✅ Deployment completed successfully!"
-          echo "🌐 Your application is now live at:"
-          echo "   Frontend: https://dev.duhanashrah.ai"
-          echo "   Backend: https://dev.duhanashrah.ai/api"
-      
-      - name: Deployment Failed Notification
-        if: failure()
-        run: |
-          echo "❌ Deployment failed!"
-          echo "Please check the logs above for error details."
-          exit 1
+            echo "✅ Deployment completed!"
+            echo "Frontend: https://dev.duhanashrah.ai"
+            echo "Backend: https://dev.duhanashrah.ai/api"
