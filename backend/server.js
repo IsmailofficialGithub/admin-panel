@@ -36,7 +36,7 @@ const limiter = rateLimit({
 // Middleware
 app.use(helmet()); // Security headers
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: process.env.CLIENT_URL ,
   credentials: true
 }));
 app.use(express.json()); // Parse JSON bodies
