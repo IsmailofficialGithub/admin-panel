@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import { useHistory } from 'react-router-dom'
+import { useHistory, useLocation } from 'react-router-dom'
 import { createClient } from '../lib/supabase/Production/client'
 import toast from 'react-hot-toast'
 
@@ -19,9 +19,18 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true) // Start as true to wait for auth check
   const [supabase] = useState(() => createClient())
   const history = useHistory()
+  const location = useLocation()
+  
+  // Check if current path is the payment page (public route)
+  const isPaymentPage = location.pathname === '/payment'
 
   // Check if user has a valid role and active account
   const checkValidRole = async (userId) => {
+    // Skip role checks on payment page - it's a public route
+    if (isPaymentPage) {
+      return true
+    }
+    
     try {
       const { data: profileData } = await supabase
         .from('profiles')
@@ -112,6 +121,13 @@ export const AuthProvider = ({ children }) => {
     const initAuth = async () => {
       try {
         setLoading(true)
+        
+        // Skip all auth checks on payment page - it's a public route
+        if (isPaymentPage) {
+          setLoading(false)
+          return
+        }
+        
         const { data: { session } } = await supabase.auth.getSession()
 
         if (session?.user) {
@@ -211,7 +227,7 @@ export const AuthProvider = ({ children }) => {
     // })
 
     // return () => subscription.unsubscribe()
-  }, [supabase])
+  }, [supabase, isPaymentPage])
 
   const signOut = async () => {
     try {
