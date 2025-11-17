@@ -53,7 +53,6 @@ export const createPaymentIntent = async (req, res) => {
       .eq('id', invoice_id)
       .single();
 
-    console.log('invoice', invoice);
 
     if (invoiceError || !invoice) {
       return res.status(404).json({

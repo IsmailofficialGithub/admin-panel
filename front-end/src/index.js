@@ -51,7 +51,7 @@ root.render(
       />
       <Switch>
         <Route path="/login" component={Login} />
-        <Route path="/consumer/payment" component={Payment} />
+        <Route exact path="/payment" component={Payment} />
         <ProtectedRoute path="/admin" component={AdminLayout} allowedRoles={['admin']} />
         <ProtectedRoute path="/reseller" component={ResellerLayout} allowedRoles={['reseller']} />
         <ProtectedRoute path="/consumer" component={ConsumerLayout} allowedRoles={['consumer']} />

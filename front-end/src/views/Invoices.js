@@ -502,7 +502,7 @@ const Invoices = () => {
       invoice_number: invoiceNumber
     });
     
-    const invoiceLink = `${baseUrl}/consumer/payment?${params.toString()}`;
+    const invoiceLink = `${baseUrl}/payment?${params.toString()}`;
     
     // Check if clipboard API is available (requires HTTPS or localhost)
     if (navigator.clipboard && navigator.clipboard.writeText) {

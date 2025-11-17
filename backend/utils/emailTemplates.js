@@ -894,8 +894,8 @@ export const InvoiceCreatedTemplate = ({
 } = {}) => {
   // Generate payment URL - use encrypted data if available, otherwise fallback to plain params
   const paymentUrl = encrypted_data 
-    ? `${website_url}/consumer/payment?data=${encodeURIComponent(encrypted_data)}`
-    : `${website_url}/consumer/payment?amount=${total}&invoice_id=${invoice_id}&user_id=${user_id}&invoice_number=${encodeURIComponent(invoice_number)}`;
+    ? `${website_url}/payment?data=${encodeURIComponent(encrypted_data)}`
+    : `${website_url}/payment?amount=${total}&invoice_id=${invoice_id}&user_id=${user_id}&invoice_number=${encodeURIComponent(invoice_number)}`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
