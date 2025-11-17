@@ -316,20 +316,22 @@ export const sendInvoiceCreatedEmail = async ({ email, full_name, invoice_number
     // Verification should be done once at server startup if needed
     const website_url = process.env.CLIENT_URL || "http://localhost:3000";
     
-    // Encrypt payment data for secure URL
-    let encryptedData = null;
-    if (invoice_id && user_id && invoice_number && total) {
-      try {
-        encryptedData = encryptPaymentData({
-          amount: typeof total === 'number' ? total.toFixed(2) : String(total),
-          invoice_id,
-          user_id,
-          invoice_number
-        });
-      } catch (encryptError) {
-        console.error('Error encrypting payment data:', encryptError);
-        // Continue without encryption if it fails
-      }
+    // Encrypt payment data for secure URL (required)
+    if (!invoice_id || !user_id || !invoice_number || !total) {
+      throw new Error('Missing required invoice data for payment link encryption');
+    }
+    
+    let encryptedData;
+    try {
+      encryptedData = encryptPaymentData({
+        amount: typeof total === 'number' ? total.toFixed(2) : String(total),
+        invoice_id,
+        user_id,
+        invoice_number
+      });
+    } catch (encryptError) {
+      console.error('Error encrypting payment data:', encryptError);
+      throw new Error('Failed to encrypt payment data. Cannot send invoice email.');
     }
     
     const htmlContent = InvoiceCreatedTemplate({

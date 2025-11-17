@@ -43,19 +43,28 @@ export const decryptPaymentData = (encryptedData) => {
   try {
     const key = getEncryptionKey();
     
+    // Log for debugging (remove in production if needed)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Decrypting with key length:', key?.length || 0);
+    }
+    
     // Decrypt
     const bytes = CryptoJS.AES.decrypt(encryptedData, key);
     const decrypted = bytes.toString(CryptoJS.enc.Utf8);
     
     if (!decrypted) {
-      throw new Error('Failed to decrypt data');
+      console.error('Decryption failed: Empty result. Key may be incorrect.');
+      throw new Error('Failed to decrypt data. Encryption key mismatch or invalid data.');
     }
     
     // Parse JSON
     return JSON.parse(decrypted);
   } catch (error) {
     console.error('Decryption error:', error);
-    throw new Error('Failed to decrypt payment data. Invalid or corrupted data.');
+    if (error.message?.includes('parse')) {
+      throw new Error('Failed to decrypt payment data. Invalid or corrupted data.');
+    }
+    throw error;
   }
 };
 

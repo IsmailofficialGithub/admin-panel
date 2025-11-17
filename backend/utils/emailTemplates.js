@@ -892,10 +892,15 @@ export const InvoiceCreatedTemplate = ({
   website_url = '#',
   encrypted_data = null // Encrypted payment data
 } = {}) => {
-  // Generate payment URL - use encrypted data if available, otherwise fallback to plain params
-  const paymentUrl = encrypted_data 
-    ? `${website_url}/payment?data=${encodeURIComponent(encrypted_data)}`
-    : `${website_url}/payment?amount=${total}&invoice_id=${invoice_id}&user_id=${user_id}&invoice_number=${encodeURIComponent(invoice_number)}`;
+  // Normalize website_url - remove trailing slash to avoid double slashes
+  const normalizedWebsiteUrl = website_url.replace(/\/+$/, '');
+  
+  // Generate payment URL - only use encrypted data (required)
+  if (!encrypted_data) {
+    throw new Error('Encrypted payment data is required to generate payment URL');
+  }
+  
+  const paymentUrl = `${normalizedWebsiteUrl}/payment?data=${encodeURIComponent(encrypted_data)}`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>

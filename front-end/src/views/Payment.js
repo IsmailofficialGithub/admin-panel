@@ -309,13 +309,11 @@ const Payment = () => {
 
         const searchParams = new URLSearchParams(location.search);
         const encryptedQueryData = searchParams.get('data');
-        const amount = searchParams.get('amount');
-        const invoiceId = searchParams.get('invoice_id');
-        const userId = searchParams.get('user_id');
-        const invoiceNumber = searchParams.get('invoice_number');
 
+        // Only accept encrypted payment data - no fallback to plain parameters
         if (encryptedQueryData) {
           try {
+            // URLSearchParams.get() already decodes URL-encoded values
             const decrypted = decryptPaymentData(encryptedQueryData);
             setPaymentData(decrypted);
             setEncryptedData(encryptedQueryData);
@@ -329,44 +327,24 @@ const Payment = () => {
             return;
           } catch (decryptError) {
             console.error('Decryption error:', decryptError);
-            toast.error('Invalid payment link');
-            setError('Invalid payment link');
+            console.error('Encrypted data received:', encryptedQueryData?.substring(0, 50) + '...');
+            console.error('Error details:', decryptError.message);
+            
+            // More specific error message
+            const errorMessage = decryptError.message?.includes('decrypt') 
+              ? 'Invalid payment link. The encryption key may not match between environments.'
+              : 'Invalid payment link. The link may be corrupted or expired.';
+            
+            toast.error(errorMessage);
+            setError(errorMessage);
             setLoading(false);
             return;
           }
         }
 
-        if (amount && invoiceId && userId && invoiceNumber) {
-          const data = {
-            amount,
-            invoice_id: invoiceId,
-            user_id: userId,
-            invoice_number: invoiceNumber
-          };
-          setPaymentData(data);
-
-          let encryptedPayload;
-          try {
-            const { encryptPaymentData } = await import('../utils/encryption');
-            encryptedPayload = encryptPaymentData(data);
-          } catch (encryptError) {
-            console.error('Encryption error:', encryptError);
-            encryptedPayload = JSON.stringify(data);
-          }
-
-          setEncryptedData(encryptedPayload);
-
-          const status = await checkInvoiceStatus(invoiceId);
-          if (status !== 'paid') {
-            await createPaymentIntent(encryptedPayload);
-          }
-
-          setLoading(false);
-          return;
-        }
-
-        toast.error('Invalid payment parameters');
-        setError('Invalid payment parameters');
+        // If no encrypted data is provided, show error
+        toast.error('Invalid payment link. Encrypted payment data is required.');
+        setError('Invalid payment link. Encrypted payment data is required.');
         setLoading(false);
       } catch (err) {
         console.error('Error initializing payment:', err);

@@ -8,6 +8,7 @@ import { useAuth } from '../hooks/useAuth';
 import apiClient from '../services/apiClient';
 import { getConsumers } from '../api/backend/consumers';
 import { getResellers } from '../api/backend/resellers';
+import { encryptPaymentData } from '../utils/encryption';
 
 const Invoices = () => {
   const { profile } = useAuth();
@@ -485,36 +486,48 @@ const Invoices = () => {
     }
   };
 
-  const handleCopyInvoiceLink = (invoice) => {
-    const baseUrl = window.location.origin;
-    
-    // Get invoice data
-    const invoiceId = invoice.id || '';
-    const amount = invoice.total || invoice.total_amount || 0;
-    const userId = invoice.receiver_id || invoice.consumer_id || invoice.receiver?.user_id || '';
-    const invoiceNumber = invoice.invoice_number || '';
-    
-    // Build payment link with query parameters
-    const params = new URLSearchParams({
-      amount: parseFloat(amount).toFixed(2),
-      invoice_id: invoiceId,
-      user_id: userId,
-      invoice_number: invoiceNumber
-    });
-    
-    const invoiceLink = `${baseUrl}/payment?${params.toString()}`;
-    
-    // Check if clipboard API is available (requires HTTPS or localhost)
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(invoiceLink).then(() => {
-        toast.success('Invoice payment link copied to clipboard');
-      }).catch(() => {
-        // Fallback if clipboard API fails
+  const handleCopyInvoiceLink = async (invoice) => {
+    try {
+      const baseUrl = window.location.origin;
+      
+      // Get invoice data
+      const invoiceId = invoice.id || '';
+      const amount = invoice.total || invoice.total_amount || 0;
+      const userId = invoice.receiver_id || invoice.consumer_id || invoice.receiver?.user_id || '';
+      const invoiceNumber = invoice.invoice_number || '';
+      
+      // Validate required fields
+      if (!invoiceId || !userId || !invoiceNumber || !amount) {
+        toast.error('Cannot generate payment link: Missing required invoice data');
+        return;
+      }
+      
+      // Encrypt payment data
+      const paymentData = {
+        amount: parseFloat(amount).toFixed(2),
+        invoice_id: invoiceId,
+        user_id: userId,
+        invoice_number: invoiceNumber
+      };
+      
+      const encryptedData = encryptPaymentData(paymentData);
+      const invoiceLink = `${baseUrl}/payment?data=${encodeURIComponent(encryptedData)}`;
+      
+      // Check if clipboard API is available (requires HTTPS or localhost)
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(invoiceLink).then(() => {
+          toast.success('Invoice payment link copied to clipboard');
+        }).catch(() => {
+          // Fallback if clipboard API fails
+          copyToClipboardFallback(invoiceLink);
+        });
+      } else {
+        // Fallback for HTTP connections or older browsers
         copyToClipboardFallback(invoiceLink);
-      });
-    } else {
-      // Fallback for HTTP connections or older browsers
-      copyToClipboardFallback(invoiceLink);
+      }
+    } catch (error) {
+      console.error('Error generating payment link:', error);
+      toast.error('Failed to generate payment link. Please try again.');
     }
   };
 
