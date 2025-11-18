@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card, Form, Button, Alert } from 'react-bootstrap';
+import { useLocation, useHistory } from 'react-router-dom';
 import { 
   Settings, 
   Save, 
@@ -14,19 +15,69 @@ import {
   CheckCircle,
   XCircle,
   Store,
-  Users
+  Users,
+  Package,
+  Plus,
+  Edit2,
+  Trash2,
+  TestTube,
+  ExternalLink
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../hooks/useAuth';
 import { getDefaultCommission, updateDefaultCommission, getResellerSettings, updateResellerSettings } from '../api/backend';
+import { getAllProducts } from '../api/backend/products';
+import { 
+  getAllProductDatabases, 
+  getProductDatabase, 
+  upsertProductDatabase, 
+  deleteProductDatabase, 
+  testProductDatabaseConnection,
+  testCredentials
+} from '../api/backend/productDatabases';
 
 const AdminSettings = () => {
   const { profile } = useAuth();
+  const location = useLocation();
+  const history = useHistory();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null); // 'success' or 'error'
   const [activeMainTab, setActiveMainTab] = useState('general'); // Main tab
   const [activeSubTab, setActiveSubTab] = useState('basic'); // Sub-tab within main tab
+
+  // Main tabs configuration (defined early for use in useEffect)
+  const mainTabs = [
+    { id: 'general', label: 'General', icon: Globe },
+    { id: 'email', label: 'Email', icon: Mail },
+    { id: 'server', label: 'Server', icon: Server },
+    { id: 'security', label: 'Security', icon: Lock },
+    { id: 'notifications', label: 'Notifications', icon: Bell },
+    { id: 'features', label: 'Features', icon: Key },
+    { id: 'product-databases', label: 'Product Databases', icon: Database }
+  ];
+
+  // Check URL query parameter for tab on mount and when URL changes
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const tabParam = searchParams.get('tab');
+    const validTabIds = mainTabs.map(tab => tab.id);
+    
+    if (tabParam && validTabIds.includes(tabParam)) {
+      setActiveMainTab(tabParam);
+    } else if (!tabParam) {
+      // If no tab parameter, set default and update URL
+      const currentPath = location.pathname;
+      history.replace(`${currentPath}?tab=general`);
+    }
+  }, [location.search, location.pathname, history, mainTabs]);
+
+  // Update URL when tab changes
+  const handleTabChange = (tabId) => {
+    setActiveMainTab(tabId);
+    const currentPath = location.pathname;
+    history.push(`${currentPath}?tab=${tabId}`);
+  };
 
   // Settings state
   const [settings, setSettings] = useState({
@@ -253,15 +304,255 @@ const AdminSettings = () => {
     }
   };
 
-  // Main tabs configuration
-  const mainTabs = [
-    { id: 'general', label: 'General', icon: Globe },
-    { id: 'email', label: 'Email', icon: Mail },
-    { id: 'server', label: 'Server', icon: Server },
-    { id: 'security', label: 'Security', icon: Lock },
-    { id: 'notifications', label: 'Notifications', icon: Bell },
-    { id: 'features', label: 'Features', icon: Key }
-  ];
+  // Product Databases state
+  const [products, setProducts] = useState([]);
+  const [productDatabases, setProductDatabases] = useState([]);
+  const [selectedProductForConfig, setSelectedProductForConfig] = useState(null);
+  const [productDbConfig, setProductDbConfig] = useState({
+    product_id: '',
+    product_name: '',
+    db_type: 'supabase',
+    supabase_url: '',
+    supabase_service_key: '',
+    postgres_host: '',
+    postgres_port: 5432,
+    postgres_database: '',
+    postgres_user: '',
+    postgres_password: '',
+    schema_name: 'public',
+    is_active: true
+  });
+  const [showProductDbModal, setShowProductDbModal] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(null);
+  const [testingCredentials, setTestingCredentials] = useState(false);
+  const [credentialTestResult, setCredentialTestResult] = useState(null);
+
+  // Load products and product databases
+  useEffect(() => {
+    if (activeMainTab === 'product-databases') {
+      loadProducts();
+      loadProductDatabases();
+    }
+  }, [activeMainTab]);
+
+  const loadProducts = async () => {
+    try {
+      const result = await getAllProducts();
+      if (!result.error) {
+        setProducts(result.data || []);
+      }
+    } catch (error) {
+      console.error('Error loading products:', error);
+    }
+  };
+
+  const loadProductDatabases = async () => {
+    try {
+      const result = await getAllProductDatabases();
+      if (!result.error) {
+        setProductDatabases(result.data || []);
+      }
+    } catch (error) {
+      console.error('Error loading product databases:', error);
+    }
+  };
+
+  const handleOpenProductDbModal = async (productId = null) => {
+    if (productId) {
+      // Edit existing
+      const result = await getProductDatabase(productId);
+      if (!result.error && result.data) {
+        const config = result.data;
+        setProductDbConfig({
+          product_id: config.product_id,
+          product_name: config.product_name,
+          db_type: config.db_type || 'supabase',
+          supabase_url: config.supabase_url || '',
+          supabase_service_key: '***encrypted***', // Don't show actual key
+          postgres_host: config.postgres_host || '',
+          postgres_port: config.postgres_port || 5432,
+          postgres_database: config.postgres_database || '',
+          postgres_user: '***encrypted***',
+          postgres_password: '***encrypted***',
+          schema_name: config.schema_name || 'public',
+          is_active: config.is_active !== false
+        });
+        setSelectedProductForConfig(productId);
+      }
+    } else {
+      // Create new
+      setProductDbConfig({
+        product_id: '',
+        product_name: '',
+        db_type: 'supabase',
+        supabase_url: '',
+        supabase_service_key: '',
+        postgres_host: '',
+        postgres_port: 5432,
+        postgres_database: '',
+        postgres_user: '',
+        postgres_password: '',
+        schema_name: 'public',
+        is_active: true
+      });
+      setSelectedProductForConfig(null);
+    }
+    setShowProductDbModal(true);
+    setCredentialTestResult(null); // Clear previous test results
+  };
+
+  const handleTestCredentials = async () => {
+    if (!productDbConfig.product_id) {
+      toast.error('Please select a product');
+      return;
+    }
+
+    // Validate required fields
+    if (productDbConfig.db_type === 'supabase') {
+      if (!productDbConfig.supabase_url || !productDbConfig.supabase_service_key || productDbConfig.supabase_service_key === '***encrypted***') {
+        toast.error('Supabase URL and Service Key are required to test');
+        return;
+      }
+    } else if (productDbConfig.db_type === 'postgres') {
+      if (!productDbConfig.postgres_host || !productDbConfig.postgres_database || !productDbConfig.postgres_user || !productDbConfig.postgres_password) {
+        toast.error('All PostgreSQL connection details are required to test');
+        return;
+      }
+    }
+
+    try {
+      setTestingCredentials(true);
+      setCredentialTestResult(null);
+      
+      const result = await testCredentials(productDbConfig);
+      
+      if (result.success) {
+        setCredentialTestResult({ success: true, message: result.message || 'Credentials are valid!' });
+        toast.success('Credentials are valid!');
+      } else {
+        setCredentialTestResult({ success: false, error: result.error || 'Invalid credentials' });
+        toast.error(result.error || 'Invalid credentials');
+      }
+    } catch (error) {
+      setCredentialTestResult({ success: false, error: 'Failed to test credentials' });
+      toast.error('Failed to test credentials');
+    } finally {
+      setTestingCredentials(false);
+    }
+  };
+
+  const handleSaveProductDb = async () => {
+    if (!productDbConfig.product_id) {
+      toast.error('Please select a product');
+      return;
+    }
+
+    // Check if product already has a database configured (for new configurations)
+    if (!selectedProductForConfig) {
+      const hasExistingDb = productDatabases.some(db => db.product_id === productDbConfig.product_id);
+      if (hasExistingDb) {
+        toast.error('This product already has a database configured. Each product can only have one database. Please update the existing configuration instead.');
+        return;
+      }
+    }
+
+    if (productDbConfig.db_type === 'supabase') {
+      if (!productDbConfig.supabase_url) {
+        toast.error('Supabase URL is required');
+        return;
+      }
+      // Only require service key if it's a new configuration or being updated
+      if (!selectedProductForConfig && !productDbConfig.supabase_service_key) {
+        toast.error('Supabase Service Key is required');
+        return;
+      }
+      if (selectedProductForConfig && productDbConfig.supabase_service_key === '***encrypted***') {
+        // Keep existing encrypted key - remove from config
+        delete productDbConfig.supabase_service_key;
+      }
+    } else if (productDbConfig.db_type === 'postgres') {
+      if (!productDbConfig.postgres_host || !productDbConfig.postgres_database) {
+        toast.error('PostgreSQL Host and Database Name are required');
+        return;
+      }
+      // Only require credentials if it's a new configuration or being updated
+      if (!selectedProductForConfig && (!productDbConfig.postgres_user || !productDbConfig.postgres_password)) {
+        toast.error('PostgreSQL Username and Password are required');
+        return;
+      }
+      if (selectedProductForConfig) {
+        if (productDbConfig.postgres_user === '***encrypted***') {
+          delete productDbConfig.postgres_user;
+        }
+        if (productDbConfig.postgres_password === '***encrypted***') {
+          delete productDbConfig.postgres_password;
+        }
+      }
+    }
+
+    // Test credentials before saving (only if new credentials are provided)
+    if (productDbConfig.db_type === 'supabase' && productDbConfig.supabase_service_key && productDbConfig.supabase_service_key !== '***encrypted***') {
+      const testResult = await testCredentials(productDbConfig);
+      if (!testResult.success) {
+        toast.error(testResult.error || 'Invalid credentials. Please test and fix before saving.');
+        setCredentialTestResult({ success: false, error: testResult.error });
+        return;
+      }
+    }
+
+    try {
+      setSaving(true);
+      const result = await upsertProductDatabase(productDbConfig.product_id, productDbConfig);
+      
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success(result.message || 'Product database configuration saved successfully!');
+        setShowProductDbModal(false);
+        setCredentialTestResult(null);
+        await loadProductDatabases();
+      }
+    } catch (error) {
+      toast.error('Failed to save product database configuration');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteProductDb = async (productId) => {
+    if (!window.confirm('Are you sure you want to delete this product database configuration?')) {
+      return;
+    }
+
+    try {
+      const result = await deleteProductDatabase(productId);
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success('Product database configuration deleted successfully!');
+        await loadProductDatabases();
+      }
+    } catch (error) {
+      toast.error('Failed to delete product database configuration');
+    }
+  };
+
+  const handleTestConnection = async (productId) => {
+    setTestingConnection(productId);
+    try {
+      const result = await testProductDatabaseConnection(productId);
+      if (result.success) {
+        toast.success('Connection test successful!');
+      } else {
+        toast.error(result.error || 'Connection test failed');
+      }
+    } catch (error) {
+      toast.error('Failed to test connection');
+    } finally {
+      setTestingConnection(null);
+    }
+  };
+
 
   // Sub-tabs configuration for each main tab
   const subTabsConfig = {
@@ -378,7 +669,7 @@ const AdminSettings = () => {
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveMainTab(tab.id)}
+                  onClick={() => handleTabChange(tab.id)}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -1250,6 +1541,560 @@ const AdminSettings = () => {
               </p>
             </Card.Body>
           </Card>
+        )}
+
+        {/* Product Databases Tab */}
+        {activeMainTab === 'product-databases' && (
+          <Card style={{ marginBottom: '24px' }}>
+            <Card.Header style={{ 
+              backgroundColor: '#10b981', 
+              color: 'white',
+              borderBottom: 'none',
+              borderRadius: '8px 8px 0 0',
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Database size={20} />
+                <h5 style={{ margin: 0, fontWeight: '600' }}>Product Database Configurations</h5>
+              </div>
+              <Button
+                variant="light"
+                size="sm"
+                onClick={() => handleOpenProductDbModal()}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  color: 'white',
+                  fontWeight: '600',
+                  backgroundColor: '#10b981',
+                  borderColor: '#10b981'
+                }}
+              >
+                <Plus size={16} />
+                Add Configuration
+              </Button>
+            </Card.Header>
+            <Card.Body style={{ padding: '24px' }}>
+              {productDatabases.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '48px' }}>
+                  <Database size={48} style={{ opacity: 0.3, marginBottom: '16px' }} />
+                  <p style={{ color: '#6c757d', marginBottom: '16px' }}>No product database configurations yet</p>
+                  <Button
+                    variant="primary"
+                    onClick={() => handleOpenProductDbModal()}
+                    style={{
+                      backgroundColor: '#10b981',
+                      borderColor: '#10b981',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      margin: '0 auto'
+                    }}
+                  >
+                    <Plus size={16} />
+                    Add First Configuration
+                  </Button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {productDatabases.map((db) => {
+                    const product = products.find(p => p.id === db.product_id);
+                    const healthColor = db.health_status === 'healthy' ? '#16a34a' : 
+                                       db.health_status === 'degraded' ? '#f59e0b' : '#dc3545';
+                    
+                    return (
+                      <Card key={db.id} style={{ border: '1px solid #e5e7eb' }}>
+                        <Card.Body style={{ padding: '20px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                                <Package size={20} color="#74317e" />
+                                <h6 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>
+                                  {db.product_name || product?.name || 'Unknown Product'}
+                                </h6>
+                                <span style={{
+                                  padding: '4px 12px',
+                                  borderRadius: '12px',
+                                  fontSize: '12px',
+                                  fontWeight: '500',
+                                  backgroundColor: db.is_active ? '#dcfce7' : '#fee2e2',
+                                  color: db.is_active ? '#16a34a' : '#dc3545'
+                                }}>
+                                  {db.is_active ? 'Active' : 'Inactive'}
+                                </span>
+                                <span style={{
+                                  padding: '4px 12px',
+                                  borderRadius: '12px',
+                                  fontSize: '12px',
+                                  fontWeight: '500',
+                                  backgroundColor: healthColor + '20',
+                                  color: healthColor
+                                }}>
+                                  {db.health_status || 'Unknown'}
+                                </span>
+                              </div>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', fontSize: '14px', color: '#6c757d' }}>
+                                <div>
+                                  <strong>Database Type:</strong> {db.db_type || 'N/A'}
+                                </div>
+                                {db.db_type === 'supabase' && db.supabase_url && (
+                                  <div>
+                                    <strong>URL:</strong> {db.supabase_url.substring(0, 40)}...
+                                  </div>
+                                )}
+                                {db.last_health_check && (
+                                  <div>
+                                    <strong>Last Check:</strong> {new Date(db.last_health_check).toLocaleString()}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <Button
+                                variant="outline-primary"
+                                size="sm"
+                                onClick={() => handleTestConnection(db.product_id)}
+                                disabled={testingConnection === db.product_id}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px'
+                                }}
+                              >
+                                <TestTube size={14} />
+                                {testingConnection === db.product_id ? 'Testing...' : 'Test'}
+                              </Button>
+                              <Button
+                                variant="outline-secondary"
+                                size="sm"
+                                onClick={() => handleOpenProductDbModal(db.product_id)}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px'
+                                }}
+                              >
+                                <Edit2 size={14} />
+                                Edit
+                              </Button>
+                              <Button
+                                variant="outline-danger"
+                                size="sm"
+                                onClick={() => handleDeleteProductDb(db.product_id)}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px'
+                                }}
+                              >
+                                <Trash2 size={14} />
+                                Delete
+                              </Button>
+                            </div>
+                          </div>
+                        </Card.Body>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </Card.Body>
+          </Card>
+        )}
+
+        {/* Product Database Configuration Modal */}
+        {showProductDbModal && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1050,
+            padding: '20px'
+          }}>
+            <Card style={{ maxWidth: '700px', width: '100%', maxHeight: '90vh', overflow: 'auto' }}>
+              <Card.Header style={{ 
+                backgroundColor: '#10b981', 
+                color: 'white',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <h5 style={{ margin: 0 }}>
+                  {selectedProductForConfig ? 'Edit' : 'Add'} Product Database Configuration
+                </h5>
+                <button
+                  onClick={() => setShowProductDbModal(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'white',
+                    fontSize: '24px',
+                    cursor: 'pointer',
+                    padding: 0,
+                    width: '30px',
+                    height: '30px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  ×
+                </button>
+              </Card.Header>
+              <Card.Body style={{ padding: '24px' }}>
+                <Row>
+                  <Col md={12} style={{ marginBottom: '20px' }}>
+                    <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                      Product *
+                    </label>
+                    <select
+                      value={productDbConfig.product_id}
+                      onChange={(e) => {
+                        const product = products.find(p => p.id === e.target.value);
+                        setProductDbConfig({
+                          ...productDbConfig,
+                          product_id: e.target.value,
+                          product_name: product?.name || ''
+                        });
+                      }}
+                      disabled={!!selectedProductForConfig}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        outline: 'none',
+                        cursor: selectedProductForConfig ? 'not-allowed' : 'pointer',
+                        backgroundColor: selectedProductForConfig ? '#f9fafb' : 'white'
+                      }}
+                    >
+                      <option value="">Select a product</option>
+                      {products.map(product => {
+                        // Check if product already has a database configured
+                        const hasDatabase = productDatabases.some(db => db.product_id === product.id);
+                        return (
+                          <option 
+                            key={product.id} 
+                            value={product.id}
+                            disabled={hasDatabase && !selectedProductForConfig}
+                            style={{ color: hasDatabase && !selectedProductForConfig ? '#9ca3af' : 'inherit' }}
+                          >
+                            {product.name}{hasDatabase && !selectedProductForConfig ? ' (Already configured)' : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    {productDbConfig.product_id && productDatabases.some(db => db.product_id === productDbConfig.product_id && !selectedProductForConfig) && (
+                      <div style={{
+                        marginTop: '8px',
+                        padding: '8px 12px',
+                        backgroundColor: '#fef3c7',
+                        border: '1px solid #f59e0b',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                        color: '#92400e',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}>
+                        <AlertCircle size={14} />
+                        This product already has a database configured. You can only update the existing configuration.
+                      </div>
+                    )}
+                  </Col>
+                  <Col md={12} style={{ marginBottom: '20px' }}>
+                    <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                      Database Type *
+                    </label>
+                    <select
+                      value={productDbConfig.db_type}
+                      onChange={(e) => setProductDbConfig({ ...productDbConfig, db_type: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        outline: 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="supabase">Supabase</option>
+                      <option value="postgres">PostgreSQL</option>
+                    </select>
+                  </Col>
+                  
+                  {productDbConfig.db_type === 'supabase' ? (
+                    <>
+                      <Col md={12} style={{ marginBottom: '20px' }}>
+                        <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                          Supabase URL *
+                        </label>
+                        <input
+                          type="text"
+                      value={productDbConfig.supabase_url}
+                      onChange={(e) => {
+                        setProductDbConfig({ ...productDbConfig, supabase_url: e.target.value });
+                        setCredentialTestResult(null); // Clear test result when field changes
+                      }}
+                          placeholder="https://your-project.supabase.co"
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '14px',
+                            outline: 'none'
+                          }}
+                        />
+                      </Col>
+                      <Col md={12} style={{ marginBottom: '20px' }}>
+                        <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                          Supabase Service Role Key *
+                        </label>
+                        <input
+                          type="password"
+                          value={productDbConfig.supabase_service_key === '***encrypted***' ? '' : productDbConfig.supabase_service_key}
+                          onChange={(e) => {
+                            setProductDbConfig({ ...productDbConfig, supabase_service_key: e.target.value });
+                            setCredentialTestResult(null); // Clear test result when field changes
+                          }}
+                          placeholder={productDbConfig.supabase_service_key === '***encrypted***' ? 'Enter new key to update' : 'Enter service role key'}
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '14px',
+                            outline: 'none'
+                          }}
+                        />
+                        {productDbConfig.supabase_service_key === '***encrypted***' && (
+                          <p style={{ fontSize: '11px', color: '#9ca3af', marginTop: '6px', marginBottom: 0 }}>
+                            Leave blank to keep existing encrypted key, or enter new key to update
+                          </p>
+                        )}
+                      </Col>
+                    </>
+                  ) : (
+                    <>
+                      <Col md={6} style={{ marginBottom: '20px' }}>
+                        <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                          Host *
+                        </label>
+                        <input
+                          type="text"
+                          value={productDbConfig.postgres_host}
+                          onChange={(e) => setProductDbConfig({ ...productDbConfig, postgres_host: e.target.value })}
+                          placeholder="localhost"
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '14px',
+                            outline: 'none'
+                          }}
+                        />
+                      </Col>
+                      <Col md={6} style={{ marginBottom: '20px' }}>
+                        <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                          Port
+                        </label>
+                        <input
+                          type="number"
+                          value={productDbConfig.postgres_port}
+                          onChange={(e) => setProductDbConfig({ ...productDbConfig, postgres_port: parseInt(e.target.value) || 5432 })}
+                          placeholder="5432"
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '14px',
+                            outline: 'none'
+                          }}
+                        />
+                      </Col>
+                      <Col md={12} style={{ marginBottom: '20px' }}>
+                        <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                          Database Name *
+                        </label>
+                        <input
+                          type="text"
+                          value={productDbConfig.postgres_database}
+                          onChange={(e) => setProductDbConfig({ ...productDbConfig, postgres_database: e.target.value })}
+                          placeholder="database_name"
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '14px',
+                            outline: 'none'
+                          }}
+                        />
+                      </Col>
+                      <Col md={6} style={{ marginBottom: '20px' }}>
+                        <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                          Username *
+                        </label>
+                        <input
+                          type="text"
+                          value={productDbConfig.postgres_user === '***encrypted***' ? '' : productDbConfig.postgres_user}
+                          onChange={(e) => setProductDbConfig({ ...productDbConfig, postgres_user: e.target.value })}
+                          placeholder={productDbConfig.postgres_user === '***encrypted***' ? 'Enter new username' : 'username'}
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '14px',
+                            outline: 'none'
+                          }}
+                        />
+                      </Col>
+                      <Col md={6} style={{ marginBottom: '20px' }}>
+                        <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                          Password *
+                        </label>
+                        <input
+                          type="password"
+                          value={productDbConfig.postgres_password === '***encrypted***' ? '' : productDbConfig.postgres_password}
+                          onChange={(e) => setProductDbConfig({ ...productDbConfig, postgres_password: e.target.value })}
+                          placeholder={productDbConfig.postgres_password === '***encrypted***' ? 'Enter new password' : 'password'}
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '14px',
+                            outline: 'none'
+                          }}
+                        />
+                      </Col>
+                    </>
+                  )}
+                  
+                  <Col md={12} style={{ marginBottom: '20px' }}>
+                    <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                      Schema Name
+                    </label>
+                    <input
+                      type="text"
+                      value={productDbConfig.schema_name}
+                      onChange={(e) => setProductDbConfig({ ...productDbConfig, schema_name: e.target.value })}
+                      placeholder="public"
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        outline: 'none'
+                      }}
+                    />
+                  </Col>
+                  <Col md={12} style={{ marginBottom: '20px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+                      <input
+                        type="checkbox"
+                        checked={productDbConfig.is_active}
+                        onChange={(e) => setProductDbConfig({ ...productDbConfig, is_active: e.target.checked })}
+                        style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                      />
+                      <span>Active</span>
+                    </label>
+                  </Col>
+                </Row>
+
+                {/* Credential Test Result */}
+                {credentialTestResult && (
+                  <div style={{
+                    marginTop: '20px',
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    backgroundColor: credentialTestResult.success ? '#dcfce7' : '#fee2e2',
+                    border: `1px solid ${credentialTestResult.success ? '#16a34a' : '#dc3545'}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    {credentialTestResult.success ? (
+                      <>
+                        <CheckCircle size={18} color="#16a34a" />
+                        <span style={{ color: '#16a34a', fontSize: '14px', fontWeight: '500' }}>
+                          {credentialTestResult.message || 'Credentials are valid!'}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <XCircle size={18} color="#dc3545" />
+                        <span style={{ color: '#dc3545', fontSize: '14px', fontWeight: '500' }}>
+                          {credentialTestResult.error || 'Invalid credentials'}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '24px' }}>
+                  <Button
+                    variant="outline-primary"
+                    onClick={handleTestCredentials}
+                    disabled={testingCredentials || saving}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      borderColor: '#3b82f6',
+                      color: '#3b82f6'
+                    }}
+                  >
+                    <TestTube size={16} />
+                    {testingCredentials ? 'Testing...' : 'Test Credentials'}
+                  </Button>
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <Button
+                      variant="outline-secondary"
+                      onClick={() => {
+                        setShowProductDbModal(false);
+                        setCredentialTestResult(null);
+                      }}
+                      disabled={saving}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="primary"
+                      onClick={handleSaveProductDb}
+                      disabled={saving || testingCredentials}
+                      style={{
+                        backgroundColor: '#10b981',
+                        borderColor: '#10b981',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                      }}
+                    >
+                      {saving ? 'Saving...' : 'Save Configuration'}
+                    </Button>
+                  </div>
+                </div>
+              </Card.Body>
+            </Card>
+          </div>
         )}
 
         {/* Action Buttons */}

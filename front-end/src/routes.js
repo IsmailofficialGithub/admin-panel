@@ -23,6 +23,7 @@ import ActivityLogDetail from "views/ActivityLogDetail.js";
 import ResellerStatistics from "views/ResellerStatistics.js";
 import AdminSettings from "views/AdminSettings.js";
 import Offers from "views/Offers.js";
+import ProductDetail from "views/ProductDetail.js";
 
 const dashboardRoutes = [
   // Hidden routes (not shown in sidebar)
@@ -60,6 +61,12 @@ const dashboardRoutes = [
   {
     path: "/activity-logs/:id",
     component: ActivityLogDetail,
+    layout: "/admin",
+    invisible: true // This prevents it from showing in sidebar
+  },
+  {
+    path: "/product/:id",
+    component: ProductDetail,
     layout: "/admin",
     invisible: true // This prevents it from showing in sidebar
   },

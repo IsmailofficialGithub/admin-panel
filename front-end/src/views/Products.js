@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card } from 'react-bootstrap';
-import { Plus, Edit2, Trash2, Search, Package, DollarSign, FileText, MoreVertical } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Package, DollarSign, FileText, MoreVertical, ExternalLink } from 'lucide-react';
+import { useHistory } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import CreateProductModal from '../components/ui/createProductModal';
 import UpdateProductModal from '../components/ui/updateProductModal';
 import { getAllProducts, deleteProduct } from '../api/backend/products';
 
 const Products = () => {
+  const history = useHistory();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -91,6 +93,12 @@ const Products = () => {
     setSelectedProduct(product);
     setShowUpdateModal(true);
     setOpenDropdownId(null);
+  };
+
+  // Handle switch to product
+  const handleSwitchToProduct = (product) => {
+    setOpenDropdownId(null);
+    history.push(`/admin/product/${product.id}`);
   };
 
   // Filter products by search
@@ -342,6 +350,36 @@ const Products = () => {
                                 overflow: 'hidden'
                               }}
                             >
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSwitchToProduct(product);
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px 16px',
+                                  border: 'none',
+                                  backgroundColor: 'transparent',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  color: '#74317e',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  fontWeight: '500'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                              >
+                                <ExternalLink size={16} />
+                                Switch to Product
+                              </button>
+                              <div style={{
+                                height: '1px',
+                                backgroundColor: '#e5e7eb',
+                                margin: '4px 0'
+                              }} />
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
