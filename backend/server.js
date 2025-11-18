@@ -18,6 +18,8 @@ import settingsRoutes from './routes/settings.routes.js';
 import offersRoutes from './routes/offers.routes.js';
 import invitationsRoutes from './routes/invitations.routes.js';
 import stripeRoutes from './routes/stripe.routes.js';
+import productDetailRoutes from './routes/productDetail.routes.js';
+import productDatabaseRoutes from './routes/productDatabase.routes.js';
 
 // Load environment variables
 dotenv.config();
@@ -75,6 +77,8 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/offers', offersRoutes);
 app.use('/api/invitations', invitationsRoutes);
 app.use('/api/stripe', stripeRoutes);
+app.use('/api/admin/products', productDetailRoutes);
+app.use('/api/admin/product-databases', productDatabaseRoutes);
 
 // Debug: Log all registered routes
 console.log('✅ Invoice routes registered at /api/invoices');
