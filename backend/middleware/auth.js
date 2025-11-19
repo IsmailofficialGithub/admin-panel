@@ -39,9 +39,9 @@ export const authenticate = async (req, res, next) => {
 
 /**
  * Middleware to check if user has admin role
+ * Note: This should be used after loadUserProfile middleware
  */
 export const requireAdmin = async (req, res, next) => {
-
   try {
     if (!req.user) {
       return res.status(401).json({
@@ -49,19 +49,24 @@ export const requireAdmin = async (req, res, next) => {
         message: 'User not authenticated'
       });
     }
-    // Fetch user profile to check role and account status
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('role, account_status')
-      .eq('user_id', req.user.id)
-      .single()
 
-    if (error || !profile) {
-      
-      return res.status(403).json({
-        error: 'Forbidden',
-        message: 'User profile not found'
-      });
+    // Use profile from loadUserProfile middleware if available, otherwise fetch it
+    let profile = req.userProfile;
+    if (!profile) {
+      const { data: profileData, error } = await supabase
+        .from('profiles')
+        .select('role, account_status')
+        .eq('user_id', req.user.id)
+        .single();
+
+      if (error || !profileData) {
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'User profile not found'
+        });
+      }
+      profile = profileData;
+      req.userProfile = profile;
     }
 
     // Check if admin account is deactivated (shouldn't happen, but safety check)
@@ -73,20 +78,63 @@ export const requireAdmin = async (req, res, next) => {
     }
 
     if (profile.role !== 'admin') {
-      console.log("profile.role", profile.role)
       return res.status(403).json({
         error: 'Forbidden',
         message: 'Admin access required'
       });
     }
 
-    req.userProfile = profile;
     next();
   } catch (err) {
     console.error('Admin check error:', err);
     return res.status(500).json({
       error: 'Internal Server Error',
       message: 'Authorization check failed'
+    });
+  }
+};
+
+/**
+ * Middleware to load user profile from profiles table
+ * This middleware loads the user profile including role, email, full_name, etc.
+ * and attaches it to req.userProfile for use in controllers
+ */
+export const loadUserProfile = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'User not authenticated'
+      });
+    }
+
+    // Fetch user profile from profiles table
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('user_id, email, full_name, role, account_status')
+      .eq('user_id', req.user.id)
+      .single();
+    console.log("profile====", profile);
+
+    if (error || !profile) {
+      // If profile doesn't exist, create a fallback profile from auth user
+      req.userProfile = {
+        user_id: req.user.id,
+        email: req.user.email,
+        full_name: req.user.email,
+        role: 'admin', // Default role
+        account_status: 'active'
+      };
+    } else {
+      req.userProfile = profile;
+    }
+
+    next();
+  } catch (err) {
+    console.error('Load user profile error:', err);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to load user profile'
     });
   }
 };
@@ -105,36 +153,40 @@ export const requireRole = (allowedRoles = []) => {
         });
       }
 
-      // Fetch user profile to check role and account status
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('role, account_status')
-        .eq('user_id', req.user.id)
-        .single();
+      // Ensure userProfile is loaded
+      if (!req.userProfile) {
+        // Load profile if not already loaded
+        const { data: profile, error } = await supabase
+          .from('profiles')
+          .select('role, account_status')
+          .eq('user_id', req.user.id)
+          .single();
 
-      if (error || !profile) {
-        return res.status(403).json({
-          error: 'Forbidden',
-          message: 'User profile not found'
-        });
+        if (error || !profile) {
+          return res.status(403).json({
+            error: 'Forbidden',
+            message: 'User profile not found'
+          });
+        }
+
+        req.userProfile = profile;
       }
 
       // Check if account is deactivated (for reseller and consumer roles)
-      if ((profile.role === 'reseller' || profile.role === 'consumer') && profile.account_status === 'deactive') {
+      if ((req.userProfile.role === 'reseller' || req.userProfile.role === 'consumer') && req.userProfile.account_status === 'deactive') {
         return res.status(403).json({
           error: 'Forbidden',
           message: 'Your account has been deactivated. Please contact the administrator.'
         });
       }
 
-      if (!allowedRoles.includes(profile.role)) {
+      if (!allowedRoles.includes(req.userProfile.role)) {
         return res.status(403).json({
           error: 'Forbidden',
           message: `Required role: ${allowedRoles.join(' or ')}`
         });
       }
 
-      req.userProfile = profile;
       next();
     } catch (err) {
       console.error('Role check error:', err);
@@ -146,5 +198,5 @@ export const requireRole = (allowedRoles = []) => {
   };
 };
 
-export default { authenticate, requireAdmin, requireRole };
+export default { authenticate, requireAdmin, requireRole, loadUserProfile };
 

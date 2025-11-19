@@ -88,10 +88,20 @@ export const createPaymentIntent = async (req, res) => {
       });
     }
 
-    // Create payment intent
+    // Create payment intent with international bank transfer support
+    // By not specifying payment_method_types, Stripe Payment Element will automatically
+    // show all available payment methods (cards, bank transfers for all countries, etc.)
+    // based on the customer's location and currency
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountInCents,
       currency: 'usd',
+      // Let Stripe automatically detect and show available payment methods
+      // This includes: cards, US ACH, SEPA (EU), Bacs (UK), and other international bank transfers
+      // Payment Element will show appropriate methods based on customer location
+      automatic_payment_methods: {
+        enabled: true,
+        allow_redirects: 'always', // Allow redirects for bank transfers that require it
+      },
       metadata: {
         invoice_id,
         user_id,
@@ -152,37 +162,95 @@ export const confirmPayment = async (req, res) => {
 
     const { invoice_id, user_id, invoice_number } = paymentData;
 
-    // Check payment status
-    if (paymentIntent.status === 'succeeded') {
-      console.log('[success] Payment succeeded:', {
+    // Check payment status - handle both succeeded and processing (bank transfers)
+    const paymentStatus = paymentIntent.status;
+    
+    if (paymentStatus === 'succeeded' || paymentStatus === 'processing') {
+      console.log(`[${paymentStatus === 'succeeded' ? 'success' : 'info'}] Payment ${paymentStatus}:`, {
         paymentIntentId,
         invoice_id,
         invoice_number,
         amount: paymentIntent.amount / 100,
+        payment_method_type: paymentIntent.payment_method_types?.[0] || 'card',
       });
 
-      // Update invoice status to paid
-      const { error: updateError } = await supabaseAdmin
-        .from('invoices')
-        .update({ 
-          status: 'paid',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', invoice_id);
+      // Determine payment mode based on payment method type
+      // Get the actual payment method used (if available)
+      const paymentMethodId = paymentIntent.payment_method;
+      let paymentMethodType = 'card'; // default
+      let isBankTransfer = false;
+      
+      // Check if it's a bank transfer based on status or payment method
+      if (paymentStatus === 'processing') {
+        // Processing status usually indicates bank transfer
+        isBankTransfer = true;
+      } else if (paymentMethodId) {
+        // Retrieve payment method to check type
+        try {
+          const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+          paymentMethodType = paymentMethod.type;
+          // Bank transfer types: us_bank_account, customer_balance, or country-specific methods
+          isBankTransfer = paymentMethod.type === 'us_bank_account' || 
+                          paymentMethod.type === 'customer_balance' ||
+                          paymentMethod.type === 'link'; // Link can be used for bank transfers
+        } catch (pmError) {
+          console.error('Error retrieving payment method:', pmError);
+          // Fallback: check payment intent payment method types
+          const pmTypes = paymentIntent.payment_method_types || [];
+          isBankTransfer = pmTypes.some(type => 
+            type === 'us_bank_account' || 
+            type === 'customer_balance' ||
+            paymentStatus === 'processing'
+          );
+        }
+      } else {
+        // Fallback: check payment intent payment method types
+        const pmTypes = paymentIntent.payment_method_types || [];
+        isBankTransfer = pmTypes.some(type => 
+          type === 'us_bank_account' || 
+          type === 'customer_balance'
+        ) || paymentStatus === 'processing';
+      }
+      
+      // For succeeded payments, mark invoice as paid immediately
+      // For processing (bank transfers), invoice stays under_review until payment completes
+      if (paymentStatus === 'succeeded') {
+        const { error: updateError } = await supabaseAdmin
+          .from('invoices')
+          .update({ 
+            status: 'paid',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', invoice_id);
 
-      if (updateError) {
-        console.error('Error updating invoice status:', updateError);
+        if (updateError) {
+          console.error('Error updating invoice status:', updateError);
+        }
+      } else if (paymentStatus === 'processing') {
+        // Bank transfer is processing - set invoice to under_review
+        const { error: updateError } = await supabaseAdmin
+          .from('invoices')
+          .update({ 
+            status: 'under_review',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', invoice_id)
+          .in('status', ['unpaid', 'pending']);
+
+        if (updateError) {
+          console.error('Error updating invoice status:', updateError);
+        }
       }
 
       // Create payment record in invoice_payments table
       const paymentRecord = {
         invoice_id,
-        payment_mode: 'online_payment',
+        payment_mode: isBankTransfer ? 'bank_transfer' : 'online_payment',
         payment_gateway: 'stripe',
         amount: paymentIntent.amount / 100,
         payment_date: new Date().toISOString(),
         transaction_id: paymentIntent.id,
-        status: 'approved',
+        status: paymentStatus === 'succeeded' ? 'approved' : 'pending', // Processing payments are pending
         paid_by: user_id,
         submitted_by: user_id,
         reviewed_by: null,
@@ -221,11 +289,14 @@ export const confirmPayment = async (req, res) => {
 
       res.json({
         success: true,
-        message: 'Payment confirmed successfully',
+        message: paymentStatus === 'succeeded' 
+          ? 'Payment confirmed successfully' 
+          : 'Bank transfer payment is being processed',
         paymentIntent: {
           id: paymentIntent.id,
-          status: paymentIntent.status,
+          status: paymentStatus,
           amount: paymentIntent.amount / 100,
+          payment_method_type: paymentMethodType,
         },
       });
     } else if (paymentIntent.status === 'requires_payment_method') {

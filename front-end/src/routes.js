@@ -24,6 +24,7 @@ import ResellerStatistics from "views/ResellerStatistics.js";
 import AdminSettings from "views/AdminSettings.js";
 import Offers from "views/Offers.js";
 import ProductDetail from "views/ProductDetail.js";
+import Customers from "views/Customers.js";
 
 const dashboardRoutes = [
   // Hidden routes (not shown in sidebar)
@@ -163,6 +164,13 @@ const dashboardRoutes = [
     name: "Activity Logs",
     icon: "nc-icon nc-chart-bar-32",
     component: ActivityLogs,
+    layout: "/admin"
+  },
+  {
+    path: "/customers",
+    name: "Customer Support",
+    icon: "nc-icon nc-support-17",
+    component: Customers,
     layout: "/admin"
   },
   {

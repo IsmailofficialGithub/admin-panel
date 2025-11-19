@@ -75,30 +75,34 @@ const PaymentForm = ({
         return;
       }
 
-      if (paymentIntent && paymentIntent.status === 'succeeded') {
-        console.log('[success] Payment succeeded:', {
-          paymentIntentId: paymentIntent.id,
-          invoiceNumber,
-          amount
-        });
+      // Handle different payment statuses
+      if (paymentIntent) {
+        const status = paymentIntent.status;
+        
+        // Payment succeeded (card payments)
+        if (status === 'succeeded') {
+          console.log('[success] Payment succeeded:', {
+            paymentIntentId: paymentIntent.id,
+            invoiceNumber,
+            amount
+          });
 
-        try {
-          const confirmResponse = await apiClient.stripe.confirmPayment(paymentIntent.id, encryptedData);
+          try {
+            const confirmResponse = await apiClient.stripe.confirmPayment(paymentIntent.id, encryptedData);
 
-          if (confirmResponse && confirmResponse.success) {
-            console.log('[success] Payment confirmed on backend');
-            toast.success('Payment successful!');
-            if (onSuccess) {
-              onSuccess(paymentIntent);
+            if (confirmResponse && confirmResponse.success) {
+              console.log('[success] Payment confirmed on backend');
+              toast.success('Payment successful!');
+              if (onSuccess) {
+                onSuccess(paymentIntent);
+              }
+              setIsProcessing(false);
+              return;
             }
-            setIsProcessing(false);
-            return;
-          }
 
-          throw new Error(confirmResponse?.message || 'Failed to confirm payment');
-        } catch (confirmError) {
-          console.error('[fail] Error confirming payment:', confirmError);
-          if (paymentIntent.status === 'succeeded') {
+            throw new Error(confirmResponse?.message || 'Failed to confirm payment');
+          } catch (confirmError) {
+            console.error('[fail] Error confirming payment:', confirmError);
             console.warn('[warning] Payment succeeded on Stripe but backend confirmation had issues');
             toast.success('Payment successful!');
             if (onSuccess) {
@@ -107,15 +111,47 @@ const PaymentForm = ({
             setIsProcessing(false);
             return;
           }
-          toast.error('Payment succeeded but confirmation failed. Please contact support.');
-          if (onError) {
-            onError(confirmError);
+        }
+        
+        // Bank transfer (ACH) processing - payment is being processed
+        if (status === 'processing') {
+          console.log('[info] Payment processing (bank transfer):', {
+            paymentIntentId: paymentIntent.id,
+            invoiceNumber
+          });
+          
+          try {
+            // Still confirm on backend to create payment record with 'pending' status
+            const confirmResponse = await apiClient.stripe.confirmPayment(paymentIntent.id, encryptedData);
+            
+            toast.success('Bank transfer payment initiated! Your payment is being processed and will be completed shortly.');
+            if (onSuccess) {
+              onSuccess(paymentIntent);
+            }
+            setIsProcessing(false);
+            return;
+          } catch (confirmError) {
+            console.error('[fail] Error confirming processing payment:', confirmError);
+            toast.success('Bank transfer payment initiated! Your payment is being processed.');
+            if (onSuccess) {
+              onSuccess(paymentIntent);
+            }
+            setIsProcessing(false);
+            return;
           }
         }
-      } else {
-        const status = paymentIntent?.status || 'unknown';
-        console.log('[fail] Payment failed with status:', status);
-        toast.error(`Payment failed: ${status}`);
+        
+        // Payment requires action (3D Secure, bank verification, etc.)
+        if (status === 'requires_action' || status === 'requires_confirmation') {
+          console.log('[info] Payment requires action:', status);
+          // Stripe Elements will handle this automatically with redirect: 'if_required'
+          setIsProcessing(false);
+          return;
+        }
+        
+        // Payment failed or other status
+        console.log('[fail] Payment status:', status);
+        toast.error(`Payment ${status}. Please try again or contact support.`);
         if (onError) {
           onError(new Error(`Payment status: ${status}`));
         }
@@ -217,6 +253,12 @@ const Payment = () => {
   const [invoiceStatus, setInvoiceStatus] = useState(null);
   const [isAlreadyPaid, setIsAlreadyPaid] = useState(false);
   const [clientSecret, setClientSecret] = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState('stripe'); // 'stripe' or 'paypal'
+  const [paypalOrderId, setPaypalOrderId] = useState(null);
+  const [paypalApprovalUrl, setPaypalApprovalUrl] = useState(null);
+  const [processingPaypal, setProcessingPaypal] = useState(false);
+  const [paypalButtons, setPaypalButtons] = useState(null);
+  const [paypalSDKLoaded, setPaypalSDKLoaded] = useState(false);
 
   const createPaymentIntent = useCallback(async (payload) => {
     if (!payload) return false;
@@ -282,8 +324,8 @@ const Payment = () => {
   const paymentElementAppearance = useMemo(() => ({
     theme: 'stripe',
     variables: {
-      colorPrimary: '#74317e',
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+      crimary: '#74317e',
+      fontFamiolorPly: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
     }
   }), []);
 
@@ -303,6 +345,9 @@ const Payment = () => {
       setInvoiceStatus(null);
       setPaymentData(null);
       setEncryptedData(null);
+      setPaypalOrderId(null);
+      setPaypalApprovalUrl(null);
+      // Don't reset paymentMethod here - let it persist from user selection
 
       try {
         setLoading(true);
@@ -319,8 +364,35 @@ const Payment = () => {
             setEncryptedData(encryptedQueryData);
 
             const status = await checkInvoiceStatus(decrypted.invoice_id);
-            if (status !== 'paid') {
-              await createPaymentIntent(encryptedQueryData);
+            
+            // Check if this is a PayPal return/cancel
+            const isPaypalReturn = searchParams.get('paypal') === 'true';
+            const isPaypalCanceled = searchParams.get('paypal_canceled') === 'true';
+            // PayPal returns order ID as 'token' parameter when redirecting back
+            const paypalToken = searchParams.get('token');
+            
+            if (isPaypalReturn) {
+              // User returned from PayPal
+              setPaymentMethod('paypal');
+              if (paypalToken) {
+                setPaypalOrderId(paypalToken);
+                // Capture will be handled by useEffect
+              } else {
+                toast.error('PayPal order ID not found');
+                setError('PayPal order ID not found');
+              }
+            } else if (isPaypalCanceled) {
+              toast.error('PayPal payment was canceled');
+              setPaymentMethod('stripe');
+            }
+            
+            // Set default payment method only on initial load (when paymentMethod is still default)
+            // Don't override user's selection
+            if (!isPaypalReturn && !isPaypalCanceled && paymentMethod === 'stripe') {
+              // Only initialize Stripe if method is stripe and invoice is not paid
+              if (status !== 'paid') {
+                await createPaymentIntent(encryptedQueryData);
+              }
             }
 
             setLoading(false);
@@ -358,7 +430,193 @@ const Payment = () => {
       setError('Failed to initialize payment');
       setLoading(false);
     });
-  }, [location.search, createPaymentIntent, checkInvoiceStatus]);
+  }, [location.search, createPaymentIntent, checkInvoiceStatus]); // Removed paymentMethod from dependencies
+
+  // Handle PayPal capture when returning from PayPal
+  useEffect(() => {
+    if (!encryptedData || processingPaypal) return;
+    
+    const searchParams = new URLSearchParams(location.search);
+    const isPaypalReturn = searchParams.get('paypal') === 'true';
+    // PayPal returns order ID as 'token' parameter
+    const paypalToken = searchParams.get('token');
+    
+    if (isPaypalReturn && paypalToken) {
+      handlePayPalCapture(paypalToken, encryptedData);
+    }
+  }, [location.search, encryptedData, processingPaypal]);
+
+  // Load PayPal SDK dynamically
+  useEffect(() => {
+    if (paymentMethod === 'paypal' && !paypalSDKLoaded) {
+      const paypalClientId = process.env.REACT_APP_PAYPAL_CLIENT_ID;
+      
+      if (!paypalClientId) {
+        console.error('PayPal Client ID not found in environment variables');
+        toast.error('PayPal is not configured. Please add REACT_APP_PAYPAL_CLIENT_ID to your .env file');
+        setPaymentMethod('stripe');
+        return;
+      }
+
+      // Check if PayPal SDK is already loaded
+      if (window.paypal) {
+        setPaypalSDKLoaded(true);
+        return;
+      }
+
+      // Load PayPal SDK
+      const script = document.createElement('script');
+      script.src = `https://www.paypal.com/sdk/js?client-id=${paypalClientId}&currency=USD`;
+      script.async = true;
+      script.onload = () => {
+        setPaypalSDKLoaded(true);
+      };
+      script.onerror = () => {
+        console.error('Failed to load PayPal SDK');
+        toast.error('Failed to load PayPal SDK');
+        setPaymentMethod('stripe');
+      };
+      document.body.appendChild(script);
+
+      return () => {
+        // Cleanup if component unmounts
+        if (script.parentNode) {
+          script.parentNode.removeChild(script);
+        }
+      };
+    }
+  }, [paymentMethod, paypalSDKLoaded]);
+
+  // Initialize PayPal Buttons
+  useEffect(() => {
+    if (paymentMethod === 'paypal' && paypalSDKLoaded && window.paypal && encryptedData && !paypalButtons) {
+      const paypalButtonsContainer = document.getElementById('paypal-button-container');
+      
+      if (!paypalButtonsContainer) return;
+
+      // Clear any existing buttons
+      paypalButtonsContainer.innerHTML = '';
+
+      try {
+        const buttons = window.paypal.Buttons({
+          style: {
+            layout: 'vertical',
+            color: 'blue',
+            shape: 'rect',
+            label: 'paypal'
+          },
+          createOrder: async (data, actions) => {
+            try {
+              setProcessingPaypal(true);
+              const response = await apiClient.paypal.createOrder(encryptedData);
+              
+              if (response && response.success && response.orderId) {
+                return response.orderId;
+              } else {
+                throw new Error(response?.message || 'Failed to create PayPal order');
+              }
+            } catch (error) {
+              console.error('Error creating PayPal order:', error);
+              const errorMessage = error.response?.data?.message || error.message || 'Failed to create PayPal order';
+              toast.error(errorMessage);
+              setError(errorMessage);
+              setProcessingPaypal(false);
+              throw error;
+            }
+          },
+          onApprove: async (data, actions) => {
+            try {
+              setProcessingPaypal(true);
+              const response = await apiClient.paypal.capturePayment(data.orderID, encryptedData);
+              
+              if (response && response.success) {
+                toast.success('PayPal payment completed successfully!');
+                setShowSuccess(true);
+                // Refresh invoice status
+                if (paymentData?.invoice_id) {
+                  await checkInvoiceStatus(paymentData.invoice_id);
+                }
+              } else {
+                throw new Error(response?.message || 'Failed to capture PayPal payment');
+              }
+            } catch (error) {
+              console.error('Error capturing PayPal payment:', error);
+              const errorMessage = error.response?.data?.message || error.message || 'Failed to capture PayPal payment';
+              toast.error(errorMessage);
+              setError(errorMessage);
+            } finally {
+              setProcessingPaypal(false);
+            }
+          },
+          onError: (err) => {
+            console.error('PayPal error:', err);
+            toast.error('An error occurred with PayPal payment');
+            setError('PayPal payment error');
+            setProcessingPaypal(false);
+          },
+          onCancel: (data) => {
+            console.log('PayPal payment canceled:', data);
+            toast.error('PayPal payment was canceled');
+            setProcessingPaypal(false);
+          }
+        });
+
+        if (buttons && buttons.isEligible()) {
+          buttons.render('#paypal-button-container').then(() => {
+            setPaypalButtons(buttons);
+            setProcessingPaypal(false);
+          }).catch((err) => {
+            console.error('Error rendering PayPal buttons:', err);
+            toast.error('Failed to render PayPal buttons');
+            setProcessingPaypal(false);
+          });
+        } else {
+          console.error('PayPal buttons are not eligible');
+          toast.error('PayPal is not available');
+          setPaymentMethod('stripe');
+          setProcessingPaypal(false);
+        }
+      } catch (error) {
+        console.error('Error initializing PayPal buttons:', error);
+        toast.error('Failed to initialize PayPal');
+        setPaymentMethod('stripe');
+        setProcessingPaypal(false);
+      }
+    }
+
+    return () => {
+      // Cleanup PayPal buttons when switching away
+      if (paymentMethod !== 'paypal' && paypalButtons) {
+        const container = document.getElementById('paypal-button-container');
+        if (container) {
+          container.innerHTML = '';
+        }
+        setPaypalButtons(null);
+      }
+    };
+  }, [paymentMethod, paypalSDKLoaded, encryptedData, paypalButtons, paymentData, checkInvoiceStatus]);
+
+  // Handle PayPal capture after user returns from PayPal
+  const handlePayPalCapture = async (orderId, encryptedData) => {
+    setProcessingPaypal(true);
+    try {
+      const response = await apiClient.paypal.capturePayment(orderId, encryptedData);
+      
+      if (response && response.success) {
+        toast.success('PayPal payment completed successfully!');
+        setShowSuccess(true);
+      } else {
+        throw new Error(response?.message || 'Failed to capture PayPal payment');
+      }
+    } catch (error) {
+      console.error('Error capturing PayPal payment:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to capture PayPal payment';
+      toast.error(errorMessage);
+      setError(errorMessage);
+    } finally {
+      setProcessingPaypal(false);
+    }
+  };
 
   const handleSuccess = (paymentIntent) => {
     console.log('[success] Payment completed successfully');
@@ -804,8 +1062,96 @@ const Payment = () => {
                 </div>
               </div>
 
-              {/* Stripe Elements */}
+              {/* Payment Method Selection */}
               {!isAlreadyPaid && (
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '12px',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#495057'
+                  }}>
+                    Select Payment Method
+                  </label>
+                  <div style={{
+                    display: 'flex',
+                    gap: '12px',
+                    flexWrap: 'wrap'
+                  }}>
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setPaymentMethod('stripe');
+                        setPaypalOrderId(null);
+                        setPaypalApprovalUrl(null);
+                        setPaypalButtons(null); // Clear PayPal buttons
+                        setPaypalSDKLoaded(false); // Reset PayPal SDK state
+                        // Initialize Stripe payment intent
+                        if (encryptedData) {
+                          await createPaymentIntent(encryptedData);
+                        }
+                      }}
+                      style={{
+                        flex: 1,
+                        minWidth: '150px',
+                        padding: '14px 20px',
+                        border: `2px solid ${paymentMethod === 'stripe' ? '#74317e' : '#e0e0e0'}`,
+                        borderRadius: '10px',
+                        backgroundColor: paymentMethod === 'stripe' ? '#f8f0fa' : 'white',
+                        color: paymentMethod === 'stripe' ? '#74317e' : '#6c757d',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px'
+                      }}
+                    >
+                      <Lock size={18} />
+                      Card / Bank Transfer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setPaymentMethod('paypal');
+                        setClientSecret(null);
+                        setPaypalButtons(null); // Reset PayPal buttons
+                        // PayPal SDK will load automatically via useEffect
+                      }}
+                      style={{
+                        flex: 1,
+                        minWidth: '150px',
+                        padding: '14px 20px',
+                        border: `2px solid ${paymentMethod === 'paypal' ? '#74317e' : '#e0e0e0'}`,
+                        borderRadius: '10px',
+                        backgroundColor: paymentMethod === 'paypal' ? '#f8f0fa' : 'white',
+                        color: paymentMethod === 'paypal' ? '#74317e' : '#6c757d',
+                        fontSize: '15px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px'
+                      }}
+                    >
+                      <span style={{ fontSize: '18px' }}>💳</span>
+                      PayPal
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Stripe Elements - Includes Card and Bank Transfer options */}
+              {!isAlreadyPaid && paymentMethod === 'stripe' && (
                 clientSecret ? (
                   <Elements
                     stripe={stripePromise}
@@ -852,6 +1198,53 @@ const Payment = () => {
                     )}
                   </div>
                 )
+              )}
+
+              {/* PayPal Payment Buttons */}
+              {!isAlreadyPaid && paymentMethod === 'paypal' && (
+                <div>
+                  {!paypalSDKLoaded ? (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '12px',
+                      padding: '24px',
+                      border: '2px dashed #e5e7eb',
+                      borderRadius: '12px',
+                      backgroundColor: '#f9fafb'
+                    }}>
+                      <Loader size={24} style={{ animation: 'spin 1s linear infinite' }} />
+                      <span style={{ color: '#6b7280', fontWeight: 500 }}>Loading PayPal...</span>
+                    </div>
+                  ) : (
+                    <div id="paypal-button-container" style={{ minHeight: '50px' }}></div>
+                  )}
+                  
+                  {processingPaypal && (
+                    <div style={{
+                      marginTop: '16px',
+                      padding: '12px',
+                      backgroundColor: '#e0f2fe',
+                      borderRadius: '8px',
+                      border: '1px solid #0369a1',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px'
+                    }}>
+                      <Loader size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                      <p style={{
+                        margin: 0,
+                        fontSize: '13px',
+                        color: '#0369a1',
+                        lineHeight: '1.5'
+                      }}>
+                        Processing PayPal payment...
+                      </p>
+                    </div>
+                  )}
+                </div>
               )}
 
               {/* Security Notice */}

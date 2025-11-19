@@ -64,6 +64,15 @@ export {
 } from './activityLogs';
 
 export {
+  createTicket,
+  getTickets,
+  getTicket,
+  addMessage,
+  updateTicketStatus,
+  getTicketStats
+} from './customerSupport';
+
+export {
   getDefaultCommission,
   updateDefaultCommission,
   getMyCommission,

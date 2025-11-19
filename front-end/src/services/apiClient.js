@@ -643,6 +643,63 @@ const apiClient = {
      */
     confirmPayment: (paymentIntentId, encryptedData) => axiosInstance.post('/stripe/confirm-payment', { paymentIntentId, encryptedData }),
   },
+
+  // ==================== PAYPAL ====================
+  paypal: {
+    /**
+     * Create PayPal order
+     */
+    createOrder: (encryptedData) => axiosInstance.post('/paypal/create-order', { encryptedData }),
+
+    /**
+     * Capture PayPal payment
+     */
+    capturePayment: (orderId, encryptedData) => axiosInstance.post('/paypal/capture-payment', { orderId, encryptedData }),
+  },
+
+  // ==================== CUSTOMER SUPPORT ====================
+  customerSupport: {
+    /**
+     * Create a new support ticket
+     */
+    createTicket: (ticketData) => axiosInstance.post('/customer-support/tickets', ticketData),
+
+    /**
+     * Get all support tickets (with filters)
+     */
+    getTickets: (queryString = '') => axiosInstance.get(`/customer-support/tickets${queryString}`),
+
+    /**
+     * Get single ticket with messages and attachments
+     */
+    getTicket: (ticketId) => axiosInstance.get(`/customer-support/tickets/${ticketId}`),
+
+    /**
+     * Add message to ticket
+     */
+    addMessage: (ticketId, messageData) => axiosInstance.post(`/customer-support/tickets/${ticketId}/messages`, messageData),
+
+    /**
+     * Update ticket status, assignment, priority
+     */
+    updateTicketStatus: (ticketId, updateData) => axiosInstance.patch(`/customer-support/tickets/${ticketId}/status`, updateData),
+
+    /**
+     * Get ticket statistics (admin only)
+     */
+    getStats: () => axiosInstance.get('/customer-support/stats'),
+
+    /**
+     * Upload attachment file
+     */
+    uploadAttachment: (formData) => {
+      return axiosInstance.post('/customer-support/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+    },
+  },
 };
 
 export default apiClient;

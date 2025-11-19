@@ -18,8 +18,10 @@ import settingsRoutes from './routes/settings.routes.js';
 import offersRoutes from './routes/offers.routes.js';
 import invitationsRoutes from './routes/invitations.routes.js';
 import stripeRoutes from './routes/stripe.routes.js';
+import paypalRoutes from './routes/paypal.routes.js';
 import productDetailRoutes from './routes/productDetail.routes.js';
 import productDatabaseRoutes from './routes/productDatabase.routes.js';
+import customerSupportRoutes from './routes/customerSupport.routes.js';
 
 // Load environment variables
 dotenv.config();
@@ -77,12 +79,15 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/offers', offersRoutes);
 app.use('/api/invitations', invitationsRoutes);
 app.use('/api/stripe', stripeRoutes);
+app.use('/api/paypal', paypalRoutes);
 app.use('/api/admin/products', productDetailRoutes);
 app.use('/api/admin/product-databases', productDatabaseRoutes);
+app.use('/api/customer-support', customerSupportRoutes);
 
 // Debug: Log all registered routes
 console.log('✅ Invoice routes registered at /api/invoices');
 console.log('✅ Stripe routes registered at /api/stripe');
+console.log('✅ PayPal routes registered at /api/paypal');
 // 404 Handler
 app.use((req, res) => {
   res.status(404).json({
@@ -97,6 +102,7 @@ app.use((err, req, res, next) => {
   console.error('Error:', err);
   
   res.status(err.status || 500).json({
+    
     error: err.message || 'Internal Server Error',
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
   });
