@@ -229,6 +229,11 @@ export const AdminEmailTemplateUserCreated = ({
 
   const roleInfo = roleMessages[role] || roleMessages.user;
 
+  // Always use https://social.duhanashrah.ai/ for consumers, regardless of provided URL
+  const finalWebsiteUrl = role === 'consumer' 
+    ? 'https://social.duhanashrah.ai/' 
+    : website_url;
+
   const content = `
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
       <tr>
@@ -284,7 +289,7 @@ export const AdminEmailTemplateUserCreated = ({
     subtitle: roleInfo.subtitle,
     content,
     buttonText: roleInfo.buttonText,
-    buttonUrl: website_url,
+    buttonUrl: finalWebsiteUrl,
     footerText: 'If you didn\'t create this account, you can safely ignore this email.'
   });
 };
