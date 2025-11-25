@@ -229,7 +229,7 @@ export const AdminEmailTemplateUserCreated = ({
 
   const roleInfo = roleMessages[role] || roleMessages.user;
 
-  // Always use https://social.duhanashrah.ai/ for consumers, regardless of provided URL
+  // Hardcoded URL for consumers - always redirect to https://social.duhanashrah.ai/
   const finalWebsiteUrl = role === 'consumer' 
     ? 'https://social.duhanashrah.ai/' 
     : website_url;
