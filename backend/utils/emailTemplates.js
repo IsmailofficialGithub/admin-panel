@@ -92,8 +92,8 @@ const BaseEmailTemplate = ({
                         <tr>
                           <td align="center" style="background-color: #8a3b9a; padding: 14px 38px;">
                             <a href="${buttonUrl}" target="_blank" style="color: #ffffff; text-decoration: none; font-weight: bold; font-size: 18px; font-family: Verdana, Geneva, sans-serif; display: block;">
-                              ${buttonText}
-                            </a>
+                        ${buttonText}
+                      </a>
                           </td>
                         </tr>
                       </table>
@@ -106,7 +106,7 @@ const BaseEmailTemplate = ({
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 16px 0 0 0;">
                   <tr>
                     <td align="center" style="font-size: 14px; color: #66698c; font-family: Verdana, Geneva, sans-serif;">
-                      ${footerText}
+                  ${footerText}
                     </td>
                   </tr>
                 </table>
@@ -128,22 +128,22 @@ const BaseEmailTemplate = ({
                           <td style="padding: 0 6px;">
                             <a href="https://www.facebook.com/duhanashraai" style="text-decoration: none;">
                               <img src="https://app-rsrc.getbee.io/public/resources/social-networks-icon-sets/t-circle-dark-gray/facebook@2x.png" width="24" height="24" alt="Facebook" style="display: block;" />
-                            </a>
+                      </a>
                           </td>
                           <td style="padding: 0 6px;">
                             <a href="https://www.youtube.com/@DuhaNashrahAi" style="text-decoration: none;">
                               <img src="https://app-rsrc.getbee.io/public/resources/social-networks-icon-sets/t-circle-dark-gray/twitter@2x.png" width="24" height="24" alt="YouTube" style="display: block;" />
-                            </a>
+                      </a>
                           </td>
                           <td style="padding: 0 6px;">
                             <a href="https://www.instagram.com/duhanashrahai/" style="text-decoration: none;">
                               <img src="https://app-rsrc.getbee.io/public/resources/social-networks-icon-sets/t-circle-dark-gray/instagram@2x.png" width="24" height="24" alt="Instagram" style="display: block;" />
-                            </a>
+                      </a>
                           </td>
                           <td style="padding: 0 6px;">
                             <a href="https://www.tiktok.com/@duhanashrahai" style="text-decoration: none;">
                               <img src="https://app-rsrc.getbee.io/public/resources/social-networks-icon-sets/t-circle-dark-gray/linkedin@2x.png" width="24" height="24" alt="TikTok" style="display: block;" />
-                            </a>
+                      </a>
                           </td>
                         </tr>
                       </table>
@@ -281,7 +281,7 @@ export const AdminEmailTemplateUserCreated = ({
             </tr>
             <tr>
               <td style="padding: 12px 0 0 0; font-size: 13px; color: #66698c; font-family: Verdana, Geneva, sans-serif;">
-                For security, please change your password after logging in.
+            For security, please change your password after logging in.
               </td>
             </tr>
           </table>
@@ -339,7 +339,7 @@ export const PasswordResetTemplate = ({
             </tr>
             <tr>
               <td style="padding: 12px 0 0 0; font-size: 13px; color: #66698c; font-family: Verdana, Geneva, sans-serif;">
-                For security, please change your password after logging in.
+            For security, please change your password after logging in.
               </td>
             </tr>
           </table>
@@ -408,7 +408,7 @@ export const TrialPeriodChangeTemplate = ({
             </tr>
             <tr>
               <td style="padding: 12px 0 0 0; font-size: 13px; color: #66698c; font-family: Verdana, Geneva, sans-serif;">
-                Your trial has been extended. Enjoy all features until the new date!
+            Your trial has been extended. Enjoy all features until the new date!
               </td>
             </tr>
           </table>
@@ -479,7 +479,7 @@ export const TrialExtensionTemplate = ({
             </tr>
             <tr>
               <td style="padding: 12px 0 0 0; font-size: 13px; color: #66698c; font-family: Verdana, Geneva, sans-serif;">
-                If you did not request this extension, please contact support immediately.
+            If you did not request this extension, please contact support immediately.
               </td>
             </tr>
           </table>
@@ -544,7 +544,7 @@ export const InviteEmailTemplate = ({
             </tr>
             <tr>
               <td style="padding: 12px 0 0 0; font-size: 13px; color: #66698c; font-family: Verdana, Geneva, sans-serif;">
-                This invitation link expires in 7 days. Please complete your registration soon!
+            This invitation link expires in 7 days. Please complete your registration soon!
               </td>
             </tr>
           </table>
@@ -662,7 +662,7 @@ export const InvoiceCreatedTemplate = ({
             </tr>
             <tr>
               <td style="padding: 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-                <strong>Created By:</strong> ${created_by_name} (${created_by_role})
+          <strong>Created By:</strong> ${created_by_name} (${created_by_role})
               </td>
             </tr>
           </table>

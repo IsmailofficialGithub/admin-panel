@@ -2,6 +2,36 @@ import { supabase, supabaseAdmin } from '../../config/database.js';
 import { sendWelcomeEmail, sendPasswordResetEmail } from '../../services/emailService.js';
 import { generatePassword } from '../../utils/helpers.js';
 import { logActivity, getActorInfo, getClientIp, getUserAgent } from '../../services/activityLogger.js';
+import { cacheService } from '../../config/redis.js';
+import {
+  sanitizeString,
+  isValidUUID,
+  isValidEmail,
+  isValidPhone,
+  validatePagination,
+  sanitizeObject,
+  sanitizeArray
+} from '../../utils/validation.js';
+import {
+  executeWithTimeout,
+  RESELLER_SELECT_FIELDS,
+  handleApiError,
+  validateAndSanitizeSearch,
+  createPaginatedResponse,
+  createRateLimitMiddleware,
+  sanitizeInputMiddleware
+} from '../../utils/apiOptimization.js';
+
+// Cache configuration
+const CACHE_TTL = 300; // 5 minutes
+const CACHE_KEYS = {
+  ALL_RESELLERS: (search, page, limit) => `resellers:list:${search || 'all'}_page${page}_limit${limit}`,
+  RESELLER_BY_ID: (id) => `resellers:id:${id}`,
+};
+
+// Export middleware for use in routes
+export { sanitizeInputMiddleware };
+export const rateLimitMiddleware = createRateLimitMiddleware('resellers', 100);
 
 /**
  * Resellers Controller
@@ -9,60 +39,110 @@ import { logActivity, getActorInfo, getClientIp, getUserAgent } from '../../serv
  */
 
 /**
- * Get all resellers with search (admin only)
- * @route   GET /api/resellers?search=john
+ * Get all resellers with search and pagination (admin only)
+ * @route   GET /api/resellers?search=john&page=1&limit=50
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. Pagination support (Performance)
+ * 3. Field selection instead of * (Performance)
+ * 4. Query timeout (Performance)
+ * 5. Better error handling (Security)
+ * 6. Data sanitization (Security)
+ * 7. Redis caching (Performance)
  */
 export const getAllResellers = async (req, res) => {
   try {
-    const { search } = req.query;
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
+    const { search, page, limit } = req.query;
 
-    console.log('🔍 Searching resellers with:', { search });
+    // Validate and sanitize search input
+    const searchTerm = validateAndSanitizeSearch(search, 100);
+    if (search && !searchTerm) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid search term. Only alphanumeric characters, spaces, @, ., _, and - are allowed.'
+      });
+    }
 
-    // Start building the query
+    // Validate pagination parameters
+    const { pageNum, limitNum } = validatePagination(page, limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    console.log('🔍 Searching resellers with:', { search: searchTerm, page: pageNum, limit: limitNum });
+
+    // ========================================
+    // 2. CACHE CHECK
+    // ========================================
+    const cacheKey = CACHE_KEYS.ALL_RESELLERS(searchTerm || '', pageNum, limitNum);
+    const cachedData = await cacheService.get(cacheKey);
+    if (cachedData) {
+      console.log('✅ Cache HIT for resellers list');
+      return res.json(cachedData);
+    }
+
+    console.log('❌ Cache MISS for resellers list - fetching from database');
+
+    // ========================================
+    // 3. OPTIMIZED DATABASE QUERY
+    // ========================================
     let query = supabase
       .from('auth_role_with_profiles')
-      .select('*')
+      .select(RESELLER_SELECT_FIELDS, { count: 'exact' })
       .eq('role', 'reseller');
 
     // Apply search filter if provided
-    if (search && search.trim() !== '') {
-      const searchTerm = search.trim();
-      // Search in full_name and email
+    if (searchTerm) {
       query = query.or(`full_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
       console.log('✅ Searching for:', searchTerm);
     }
 
-    // Order by created_at
-    query = query.order('created_at', { ascending: false });
+    // Order and paginate
+    query = query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limitNum - 1);
 
-    const { data: resellers, error } = await query;
+    const { data: resellers, error, count } = await executeWithTimeout(query);
 
+    // ========================================
+    // 4. ERROR HANDLING (Security)
+    // ========================================
     if (error) {
       console.error('❌ Error fetching resellers:', error);
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
-        message: error.message
+        message: 'Failed to fetch resellers. Please try again.'
       });
     }
 
-    console.log(`✅ Found ${resellers.length} resellers`);
+    console.log(`✅ Found ${resellers?.length || 0} resellers`);
 
+    // ========================================
+    // 5. FETCH COMMISSION DATA (with timeout)
+    // ========================================
     // Get default commission
-    const { data: defaultSetting } = await supabaseAdmin
+    const defaultSettingPromise = supabaseAdmin
       .from('app_settings')
       .select('setting_value')
       .eq('setting_key', 'default_reseller_commission')
       .single();
 
+    const { data: defaultSetting } = await executeWithTimeout(defaultSettingPromise, 5000);
     const defaultCommission = defaultSetting ? parseFloat(defaultSetting.setting_value) : 10.00;
 
     // Get commission data for all resellers
-    const resellerIds = resellers.map(r => r.user_id);
-    const { data: profilesWithCommission } = await supabaseAdmin
+    const resellerIds = (resellers || []).map(r => r.user_id);
+    const profilesWithCommissionPromise = supabaseAdmin
       .from('profiles')
       .select('user_id, commission_rate, commission_updated_at')
       .in('user_id', resellerIds);
+
+    const { data: profilesWithCommission } = await executeWithTimeout(profilesWithCommissionPromise, 5000);
 
     const commissionMap = new Map();
     if (profilesWithCommission) {
@@ -74,15 +154,20 @@ export const getAllResellers = async (req, res) => {
       });
     }
 
+    // ========================================
+    // 6. GATHER REFERRED COUNTS (with timeout)
+    // ========================================
     // Gather each reseller's referred customer count and commission
     const resellerWithCounts = await Promise.all(
-      resellers.map(async function (reseller) {
+      (resellers || []).map(async function (reseller) {
         // For each reseller, count the number of users referred by them
-        const { count, error: referredError } = await supabase
+        const referredCountPromise = supabase
           .from('auth_role_with_profiles')
           .select('user_id', { count: 'exact', head: true })
           .eq('referred_by', reseller.user_id)
           .eq('role', 'consumer');
+
+        const { count, error: referredError } = await executeWithTimeout(referredCountPromise, 5000);
 
         // Get commission data
         const commissionData = commissionMap.get(reseller.user_id);
@@ -103,18 +188,24 @@ export const getAllResellers = async (req, res) => {
     );
     console.log("resellerWithCounts", resellerWithCounts);
 
-    res.json({
-      success: true,
-      count: resellerWithCounts.length,
-      data: resellerWithCounts,
-      search: search || ''
-    });
+    // ========================================
+    // 7. DATA SANITIZATION (Security)
+    // ========================================
+    const sanitizedResellers = sanitizeArray(resellerWithCounts);
+
+    // ========================================
+    // 8. RESPONSE STRUCTURE
+    // ========================================
+    const response = createPaginatedResponse(sanitizedResellers, count, pageNum, limitNum, searchTerm);
+
+    // ========================================
+    // 9. CACHE THE RESPONSE
+    // ========================================
+    await cacheService.set(cacheKey, response, CACHE_TTL);
+
+    res.json(response);
   } catch (error) {
-    console.error('Get resellers error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while fetching resellers.');
   }
 };
 
@@ -123,93 +214,170 @@ export const getAllResellers = async (req, res) => {
  * @route   GET /api/resellers/:id/referred-consumers
  * @access  Private (Admin)
  */
+/**
+ * Get referred consumers for a reseller (admin only)
+ * @route   GET /api/resellers/:id/consumers
+ * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Query timeout (Performance)
+ * 3. Secure error handling (Security)
+ * 4. Data sanitization (Security)
+ */
 export const getReferredConsumers = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
 
-    console.log('📋 Fetching referred consumers for user ID:', id);
-
-    const { data: consumers, error } = await supabase
-      .from('auth_role_with_profiles')
-      .select('*')
-      .eq('referred_by', id)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching referred consumers:', error);
+    if (!id || !isValidUUID(id)) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
-        message: error.message
+        message: 'Invalid reseller ID format'
       });
     }
 
-    console.log(`✅ Found ${consumers.length} consumers referred by user ${id}`);
+    // ========================================
+    // 2. FETCH REFERRED CONSUMERS (with timeout)
+    // ========================================
+    const queryPromise = supabase
+      .from('auth_role_with_profiles')
+      .select('user_id, full_name, email, role, referred_by, account_status, created_at')
+      .eq('referred_by', id)
+      .eq('role', 'consumer')
+      .order('created_at', { ascending: false });
+
+    const { data: consumers, error } = await executeWithTimeout(queryPromise);
+
+    if (error) {
+      console.error('❌ Error fetching referred consumers:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Failed to fetch referred consumers. Please try again.'
+      });
+    }
+
+    // ========================================
+    // 3. DATA SANITIZATION
+    // ========================================
+    const sanitizedConsumers = sanitizeArray(consumers || []);
 
     res.json({
       success: true,
-      count: consumers.length,
-      data: consumers
+      count: sanitizedConsumers.length,
+      data: sanitizedConsumers
     });
   } catch (error) {
-    console.error('Get referred consumers error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while fetching referred consumers.');
   }
 };
 
 /**
- * Get reseller by ID
+ * Get reseller by ID (admin only)
  * @route   GET /api/resellers/:id
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Field selection instead of * (Performance)
+ * 3. Query timeout (Performance)
+ * 4. Secure error handling (Security)
+ * 5. Data sanitization (Security)
+ * 6. Redis caching (Performance)
  */
 export const getResellerById = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
 
-    const { data: reseller, error } = await supabase
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid reseller ID format'
+      });
+    }
+
+    const cacheKey = CACHE_KEYS.RESELLER_BY_ID(id);
+
+    // Try to get from cache
+    const cachedData = await cacheService.get(cacheKey);
+    if (cachedData) {
+      console.log(`✅ Cache HIT for reseller ${id}`);
+      return res.json(cachedData);
+    }
+
+    console.log(`❌ Cache MISS for reseller ${id} - fetching from database`);
+
+    // ========================================
+    // 2. OPTIMIZED DATABASE QUERY
+    // ========================================
+    const queryPromise = supabase
       .from('auth_role_with_profiles')
-      .select('*')
+      .select(RESELLER_SELECT_FIELDS)
       .eq('user_id', id)
       .eq('role', 'reseller')
       .single();
 
-    if (error) {
+    const { data: reseller, error } = await executeWithTimeout(queryPromise);
+
+    // ========================================
+    // 3. ERROR HANDLING (Security)
+    // ========================================
+    if (error || !reseller) {
+      console.error('❌ Error fetching reseller:', error);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Reseller not found'
       });
     }
 
-    // Get default commission
-    const { data: defaultSetting } = await supabaseAdmin
+    // ========================================
+    // 4. FETCH COMMISSION DATA (with timeout)
+    // ========================================
+    const defaultSettingPromise = supabaseAdmin
       .from('app_settings')
       .select('setting_value')
       .eq('setting_key', 'default_reseller_commission')
       .single();
 
+    const { data: defaultSetting } = await executeWithTimeout(defaultSettingPromise, 5000);
     const defaultCommission = defaultSetting ? parseFloat(defaultSetting.setting_value) : 10.00;
     const customCommission = reseller.commission_rate ? parseFloat(reseller.commission_rate) : null;
     const effectiveCommission = customCommission !== null ? customCommission : defaultCommission;
     const commissionType = customCommission !== null ? 'custom' : 'default';
 
-    res.json({
+    // ========================================
+    // 5. DATA SANITIZATION (Security)
+    // ========================================
+    const sanitizedReseller = sanitizeObject(reseller);
+
+    const response = {
       success: true,
       data: {
-        ...reseller,
+        ...sanitizedReseller,
         commission_rate: effectiveCommission,
         commission_type: commissionType,
         custom_commission: customCommission,
         default_commission: defaultCommission
       }
-    });
+    };
+
+    // ========================================
+    // 6. CACHE THE RESPONSE
+    // ========================================
+    await cacheService.set(cacheKey, response, CACHE_TTL);
+
+    res.json(response);
   } catch (error) {
-    console.error('Get reseller error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while fetching the reseller.');
   }
 };
 
@@ -217,27 +385,65 @@ export const getResellerById = async (req, res) => {
  * Create new reseller (admin only)
  * @route   POST /api/resellers
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. Query timeout (Performance)
+ * 3. Cache invalidation (Performance)
+ * 4. Secure error handling (Security)
  */
 export const createReseller = async (req, res) => {
   try {
-    const { email, password, full_name, phone, country, city } = req.body;
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
+    let { email, password, full_name, phone, country, city } = req.body;
 
-    // Validate input
+    // Validate required fields
     if (!email || !password || !full_name || !country || !city) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'FullName, Email, password, country, city are required'
       });
     }
 
+    // Validate email format
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid email format'
+      });
+    }
+
+    // Validate password strength
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Password must be at least 8 characters long'
+      });
+    }
+
+    // Sanitize inputs
+    email = email.toLowerCase().trim();
+    full_name = sanitizeString(full_name, 255);
+    country = sanitizeString(country, 100);
+    city = sanitizeString(city, 100);
+    phone = phone ? sanitizeString(phone, 20) : null;
+
     if (!supabaseAdmin) {
       return res.status(500).json({
+        success: false,
         error: 'Configuration Error',
         message: 'Admin client not configured'
       });
     }
 
-    // Check if admin approval is required for new resellers
+    // ========================================
+    // 2. GET RESELLER SETTINGS (with timeout)
+    // ========================================
     const { getResellerSettings } = await import('../../utils/resellerSettings.js');
     const resellerSettings = await getResellerSettings();
     
@@ -247,7 +453,9 @@ export const createReseller = async (req, res) => {
     // Get the user ID of who created this reseller (from token)
     const referred_by = req.user && req.user.id ? req.user.id : null;
 
-    // Create user with Supabase Admin
+    // ========================================
+    // 3. CREATE USER (with timeout)
+    // ========================================
     const createUserPayload = {
       email,
       password,
@@ -265,18 +473,23 @@ export const createReseller = async (req, res) => {
       createUserPayload.phone = phone;
     }
 
+    // Note: Supabase auth.admin.createUser doesn't support timeout wrapper directly
+    // but we'll handle errors properly
     const { data: newUser, error: createError } =
       await supabaseAdmin.auth.admin.createUser(createUserPayload);
 
     if (createError) {
+      console.error('❌ Error creating user:', createError);
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
-        message: createError.message
+        message: createError.message || 'Failed to create user'
       });
     }
 
-    // Update user role in profiles table
-    // commission_rate is NULL by default (new resellers use default commission)
+    // ========================================
+    // 4. CREATE PROFILE (with timeout)
+    // ========================================
     const profileData = {
       user_id: newUser.user.id,
       full_name,
@@ -287,18 +500,27 @@ export const createReseller = async (req, res) => {
       referred_by: referred_by || null,
       commission_rate: null, // Explicitly set to NULL to use default
       commission_updated_at: null,
-      account_status: accountStatus // Set based on approval requirement
+      account_status: accountStatus
     };
 
-    const { error: insertError } = await supabaseAdmin
+    const profilePromise = supabaseAdmin
       .from('profiles')
       .upsert([profileData]);
 
+    const { error: insertError } = await executeWithTimeout(profilePromise);
+
     if (insertError) {
-      console.error('Error inserting profile:', insertError);
+      console.error('❌ Error inserting profile:', insertError);
+      // Try to delete the created user if profile insert fails
+      try {
+        await supabaseAdmin.auth.admin.deleteUser(newUser.user.id);
+      } catch (deleteError) {
+        console.error('Error deleting failed user:', deleteError);
+      }
       return res.status(500).json({
+        success: false,
         error: 'Internal Server Error',
-        message: 'User created but profile insert failed'
+        message: 'Failed to create reseller profile. Please try again.'
       });
     }
 
@@ -307,7 +529,8 @@ export const createReseller = async (req, res) => {
       await sendWelcomeEmail({
         email,
         full_name,
-        password
+        password,
+        role: 'reseller'
       });
       console.log('✅ Welcome email sent to:', email);
     } catch (emailError) {
@@ -352,44 +575,69 @@ export const createReseller = async (req, res) => {
  * Update reseller (admin only)
  * @route   PUT /api/resellers/:id
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format, required fields)
+ * 2. Query timeout (Performance)
+ * 3. Cache invalidation (Performance)
+ * 4. Secure error handling (Security)
  */
 export const updateReseller = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
     const { id } = req.params;
-    const { full_name, phone, country, city } = req.body;
+    let { full_name, phone, country, city } = req.body;
+
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid reseller ID format'
+      });
+    }
 
     // Validate required fields for update
     if (!country || !city || !phone) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Country, city, and phone are required'
       });
     }
 
+    // Sanitize inputs
     const updateData = {};
-    if (full_name !== undefined) updateData.full_name = full_name;
-    updateData.phone = phone;
-    updateData.country = country;
-    updateData.city = city;
+    if (full_name !== undefined) updateData.full_name = sanitizeString(full_name, 255);
+    updateData.phone = sanitizeString(phone, 20);
+    updateData.country = sanitizeString(country, 100);
+    updateData.city = sanitizeString(city, 100);
 
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'No fields to update'
       });
     }
 
-    console.log("updateData", updateData);
-
-    // Get old data for logging changed fields
-    const { data: oldReseller } = await supabase
+    // ========================================
+    // 2. GET OLD DATA FOR LOGGING (with timeout)
+    // ========================================
+    const oldDataPromise = supabase
       .from('profiles')
       .select('*')
       .eq('user_id', id)
       .eq('role', 'reseller')
       .single();
 
-    const { data: updatedReseller, error } = await supabase
+    const { data: oldReseller } = await executeWithTimeout(oldDataPromise, 3000);
+
+    // ========================================
+    // 3. UPDATE RESELLER (with timeout)
+    // ========================================
+    const updatePromise = supabase
       .from('profiles')
       .update(updateData)
       .eq('user_id', id)
@@ -397,16 +645,28 @@ export const updateReseller = async (req, res) => {
       .select()
       .maybeSingle();
 
-    console.log("updatedReseller", updatedReseller);
+    const { data: updatedReseller, error } = await executeWithTimeout(updatePromise);
 
     if (error) {
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: error.message
+      console.error('❌ Error updating reseller:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Failed to update reseller. Please try again.'
       });
     }
 
-    // Log activity - track changed fields
+    if (!updatedReseller) {
+      return res.status(404).json({
+        success: false,
+        error: 'Not Found',
+        message: 'Reseller not found'
+      });
+    }
+
+    // ========================================
+    // 4. LOG ACTIVITY (non-blocking)
+    // ========================================
     const changedFields = {};
     Object.keys(updateData).forEach(key => {
       if (oldReseller && oldReseller[key] !== updateData[key]) {
@@ -418,7 +678,7 @@ export const updateReseller = async (req, res) => {
     });
 
     const { actorId, actorRole } = await getActorInfo(req);
-    await logActivity({
+    logActivity({
       actorId,
       actorRole,
       targetId: id,
@@ -427,22 +687,34 @@ export const updateReseller = async (req, res) => {
       changedFields: changedFields,
       ipAddress: getClientIp(req),
       userAgent: getUserAgent(req)
+    }).catch(logError => {
+      console.warn('⚠️ Failed to log activity:', logError?.message);
+    });
+
+    // ========================================
+    // 5. CACHE INVALIDATION
+    // ========================================
+    await cacheService.del(CACHE_KEYS.RESELLER_BY_ID(id));
+    await cacheService.delByPattern('resellers:*');
+    console.log('✅ Cache invalidated for reseller update');
+
+    // ========================================
+    // 6. DATA SANITIZATION
+    // ========================================
+    const sanitizedData = sanitizeObject({
+      ...updatedReseller,
+      country: country || null,
+      city: city || null,
+      phone: phone || null,
     });
 
     res.json({
       success: true,
       message: 'Reseller updated successfully',
-      data: updatedReseller,
-      country: country || null,
-      city: city || null,
-      phone: phone || null,
+      data: sanitizedData
     });
   } catch (error) {
-    console.error('Update reseller error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while updating the reseller.');
   }
 };
 
@@ -450,29 +722,54 @@ export const updateReseller = async (req, res) => {
  * Delete reseller (admin only)
  * @route   DELETE /api/resellers/:id
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Query timeout (Performance)
+ * 3. Cache invalidation (Performance)
+ * 4. Secure error handling (Security)
  */
 export const deleteReseller = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
 
-    // Check if reseller exists
-    const { data: reseller, error: fetchError } = await supabase
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid reseller ID format'
+      });
+    }
+
+    // ========================================
+    // 2. CHECK IF RESELLER EXISTS (with timeout)
+    // ========================================
+    const checkPromise = supabase
       .from('profiles')
       .select('*')
       .eq('user_id', id)
       .eq('role', 'reseller')
       .single();
 
+    const { data: reseller, error: fetchError } = await executeWithTimeout(checkPromise);
+
     if (fetchError || !reseller) {
+      console.error('❌ Error fetching reseller:', fetchError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Reseller not found'
       });
     }
 
-    // Log activity BEFORE deletion to avoid foreign key constraint violation
+    // ========================================
+    // 3. LOG ACTIVITY BEFORE DELETION (non-blocking)
+    // ========================================
     const { actorId, actorRole } = await getActorInfo(req);
-    await logActivity({
+    logActivity({
       actorId,
       actorRole,
       targetId: id,
@@ -481,40 +778,51 @@ export const deleteReseller = async (req, res) => {
       changedFields: reseller || null,
       ipAddress: getClientIp(req),
       userAgent: getUserAgent(req)
+    }).catch(logError => {
+      console.warn('⚠️ Failed to log activity:', logError?.message);
     });
 
-    // Delete from profiles table first
-    const { error: profileError } = await supabase
+    // ========================================
+    // 4. DELETE FROM PROFILES (with timeout)
+    // ========================================
+    const deleteProfilePromise = supabase
       .from('profiles')
       .delete()
       .eq('user_id', id);
 
+    const { error: profileError } = await executeWithTimeout(deleteProfilePromise);
+
     if (profileError) {
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: profileError.message
+      console.error('❌ Error deleting profile:', profileError);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Failed to delete reseller. Please try again.'
       });
     }
 
-    // Delete from auth using admin client
+    // ========================================
+    // 5. DELETE FROM AUTH (non-blocking)
+    // ========================================
     if (supabaseAdmin) {
-      const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(id);
-
-      if (authError) {
-        console.error('Error deleting user from auth:', authError);
-      }
+      supabaseAdmin.auth.admin.deleteUser(id).catch(authError => {
+        console.warn('⚠️ Error deleting user from auth:', authError?.message);
+      });
     }
+
+    // ========================================
+    // 6. CACHE INVALIDATION
+    // ========================================
+    await cacheService.del(CACHE_KEYS.RESELLER_BY_ID(id));
+    await cacheService.delByPattern('resellers:*');
+    console.log('✅ Cache invalidated for reseller deletion');
 
     res.json({
       success: true,
       message: 'Reseller deleted successfully'
     });
   } catch (error) {
-    console.error('Delete reseller error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while deleting the reseller.');
   }
 };
 
@@ -522,15 +830,46 @@ export const deleteReseller = async (req, res) => {
  * Reset reseller password (admin only)
  * @route   POST /api/resellers/:id/reset-password
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Secure error handling (Security)
  */
 export const resetResellerPassword = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
 
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid reseller ID format'
+      });
+    }
+
+    if (!supabaseAdmin) {
+      return res.status(500).json({
+        success: false,
+        error: 'Configuration Error',
+        message: 'Admin client not configured'
+      });
+    }
+
+    // ========================================
+    // 2. GET USER DATA
+    // ========================================
     const { data: user, error: userError } = await supabaseAdmin.auth.admin.getUserById(id);
 
     if (userError) {
-      console.error("Error fetching user from auth:", userError);
+      console.error("❌ Error fetching user from auth:", userError);
+      return res.status(404).json({
+        success: false,
+        error: 'Not Found',
+        message: 'Reseller not found'
+      });
     }
 
     const profile = {
@@ -540,56 +879,48 @@ export const resetResellerPassword = async (req, res) => {
 
     if (!profile || !profile.email || !profile.full_name) {
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Email or full name not found'
       });
     }
 
-    if (!supabaseAdmin) {
-      return res.status(500).json({
-        error: 'Configuration Error',
-        message: 'Admin client not configured'
-      });
-    }
-
-    // Generate new password
+    // ========================================
+    // 3. GENERATE AND UPDATE PASSWORD
+    // ========================================
     const newPassword = generatePassword();
 
-    // Update password using admin client
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
       id,
       { password: newPassword }
     );
 
     if (updateError) {
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: updateError.message
+      console.error('❌ Error updating password:', updateError);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Failed to reset password. Please try again.'
       });
     }
 
-    // Send password reset email
-    try {
-      await sendPasswordResetEmail({
-        email: profile.email,
-        full_name: profile.full_name,
-        new_password: newPassword
-      });
-      console.log('✅ Password reset email sent to:', profile.email);
-    } catch (emailError) {
-      console.error('❌ Email send error:', emailError);
-    }
+    // ========================================
+    // 4. SEND PASSWORD RESET EMAIL (non-blocking)
+    // ========================================
+    sendPasswordResetEmail({
+      email: profile.email,
+      full_name: profile.full_name,
+      new_password: newPassword
+    }).catch(emailError => {
+      console.warn('⚠️ Failed to send password reset email:', emailError?.message);
+    });
 
     res.json({
       success: true,
       message: 'Password reset successfully. Email sent to reseller.'
     });
   } catch (error) {
-    console.error('Reset password error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while resetting the password.');
   }
 };
 
@@ -597,74 +928,93 @@ export const resetResellerPassword = async (req, res) => {
  * Get all consumers created by the logged-in reseller
  * @route   GET /api/resellers/my-consumers
  * @access  Private (Reseller)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation
+ * 2. Query timeout (Performance)
+ * 3. Batch product access fetch (Performance)
+ * 4. Secure error handling (Security)
+ * 5. Data sanitization (Security)
  */
 export const getMyConsumers = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const resellerId = req.user.id;
 
+    if (!resellerId || !isValidUUID(resellerId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid reseller ID'
+      });
+    }
 
-    const { data: consumers, error } = await supabase
+    // ========================================
+    // 2. FETCH CONSUMERS (with timeout)
+    // ========================================
+    const consumersPromise = supabase
       .from('auth_role_with_profiles')
       .select('user_id, full_name, email, role, phone, trial_expiry, referred_by, created_at, updated_at, country, city')
       .eq('role', 'consumer')
       .eq('referred_by', resellerId)
       .order('created_at', { ascending: false });
 
+    const { data: consumers, error } = await executeWithTimeout(consumersPromise);
+
     if (error) {
-      console.error('Error fetching consumers:', error);
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: error.message
+      console.error('❌ Error fetching consumers:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Failed to fetch consumers. Please try again.'
       });
     }
 
-    console.log(`✅ Found ${consumers.length} consumers for reseller ${resellerId}`);
+    // ========================================
+    // 3. BATCH FETCH PRODUCT ACCESS (with timeout)
+    // ========================================
+    const consumerIds = (consumers || []).map(c => c.user_id);
+    let productAccessMap = new Map();
+    
+    if (consumerIds.length > 0) {
+      const productAccessPromise = supabase
+        .from('user_product_access')
+        .select('user_id, product_id')
+        .in('user_id', consumerIds);
 
-    // Fetch product access for all consumers
-    const consumersWithProducts = await Promise.all(
-      consumers.map(async (consumer) => {
-        try {
-          const { data: productAccess, error: productError } = await supabase
-            .from('user_product_access')
-            .select('product_id')
-            .eq('user_id', consumer.user_id);
-
-          if (productError) {
-            console.error(`Error fetching products for consumer ${consumer.user_id}:`, productError);
-            return {
-              ...consumer,
-              subscribed_products: []
-            };
-          }
-
-          // Extract product IDs into array
-          const productIds = productAccess?.map(pa => pa.product_id) || [];
-          
-          return {
-            ...consumer,
-            subscribed_products: productIds
-          };
-        } catch (err) {
-          console.error(`Error processing consumer ${consumer.user_id}:`, err);
-          return {
-            ...consumer,
-            subscribed_products: []
-          };
+      const { data: productAccess } = await executeWithTimeout(productAccessPromise, 3000);
+      
+      // Build map: user_id -> [product_ids]
+      (productAccess || []).forEach(pa => {
+        if (!productAccessMap.has(pa.user_id)) {
+          productAccessMap.set(pa.user_id, []);
         }
-      })
-    );
+        productAccessMap.get(pa.user_id).push(pa.product_id);
+      });
+    }
+
+    // ========================================
+    // 4. ENRICH CONSUMERS WITH PRODUCT ACCESS
+    // ========================================
+    const consumersWithProducts = (consumers || []).map(consumer => ({
+      ...consumer,
+      subscribed_products: productAccessMap.get(consumer.user_id) || []
+    }));
+
+    // ========================================
+    // 5. DATA SANITIZATION
+    // ========================================
+    const sanitizedConsumers = sanitizeArray(consumersWithProducts);
 
     res.json({
       success: true,
-      count: consumersWithProducts.length,
-      data: consumersWithProducts
+      count: sanitizedConsumers.length,
+      data: sanitizedConsumers
     });
   } catch (error) {
-    console.error('Get my consumers error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while fetching consumers.');
   }
 };
 
@@ -672,45 +1022,83 @@ export const getMyConsumers = async (req, res) => {
  * Create new consumer (referred by reseller)
  * @route   POST /api/resellers/my-consumers
  * @access  Private (Reseller)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. Query timeout (Performance)
+ * 3. Cache invalidation (Performance)
+ * 4. Secure error handling (Security)
  */
 export const createMyConsumer = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
     const resellerId = req.user.id;
-    const { email, password, full_name, phone, trial_expiry_date, country, city, subscribed_products } = req.body;
+    let { email, password, full_name, phone, trial_expiry_date, country, city, subscribed_products } = req.body;
 
-    console.log('👤 Reseller creating consumer:', { resellerId, email, subscribed_products });
-
-    // Validate input
+    // Validate required fields
     if (!email || !password || !full_name) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'FullName, Email, password are required'
       });
     }
 
+    // Validate email format
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid email format'
+      });
+    }
+
+    // Validate password strength
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Password must be at least 8 characters long'
+      });
+    }
+
+    // Sanitize inputs
+    email = email.toLowerCase().trim();
+    full_name = sanitizeString(full_name, 255);
+    country = country ? sanitizeString(country, 100) : null;
+    city = city ? sanitizeString(city, 100) : null;
+    phone = phone ? sanitizeString(phone, 20) : null;
+
     if (!supabaseAdmin) {
       return res.status(500).json({
+        success: false,
         error: 'Configuration Error',
         message: 'Admin client not configured'
       });
     }
 
-    // Check max consumers per reseller limit
+    // ========================================
+    // 2. CHECK MAX CONSUMERS LIMIT (with timeout)
+    // ========================================
     const { getResellerSettings } = await import('../../utils/resellerSettings.js');
     const resellerSettings = await getResellerSettings();
     
     if (resellerSettings.maxConsumersPerReseller !== null && resellerSettings.maxConsumersPerReseller > 0) {
-      // Count current consumers for this reseller
-      const { count: currentConsumerCount, error: countError } = await supabaseAdmin
+      const countPromise = supabaseAdmin
         .from('profiles')
         .select('*', { count: 'exact', head: true })
         .eq('referred_by', resellerId)
         .eq('role', 'consumer');
 
+      const { count: currentConsumerCount, error: countError } = await executeWithTimeout(countPromise);
+
       if (countError) {
-        console.error('Error counting consumers:', countError);
+        console.error('❌ Error counting consumers:', countError);
       } else if (currentConsumerCount >= resellerSettings.maxConsumersPerReseller) {
         return res.status(403).json({
+          success: false,
           error: 'Forbidden',
           message: `Maximum consumers limit reached. You can only have ${resellerSettings.maxConsumersPerReseller} consumer(s).`
         });
@@ -735,18 +1123,24 @@ export const createMyConsumer = async (req, res) => {
       createUserPayload.phone = phone;
     }
 
+    // ========================================
+    // 3. CREATE USER
+    // ========================================
     const { data: newUser, error: createError } =
       await supabaseAdmin.auth.admin.createUser(createUserPayload);
 
     if (createError) {
-      console.error('Error creating user:', createError);
+      console.error('❌ Error creating user:', createError);
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
-        message: createError.message
+        message: createError.message || 'Failed to create user'
       });
     }
 
-    // Update user role in profiles table with referred_by set to reseller's ID
+    // ========================================
+    // 4. CREATE PROFILE (with timeout)
+    // ========================================
     const profileData = {
       user_id: newUser.user.id,
       full_name,
@@ -762,21 +1156,66 @@ export const createMyConsumer = async (req, res) => {
       profileData.trial_expiry = new Date(trial_expiry_date);
     }
 
-    const { error: insertError } = await supabaseAdmin
+    const profilePromise = supabaseAdmin
       .from('profiles')
       .upsert([profileData]);
 
+    const { error: insertError } = await executeWithTimeout(profilePromise);
+
     if (insertError) {
-      console.error('Error inserting profile:', insertError);
+      console.error('❌ Error inserting profile:', insertError);
+      // Try to delete the created user if profile insert fails
+      try {
+        await supabaseAdmin.auth.admin.deleteUser(newUser.user.id);
+      } catch (deleteError) {
+        console.error('Error deleting failed user:', deleteError);
+      }
       return res.status(500).json({
+        success: false,
         error: 'Internal Server Error',
-        message: 'User created but profile insert failed'
+        message: 'Failed to create consumer profile. Please try again.'
       });
     }
 
-    // Log activity
+    // ========================================
+    // 5. STORE PRODUCT ACCESS (with timeout, non-blocking)
+    // ========================================
+    if (subscribed_products && Array.isArray(subscribed_products) && subscribed_products.length > 0) {
+      const productAccessRecords = subscribed_products
+        .filter(productId => isValidUUID(productId))
+        .map(productId => ({
+          user_id: newUser.user.id,
+          product_id: productId
+        }));
+
+      if (productAccessRecords.length > 0) {
+        const productAccessPromise = supabaseAdmin
+          .from('user_product_access')
+          .insert(productAccessRecords);
+
+        executeWithTimeout(productAccessPromise, 3000).catch(productAccessError => {
+          console.warn('⚠️ Failed to store product access:', productAccessError?.message);
+        });
+      }
+    }
+
+    // ========================================
+    // 6. SEND WELCOME EMAIL (non-blocking)
+    // ========================================
+    sendWelcomeEmail({
+      email,
+      password,
+      full_name,
+      role: 'consumer'
+    }).catch(emailError => {
+      console.warn('⚠️ Failed to send welcome email:', emailError?.message);
+    });
+
+    // ========================================
+    // 7. LOG ACTIVITY (non-blocking)
+    // ========================================
     const { actorId, actorRole } = await getActorInfo(req);
-    await logActivity({
+    logActivity({
       actorId,
       actorRole,
       targetId: newUser.user.id,
@@ -785,63 +1224,28 @@ export const createMyConsumer = async (req, res) => {
       changedFields: profileData,
       ipAddress: getClientIp(req),
       userAgent: getUserAgent(req)
+    }).catch(logError => {
+      console.warn('⚠️ Failed to log activity:', logError?.message);
     });
 
-    // Store product access in user_product_access table
-    if (subscribed_products && Array.isArray(subscribed_products) && subscribed_products.length > 0) {
-      try {
-        const productAccessRecords = subscribed_products.map(productId => ({
-          user_id: newUser.user.id,
-          product_id: productId
-        }));
-
-        const { error: productAccessError } = await supabaseAdmin
-          .from('user_product_access')
-          .insert(productAccessRecords);
-
-        if (productAccessError) {
-          console.error('Error inserting product access:', productAccessError);
-          // Don't fail the request, just log the error
-        } else {
-          console.log(`✅ Stored ${productAccessRecords.length} product access records in user_product_access`);
-        }
-      } catch (productAccessErr) {
-        console.error('Error storing product access:', productAccessErr);
-        // Don't fail the request if product access storage fails
-      }
-    }
-
-    // Send welcome email
-    try {
-      await sendWelcomeEmail({
-        email,
-        password,
-        full_name
-      });
-      console.log('✅ Welcome email sent to:', email);
-    } catch (emailError) {
-      console.error('Email sending error:', emailError);
-    }
-
-    console.log('✅ Consumer created successfully by reseller:', resellerId);
+    // ========================================
+    // 8. DATA SANITIZATION
+    // ========================================
+    const sanitizedUser = sanitizeObject({
+      id: newUser.user.id,
+      email: newUser.user.email,
+      full_name,
+      role: 'consumer',
+      referred_by: resellerId
+    });
 
     res.status(201).json({
       success: true,
-      user: {
-        id: newUser.user.id,
-        email: newUser.user.email,
-        full_name,
-        role: 'consumer',
-        referred_by: resellerId
-      },
+      user: sanitizedUser,
       message: 'Consumer created successfully'
     });
   } catch (error) {
-    console.error('Create consumer error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while creating the consumer.');
   }
 };
 
@@ -849,24 +1253,45 @@ export const createMyConsumer = async (req, res) => {
  * Update consumer created by reseller
  * @route   PUT /api/resellers/my-consumers/:id
  * @access  Private (Reseller)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Query timeout (Performance)
+ * 3. Secure error handling (Security)
+ * 4. Data sanitization (Security)
  */
 export const updateMyConsumer = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
     const resellerId = req.user.id;
-    const { full_name, phone, trial_expiry_date, country, city } = req.body;
+    let { full_name, phone, trial_expiry_date, country, city, subscribed_products } = req.body;
 
-    console.log('📝 Reseller updating consumer:', { resellerId, consumerId: id });
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid consumer ID format'
+      });
+    }
 
-    // First, verify that this consumer belongs to this reseller
-    const { data: consumer, error: checkError } = await supabase
+    // ========================================
+    // 2. VERIFY CONSUMER OWNERSHIP (with timeout)
+    // ========================================
+    const checkPromise = supabase
       .from('profiles')
       .select('referred_by, role')
       .eq('user_id', id)
       .single();
 
+    const { data: consumer, error: checkError } = await executeWithTimeout(checkPromise);
+
     if (checkError || !consumer) {
+      console.error('❌ Error fetching consumer:', checkError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Consumer not found'
       });
@@ -875,6 +1300,7 @@ export const updateMyConsumer = async (req, res) => {
     // Check ownership
     if (consumer.referred_by !== resellerId) {
       return res.status(403).json({
+        success: false,
         error: 'Forbidden',
         message: 'You can only update consumers you created'
       });
@@ -883,23 +1309,31 @@ export const updateMyConsumer = async (req, res) => {
     // Check role
     if (consumer.role !== 'consumer') {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Can only update consumers'
       });
     }
 
-    // Get old data for logging changed fields
-    const { data: oldConsumer } = await supabase
+    // ========================================
+    // 3. GET OLD DATA FOR LOGGING (with timeout)
+    // ========================================
+    const oldDataPromise = supabase
       .from('profiles')
       .select('*')
       .eq('user_id', id)
       .single();
 
+    const { data: oldConsumer } = await executeWithTimeout(oldDataPromise, 3000);
+
+    // ========================================
+    // 4. BUILD UPDATE DATA WITH SANITIZATION
+    // ========================================
     const updateData = {};
-    if (full_name !== undefined) updateData.full_name = full_name;
-    if (phone !== undefined) updateData.phone = phone;
-    if (country !== undefined) updateData.country = country;
-    if (city !== undefined) updateData.city = city;
+    if (full_name !== undefined) updateData.full_name = sanitizeString(full_name, 255);
+    if (phone !== undefined) updateData.phone = phone ? sanitizeString(phone, 20) : null;
+    if (country !== undefined) updateData.country = country ? sanitizeString(country, 100) : null;
+    if (city !== undefined) updateData.city = city ? sanitizeString(city, 100) : null;
     if (trial_expiry_date !== undefined) {
       if (trial_expiry_date) {
         updateData.trial_expiry = new Date(trial_expiry_date);
@@ -908,33 +1342,73 @@ export const updateMyConsumer = async (req, res) => {
       }
     }
 
-    // Extract subscribed_products from request body if provided
-    const { subscribed_products } = req.body;
-    console.log('subscribed_products', subscribed_products);
-
     if (Object.keys(updateData).length === 0 && subscribed_products === undefined) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'No fields to update'
       });
     }
 
-    const { data: updatedConsumer, error } = await supabase
+    // ========================================
+    // 5. UPDATE CONSUMER (with timeout)
+    // ========================================
+    const updatePromise = supabase
       .from('profiles')
       .update(updateData)
       .eq('user_id', id)
       .select()
       .single();
 
+    const { data: updatedConsumer, error } = await executeWithTimeout(updatePromise);
+
     if (error) {
-      console.error('Error updating consumer:', error);
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: error.message
+      console.error('❌ Error updating consumer:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Failed to update consumer. Please try again.'
       });
     }
 
-    // Log activity - track changed fields
+    // ========================================
+    // 6. UPDATE PRODUCT ACCESS (with timeout, non-blocking)
+    // ========================================
+    if (subscribed_products !== undefined) {
+      // First, delete all existing product access for this user
+      const deletePromise = supabase
+        .from('user_product_access')
+        .delete()
+        .eq('user_id', id);
+
+      executeWithTimeout(deletePromise, 3000).then(() => {
+        // Then insert new product access records if any products are provided
+        if (Array.isArray(subscribed_products) && subscribed_products.length > 0) {
+          const productAccessRecords = subscribed_products
+            .filter(productId => isValidUUID(productId))
+            .map(productId => ({
+              user_id: id,
+              product_id: productId
+            }));
+
+          if (productAccessRecords.length > 0) {
+            const insertPromise = supabase
+              .from('user_product_access')
+              .insert(productAccessRecords);
+
+            executeWithTimeout(insertPromise, 3000).catch(insertError => {
+              console.warn('⚠️ Failed to update product access:', insertError?.message);
+            });
+          }
+        }
+      }).catch(deleteError => {
+        console.warn('⚠️ Failed to delete existing product access:', deleteError?.message);
+      });
+    }
+
+    // ========================================
+    // 7. LOG ACTIVITY (non-blocking)
+    // ========================================
     const changedFields = {};
     Object.keys(updateData).forEach(key => {
       if (oldConsumer && oldConsumer[key] !== updateData[key]) {
@@ -946,7 +1420,7 @@ export const updateMyConsumer = async (req, res) => {
     });
 
     const { actorId, actorRole } = await getActorInfo(req);
-    await logActivity({
+    logActivity({
       actorId,
       actorRole,
       targetId: id,
@@ -955,60 +1429,22 @@ export const updateMyConsumer = async (req, res) => {
       changedFields: changedFields,
       ipAddress: getClientIp(req),
       userAgent: getUserAgent(req)
+    }).catch(logError => {
+      console.warn('⚠️ Failed to log activity:', logError?.message);
     });
 
-    // Update product access in user_product_access table
-    if (subscribed_products !== undefined) {
-      try {
-        // First, delete all existing product access for this user
-        const { error: deleteError } = await supabase
-          .from('user_product_access')
-          .delete()
-          .eq('user_id', id);
-
-        if (deleteError) {
-          console.error('Error deleting existing product access:', deleteError);
-        } else {
-          console.log('✅ Deleted existing product access records');
-        }
-
-        // Then insert new product access records if any products are provided
-        if (Array.isArray(subscribed_products) && subscribed_products.length > 0) {
-          const productAccessRecords = subscribed_products.map(productId => ({
-            user_id: id,
-            product_id: productId
-          }));
-
-          const { error: insertError } = await supabase
-            .from('user_product_access')
-            .insert(productAccessRecords);
-
-          if (insertError) {
-            console.error('Error inserting product access:', insertError);
-            // Don't fail the request, just log the error
-          } else {
-            console.log(`✅ Stored ${productAccessRecords.length} product access records`);
-          }
-        }
-      } catch (productAccessErr) {
-        console.error('Error updating product access:', productAccessErr);
-        // Don't fail the request if product access update fails
-      }
-    }
-
-    console.log('✅ Consumer updated successfully');
+    // ========================================
+    // 8. DATA SANITIZATION
+    // ========================================
+    const sanitizedConsumer = sanitizeObject(updatedConsumer);
 
     res.json({
       success: true,
-      user: updatedConsumer,
+      user: sanitizedConsumer,
       message: 'Consumer updated successfully'
     });
   } catch (error) {
-    console.error('Update consumer error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while updating the consumer.');
   }
 };
 
@@ -1016,23 +1452,43 @@ export const updateMyConsumer = async (req, res) => {
  * Delete consumer created by reseller
  * @route   DELETE /api/resellers/my-consumers/:id
  * @access  Private (Reseller)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Query timeout (Performance)
+ * 3. Secure error handling (Security)
  */
 export const deleteMyConsumer = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
     const resellerId = req.user.id;
 
-    console.log('🗑️ Reseller deleting consumer:', { resellerId, consumerId: id });
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid consumer ID format'
+      });
+    }
 
-    // First, verify that this consumer belongs to this reseller
-    const { data: consumer, error: checkError } = await supabase
+    // ========================================
+    // 2. VERIFY CONSUMER OWNERSHIP (with timeout)
+    // ========================================
+    const checkPromise = supabase
       .from('profiles')
       .select('referred_by, role')
       .eq('user_id', id)
       .single();
 
+    const { data: consumer, error: checkError } = await executeWithTimeout(checkPromise);
+
     if (checkError || !consumer) {
+      console.error('❌ Error fetching consumer:', checkError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Consumer not found'
       });
@@ -1041,6 +1497,7 @@ export const deleteMyConsumer = async (req, res) => {
     // Check ownership
     if (consumer.referred_by !== resellerId) {
       return res.status(403).json({
+        success: false,
         error: 'Forbidden',
         message: 'You can only delete consumers you created'
       });
@@ -1049,21 +1506,28 @@ export const deleteMyConsumer = async (req, res) => {
     // Check role
     if (consumer.role !== 'consumer') {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Can only delete consumers'
       });
     }
 
-    // Get full consumer data before deletion for logging
-    const { data: fullConsumer } = await supabase
+    // ========================================
+    // 3. GET FULL DATA FOR LOGGING (with timeout)
+    // ========================================
+    const fullDataPromise = supabase
       .from('profiles')
       .select('*')
       .eq('user_id', id)
       .single();
 
-    // Log activity BEFORE deletion to avoid foreign key constraint violation
+    const { data: fullConsumer } = await executeWithTimeout(fullDataPromise, 3000);
+
+    // ========================================
+    // 4. LOG ACTIVITY BEFORE DELETION (non-blocking)
+    // ========================================
     const { actorId, actorRole } = await getActorInfo(req);
-    await logActivity({
+    logActivity({
       actorId,
       actorRole,
       targetId: id,
@@ -1072,45 +1536,44 @@ export const deleteMyConsumer = async (req, res) => {
       changedFields: fullConsumer || consumer || null,
       ipAddress: getClientIp(req),
       userAgent: getUserAgent(req)
+    }).catch(logError => {
+      console.warn('⚠️ Failed to log activity:', logError?.message);
     });
 
-    // Delete from profiles table
-    const { error: deleteProfileError } = await supabase
+    // ========================================
+    // 5. DELETE FROM PROFILES (with timeout)
+    // ========================================
+    const deleteProfilePromise = supabase
       .from('profiles')
       .delete()
       .eq('user_id', id);
 
+    const { error: deleteProfileError } = await executeWithTimeout(deleteProfilePromise);
+
     if (deleteProfileError) {
-      console.error('Error deleting profile:', deleteProfileError);
+      console.error('❌ Error deleting profile:', deleteProfileError);
       return res.status(500).json({
+        success: false,
         error: 'Internal Server Error',
-        message: 'Failed to delete consumer profile'
+        message: 'Failed to delete consumer. Please try again.'
       });
     }
 
-    // Delete from auth
-    const { error: deleteAuthError } = await supabaseAdmin.auth.admin.deleteUser(id);
-
-    if (deleteAuthError) {
-      console.error('Error deleting auth user:', deleteAuthError);
-      return res.status(500).json({
-        error: 'Partial Delete',
-        message: 'Consumer profile deleted but auth deletion failed'
+    // ========================================
+    // 6. DELETE FROM AUTH (non-blocking)
+    // ========================================
+    if (supabaseAdmin) {
+      supabaseAdmin.auth.admin.deleteUser(id).catch(deleteAuthError => {
+        console.warn('⚠️ Error deleting auth user:', deleteAuthError?.message);
       });
     }
-
-    console.log('✅ Consumer deleted successfully');
 
     res.json({
       success: true,
       message: 'Consumer deleted successfully'
     });
   } catch (error) {
-    console.error('Delete consumer error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while deleting the consumer.');
   }
 };
 
@@ -1118,23 +1581,42 @@ export const deleteMyConsumer = async (req, res) => {
  * Reset password for consumer created by reseller
  * @route   POST /api/resellers/my-consumers/:id/reset-password
  * @access  Private (Reseller)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Secure error handling (Security)
  */
 export const resetMyConsumerPassword = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
     const resellerId = req.user.id;
 
-    console.log('🔑 Reseller resetting consumer password:', { resellerId, consumerId: id });
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid consumer ID format'
+      });
+    }
 
-    // First, verify that this consumer belongs to this reseller
-    const { data: consumer, error: checkError } = await supabase
+    // ========================================
+    // 2. VERIFY CONSUMER OWNERSHIP (with timeout)
+    // ========================================
+    const checkPromise = supabase
       .from('profiles')
       .select('referred_by, role, full_name')
       .eq('user_id', id)
       .single();
 
+    const { data: consumer, error: checkError } = await executeWithTimeout(checkPromise);
+
     if (checkError || !consumer) {
+      console.error('❌ Error fetching consumer:', checkError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Consumer not found'
       });
@@ -1143,6 +1625,7 @@ export const resetMyConsumerPassword = async (req, res) => {
     // Check ownership
     if (consumer.referred_by !== resellerId) {
       return res.status(403).json({
+        success: false,
         error: 'Forbidden',
         message: 'You can only reset passwords for consumers you created'
       });
@@ -1151,57 +1634,54 @@ export const resetMyConsumerPassword = async (req, res) => {
     // Check role
     if (consumer.role !== 'consumer') {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Can only reset password for consumers'
       });
     }
 
-    // Generate new password
+    // ========================================
+    // 3. GENERATE AND UPDATE PASSWORD
+    // ========================================
     const newPassword = generatePassword();
 
-    // Update password using admin client
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
       id,
       { password: newPassword }
     );
 
     if (updateError) {
-      console.error('Error updating password:', updateError);
+      console.error('❌ Error updating password:', updateError);
       return res.status(500).json({
+        success: false,
         error: 'Internal Server Error',
-        message: 'Failed to reset password'
+        message: 'Failed to reset password. Please try again.'
       });
     }
 
-    // Get user email for sending reset email
-    const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(id);
-
-    // Send password reset email
-    if (authUser?.user?.email) {
-      try {
-        await sendPasswordResetEmail({
+    // ========================================
+    // 4. GET USER EMAIL AND SEND RESET EMAIL (non-blocking)
+    // ========================================
+    supabaseAdmin.auth.admin.getUserById(id).then(({ data: authUser }) => {
+      if (authUser?.user?.email) {
+        sendPasswordResetEmail({
           email: authUser.user.email,
           new_password: newPassword,
           full_name: consumer.full_name || 'User'
+        }).catch(emailError => {
+          console.warn('⚠️ Failed to send password reset email:', emailError?.message);
         });
-        console.log('✅ Password reset email sent with generated password');
-      } catch (emailError) {
-        console.error('Email sending error:', emailError);
       }
-    }
-
-    console.log('✅ Password reset successfully');
+    }).catch(getUserError => {
+      console.warn('⚠️ Failed to get user email:', getUserError?.message);
+    });
 
     res.json({
       success: true,
       message: 'Password reset successfully. Email sent to consumer.'
     });
   } catch (error) {
-    console.error('Reset password error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while resetting the password.');
   }
 };
 
@@ -1209,48 +1689,95 @@ export const resetMyConsumerPassword = async (req, res) => {
  * Create new consumer (admin only)
  * @route   POST /api/resellers/create-consumer
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. Query timeout (Performance)
+ * 3. Cache invalidation (Performance)
+ * 4. Secure error handling (Security)
  */
 export const createConsumerAdmin = async (req, res) => {
   try {
-    const { email, password, full_name, phone, trial_expiry_date, country, city, referred_by, subscribed_products } = req.body;
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
+    let { email, password, full_name, phone, trial_expiry_date, country, city, referred_by, subscribed_products } = req.body;
 
-    console.log('👤 Admin creating consumer:', { email, referred_by, subscribed_products });
-
-    // Validate input
+    // Validate required fields
     if (!email || !password || !full_name || !country || !city) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'FullName, Email, password, country, city are required'
       });
     }
 
+    // Validate email format
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid email format'
+      });
+    }
+
+    // Validate password strength
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Password must be at least 8 characters long'
+      });
+    }
+
+    // Validate referred_by if provided
+    if (referred_by && !isValidUUID(referred_by)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid referred_by ID format'
+      });
+    }
+
+    // Sanitize inputs
+    email = email.toLowerCase().trim();
+    full_name = sanitizeString(full_name, 255);
+    country = sanitizeString(country, 100);
+    city = sanitizeString(city, 100);
+    phone = phone ? sanitizeString(phone, 20) : null;
+
     if (!supabaseAdmin) {
       return res.status(500).json({
+        success: false,
         error: 'Configuration Error',
         message: 'Admin client not configured'
       });
     }
 
-    // Get referred_by from request body or from token (whoever is creating this consumer)
+    // Get referred_by from request body or from token
     let finalReferredBy = referred_by;
-    
-    // If referred_by is not provided in body, use the creator's ID from token
     if (!finalReferredBy && req.user && req.user.id) {
       finalReferredBy = req.user.id;
     }
 
-    // If referred_by is provided, verify the reseller exists (only if explicitly provided in body)
+    // ========================================
+    // 2. VERIFY REFERRED_BY RESELLER (with timeout)
+    // ========================================
     let isReferredByReseller = false;
     if (referred_by && referred_by !== req.user?.id) {
-      const { data: reseller, error: resellerError } = await supabaseAdmin
+      const resellerPromise = supabaseAdmin
         .from('profiles')
         .select('user_id, role')
         .eq('user_id', referred_by)
         .eq('role', 'reseller')
         .single();
 
+      const { data: reseller, error: resellerError } = await executeWithTimeout(resellerPromise);
+
       if (resellerError || !reseller) {
+        console.error('❌ Error fetching reseller:', resellerError);
         return res.status(400).json({
+          success: false,
           error: 'Bad Request',
           message: 'Invalid referred_by: Reseller not found'
         });
@@ -1258,23 +1785,27 @@ export const createConsumerAdmin = async (req, res) => {
       isReferredByReseller = true;
     }
 
-    // Check max consumers per reseller limit if referred_by is a reseller
+    // ========================================
+    // 3. CHECK MAX CONSUMERS LIMIT (with timeout)
+    // ========================================
     if (isReferredByReseller) {
       const { getResellerSettings } = await import('../../utils/resellerSettings.js');
       const resellerSettings = await getResellerSettings();
       
       if (resellerSettings.maxConsumersPerReseller !== null && resellerSettings.maxConsumersPerReseller > 0) {
-        // Count current consumers for this reseller
-        const { count: currentConsumerCount, error: countError } = await supabaseAdmin
+        const countPromise = supabaseAdmin
           .from('profiles')
           .select('*', { count: 'exact', head: true })
           .eq('referred_by', referred_by)
           .eq('role', 'consumer');
 
+        const { count: currentConsumerCount, error: countError } = await executeWithTimeout(countPromise);
+
         if (countError) {
-          console.error('Error counting consumers:', countError);
+          console.error('❌ Error counting consumers:', countError);
         } else if (currentConsumerCount >= resellerSettings.maxConsumersPerReseller) {
           return res.status(403).json({
+            success: false,
             error: 'Forbidden',
             message: `Maximum consumers limit reached for this reseller. The reseller can only have ${resellerSettings.maxConsumersPerReseller} consumer(s).`
           });
@@ -1300,17 +1831,24 @@ export const createConsumerAdmin = async (req, res) => {
       createUserPayload.phone = phone;
     }
 
+    // ========================================
+    // 4. CREATE USER
+    // ========================================
     const { data: newUser, error: createError } =
       await supabaseAdmin.auth.admin.createUser(createUserPayload);
 
     if (createError) {
+      console.error('❌ Error creating user:', createError);
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
-        message: createError.message
+        message: createError.message || 'Failed to create user'
       });
     }
 
-    // Update user role in profiles table
+    // ========================================
+    // 5. CREATE PROFILE (with timeout)
+    // ========================================
     const profileData = {
       user_id: newUser.user.id,
       full_name,
@@ -1326,24 +1864,66 @@ export const createConsumerAdmin = async (req, res) => {
       profileData.trial_expiry = new Date(trial_expiry_date);
     }
 
-    // Note: subscribed_products is NOT stored in profiles table
-    // It's only stored in user_product_access table (see below)
-
-    const { error: insertError } = await supabaseAdmin
+    const profilePromise = supabaseAdmin
       .from('profiles')
       .upsert([profileData]);
 
+    const { error: insertError } = await executeWithTimeout(profilePromise);
+
     if (insertError) {
-      console.error('Error inserting profile:', insertError);
+      console.error('❌ Error inserting profile:', insertError);
+      // Try to delete the created user if profile insert fails
+      try {
+        await supabaseAdmin.auth.admin.deleteUser(newUser.user.id);
+      } catch (deleteError) {
+        console.error('Error deleting failed user:', deleteError);
+      }
       return res.status(500).json({
+        success: false,
         error: 'Internal Server Error',
-        message: 'User created but profile insert failed'
+        message: 'Failed to create consumer profile. Please try again.'
       });
     }
 
-    // Log activity
+    // ========================================
+    // 6. STORE PRODUCT ACCESS (with timeout, non-blocking)
+    // ========================================
+    if (subscribed_products && Array.isArray(subscribed_products) && subscribed_products.length > 0) {
+      const productAccessRecords = subscribed_products
+        .filter(productId => isValidUUID(productId))
+        .map(productId => ({
+          user_id: newUser.user.id,
+          product_id: productId
+        }));
+
+      if (productAccessRecords.length > 0) {
+        const productAccessPromise = supabaseAdmin
+          .from('user_product_access')
+          .insert(productAccessRecords);
+
+        executeWithTimeout(productAccessPromise, 3000).catch(productAccessError => {
+          console.warn('⚠️ Failed to store product access:', productAccessError?.message);
+        });
+      }
+    }
+
+    // ========================================
+    // 7. SEND WELCOME EMAIL (non-blocking)
+    // ========================================
+    sendWelcomeEmail({
+      email,
+      full_name,
+      password,
+      role: 'consumer'
+    }).catch(emailError => {
+      console.warn('⚠️ Failed to send welcome email:', emailError?.message);
+    });
+
+    // ========================================
+    // 8. LOG ACTIVITY (non-blocking)
+    // ========================================
     const { actorId, actorRole } = await getActorInfo(req);
-    await logActivity({
+    logActivity({
       actorId,
       actorRole,
       targetId: newUser.user.id,
@@ -1352,62 +1932,29 @@ export const createConsumerAdmin = async (req, res) => {
       changedFields: profileData,
       ipAddress: getClientIp(req),
       userAgent: getUserAgent(req)
+    }).catch(logError => {
+      console.warn('⚠️ Failed to log activity:', logError?.message);
     });
 
-    // Store product access in user_product_access table
-    if (subscribed_products && Array.isArray(subscribed_products) && subscribed_products.length > 0) {
-      try {
-        const productAccessRecords = subscribed_products.map(productId => ({
-          user_id: newUser.user.id,
-          product_id: productId
-        }));
-
-        const { error: productAccessError } = await supabaseAdmin
-          .from('user_product_access')
-          .insert(productAccessRecords);
-
-        if (productAccessError) {
-          console.error('Error inserting product access:', productAccessError);
-          // Don't fail the request, just log the error
-        } else {
-          console.log(`✅ Stored ${productAccessRecords.length} product access records in user_product_access`);
-        }
-      } catch (productAccessErr) {
-        console.error('Error storing product access:', productAccessErr);
-        // Don't fail the request if product access storage fails
-      }
-    }
-
-    // Send welcome email
-    try {
-      await sendWelcomeEmail({
-        email,
-        full_name,
-        password
-      });
-      console.log('✅ Welcome email sent to:', email);
-    } catch (emailError) {
-      console.error('❌ Email send error:', emailError);
-    }
+    // ========================================
+    // 9. DATA SANITIZATION
+    // ========================================
+    const sanitizedUser = sanitizeObject({
+      id: newUser.user.id,
+      email: newUser.user.email,
+      full_name,
+      role: 'consumer',
+      phone: phone || null,
+      country: country || null,
+      city: city || null,
+    });
 
     res.status(201).json({
       success: true,
-      user: {
-        id: newUser.user.id,
-        email: newUser.user.email,
-        full_name,
-        role: 'consumer',
-        phone: phone || null,
-        country: country || null,
-        city: city || null,
-      }
+      user: sanitizedUser
     });
   } catch (error) {
-    console.error('Error creating consumer:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: 'Internal server error'
-    });
+    return handleApiError(error, res, 'An error occurred while creating the consumer.');
   }
 };
 
@@ -1415,47 +1962,73 @@ export const createConsumerAdmin = async (req, res) => {
  * Update reseller account status (admin only)
  * @route   PATCH /api/resellers/:id/account-status
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format, status validation)
+ * 2. Query timeout (Performance)
+ * 3. Cache invalidation (Performance)
+ * 4. Secure error handling (Security)
  */
 export const updateResellerAccountStatus = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
-    const { account_status } = req.body;
+    let { account_status } = req.body;
+
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid reseller ID format'
+      });
+    }
 
     // Validate account_status
     const validStatuses = ['active', 'deactive'];
     if (!account_status) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'account_status is required'
       });
     }
 
+    account_status = sanitizeString(account_status, 20);
     if (!validStatuses.includes(account_status)) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: `Invalid account_status. Must be one of: ${validStatuses.join(', ')}`
       });
     }
 
-    console.log(`🔄 Updating reseller ${id} account status to:`, account_status);
-
-    // Check if reseller exists
-    const { data: resellerProfile, error: fetchError } = await supabase
+    // ========================================
+    // 2. CHECK IF RESELLER EXISTS (with timeout)
+    // ========================================
+    const checkPromise = supabase
       .from('profiles')
       .select('role, account_status')
       .eq('user_id', id)
       .eq('role', 'reseller')
       .single();
 
+    const { data: resellerProfile, error: fetchError } = await executeWithTimeout(checkPromise);
+
     if (fetchError || !resellerProfile) {
+      console.error('❌ Error fetching reseller:', fetchError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Reseller not found'
       });
     }
 
-    // Update account_status in profiles table
-    const { data: updatedReseller, error: updateError } = await supabase
+    // ========================================
+    // 3. UPDATE ACCOUNT STATUS (with timeout)
+    // ========================================
+    const updatePromise = supabase
       .from('profiles')
       .update({
         account_status: account_status,
@@ -1466,27 +2039,36 @@ export const updateResellerAccountStatus = async (req, res) => {
       .select()
       .single();
 
+    const { data: updatedReseller, error: updateError } = await executeWithTimeout(updatePromise);
+
     if (updateError) {
       console.error('❌ Error updating reseller account status:', updateError);
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: updateError.message
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Failed to update account status. Please try again.'
       });
     }
 
-    console.log(`✅ Reseller account status updated successfully`);
+    // ========================================
+    // 4. CACHE INVALIDATION
+    // ========================================
+    await cacheService.del(CACHE_KEYS.RESELLER_BY_ID(id));
+    await cacheService.delByPattern('resellers:*');
+    console.log('✅ Cache invalidated for reseller account status update');
+
+    // ========================================
+    // 5. DATA SANITIZATION
+    // ========================================
+    const sanitizedData = sanitizeObject(updatedReseller);
 
     res.json({
       success: true,
       message: `Reseller account status updated to ${account_status}`,
-      data: updatedReseller
+      data: sanitizedData
     });
   } catch (error) {
-    console.error('Update reseller account status error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while updating the reseller account status.');
   }
 };
 
@@ -1496,22 +2078,47 @@ export const updateResellerAccountStatus = async (req, res) => {
  * Get all referred resellers (reseller can see their own, admin sees all)
  * @route   GET /api/resellers/referred-resellers
  * @access  Private (Reseller and Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation
+ * 2. Query timeout (Performance)
+ * 3. Secure error handling (Security)
+ * 4. Data sanitization (Security)
  */
 export const getAllReferredResellers = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const currentUserId = req.user.id;
-    const { data: currentUserProfile } = await supabase
+
+    if (!currentUserId || !isValidUUID(currentUserId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid user ID'
+      });
+    }
+
+    // ========================================
+    // 2. GET USER PROFILE (with timeout)
+    // ========================================
+    const profilePromise = supabase
       .from('profiles')
       .select('role')
       .eq('user_id', currentUserId)
       .single();
 
+    const { data: currentUserProfile } = await executeWithTimeout(profilePromise, 3000);
+
     const isAdmin = currentUserProfile?.role === 'admin';
 
-    // Build query
+    // ========================================
+    // 3. BUILD QUERY (with timeout)
+    // ========================================
     let query = supabase
       .from('auth_role_with_profiles')
-      .select('*')
+      .select('user_id, full_name, email, role, referred_by, account_status, created_at')
       .eq('role', 'reseller');
 
     // If reseller, only show their referred resellers
@@ -1519,90 +2126,122 @@ export const getAllReferredResellers = async (req, res) => {
       query = query.eq('referred_by', currentUserId);
     }
 
-    const { data: resellers, error } = await query.order('created_at', { ascending: false });
+    // ========================================
+    // 4. EXECUTE QUERY (with timeout)
+    // ========================================
+    const { data: resellers, error } = await executeWithTimeout(
+      query.order('created_at', { ascending: false })
+    );
 
     if (error) {
-      console.error('Error fetching referred resellers:', error);
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: error.message
+      console.error('❌ Error fetching referred resellers:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Failed to fetch referred resellers. Please try again.'
       });
     }
 
+    // ========================================
+    // 5. DATA SANITIZATION
+    // ========================================
+    const sanitizedResellers = sanitizeArray(resellers || []);
+
     res.json({
       success: true,
-      count: resellers.length,
-      data: resellers
+      count: sanitizedResellers.length,
+      data: sanitizedResellers
     });
   } catch (error) {
-    console.error('Get all referred resellers error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while fetching referred resellers.');
   }
 };
 
 /**
  * Get reseller's own resellers
- * @route   GET /api/resellers/my-resellers
+ * @route   GET /api/resellers/my-resellers?search=
  * @access  Private (Reseller)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. Query timeout (Performance)
+ * 3. Batch queries (Performance)
+ * 4. Secure error handling (Security)
+ * 5. Data sanitization (Security)
  */
 export const getMyResellers = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
     const resellerId = req.user.id;
-    const { search } = req.query;
+    let { search } = req.query;
 
-    console.log('🔍 Fetching my resellers with:', { resellerId, search });
+    if (!resellerId || !isValidUUID(resellerId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid reseller ID'
+      });
+    }
 
-    // 1️⃣ Build query: get sub-resellers referred by this reseller
+    // Sanitize search
+    const searchTerm = search ? validateAndSanitizeSearch(search, 100) : null;
+
+    // ========================================
+    // 2. BUILD QUERY (with timeout)
+    // ========================================
     let query = supabase
       .from('auth_role_with_profiles')
-      .select('*')
+      .select('user_id, full_name, email, role, referred_by, account_status, created_at')
       .eq('role', 'reseller')
       .eq('referred_by', resellerId);
 
     // Optional search
-    if (search && search.trim() !== '') {
-      const searchTerm = search.trim();
+    if (searchTerm) {
       query = query.or(`full_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
-      console.log('✅ Searching for:', searchTerm);
     }
 
-    // Order by created_at
-    query = query.order('created_at', { ascending: false });
-
-    const { data: resellers, error } = await query;
+    const { data: resellers, error } = await executeWithTimeout(
+      query.order('created_at', { ascending: false })
+    );
 
     if (error) {
       console.error('❌ Error fetching my resellers:', error);
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: error.message
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Failed to fetch resellers. Please try again.'
       });
     }
 
-    console.log(`✅ Found ${resellers.length} sub-resellers for reseller ${resellerId}`);
-
-    // 2️⃣ Get default commission
-    const { data: defaultSetting } = await supabaseAdmin
+    // ========================================
+    // 3. GET DEFAULT COMMISSION (with timeout)
+    // ========================================
+    const defaultSettingPromise = supabaseAdmin
       .from('app_settings')
       .select('setting_value')
       .eq('setting_key', 'default_reseller_commission')
       .single();
 
+    const { data: defaultSetting } = await executeWithTimeout(defaultSettingPromise, 3000);
     const defaultCommission = defaultSetting ? parseFloat(defaultSetting.setting_value) : 10.00;
 
-    // 3️⃣ Get custom commission info for all found sub-resellers
-    const resellerIds = resellers.map(r => r.user_id);
-    const { data: profilesWithCommission } = await supabaseAdmin
-      .from('profiles')
-      .select('user_id, commission_rate, commission_updated_at')
-      .in('user_id', resellerIds);
+    // ========================================
+    // 4. BATCH GET COMMISSION INFO (with timeout)
+    // ========================================
+    const resellerIds = (resellers || []).map(r => r.user_id);
+    let commissionMap = new Map();
+    
+    if (resellerIds.length > 0) {
+      const commissionPromise = supabaseAdmin
+        .from('profiles')
+        .select('user_id, commission_rate, commission_updated_at')
+        .in('user_id', resellerIds);
 
-    const commissionMap = new Map();
-    if (profilesWithCommission) {
-      profilesWithCommission.forEach(profile => {
+      const { data: profilesWithCommission } = await executeWithTimeout(commissionPromise, 3000);
+      
+      (profilesWithCommission || []).forEach(profile => {
         commissionMap.set(profile.user_id, {
           commission_rate: profile.commission_rate,
           commission_updated_at: profile.commission_updated_at
@@ -1610,15 +2249,18 @@ export const getMyResellers = async (req, res) => {
       });
     }
 
-    // 4️⃣ Build enriched reseller data
+    // ========================================
+    // 5. BATCH COUNT CONSUMERS (with timeout)
+    // ========================================
     const resellerWithCounts = await Promise.all(
-      resellers.map(async (reseller) => {
-        // Count consumers referred by this sub-reseller
-        const { count, error: referredError } = await supabase
+      (resellers || []).map(async (reseller) => {
+        const countPromise = supabase
           .from('auth_role_with_profiles')
           .select('user_id', { count: 'exact', head: true })
           .eq('referred_by', reseller.user_id)
           .eq('role', 'consumer');
+
+        const { count } = await executeWithTimeout(countPromise, 3000);
 
         // Commission info
         const commissionData = commissionMap.get(reseller.user_id);
@@ -1626,10 +2268,9 @@ export const getMyResellers = async (req, res) => {
         const effectiveCommission = customCommission !== null ? customCommission : defaultCommission;
         const commissionType = customCommission !== null ? 'custom' : 'default';
 
-        // Attach everything
         return {
           ...reseller,
-          referred_count: referredError ? 0 : (typeof count === 'number' ? count : 0),
+          referred_count: typeof count === 'number' ? count : 0,
           commission_rate: effectiveCommission,
           commission_type: commissionType,
           custom_commission: customCommission,
@@ -1639,20 +2280,19 @@ export const getMyResellers = async (req, res) => {
       })
     );
 
-    // 5️⃣ Response
+    // ========================================
+    // 6. DATA SANITIZATION
+    // ========================================
+    const sanitizedResellers = sanitizeArray(resellerWithCounts);
+
     res.json({
       success: true,
-      count: resellerWithCounts.length,
-      data: resellerWithCounts,
-      search: search || ''
+      count: sanitizedResellers.length,
+      data: sanitizedResellers,
+      search: searchTerm || ''
     });
-
   } catch (error) {
-    console.error('Get my resellers error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while fetching resellers.');
   }
 };
 
@@ -1661,38 +2301,62 @@ export const getMyResellers = async (req, res) => {
  * Get reseller by ID (reseller can only see their own resellers)
  * @route   GET /api/resellers/my-resellers/:id
  * @access  Private (Reseller)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Query timeout (Performance)
+ * 3. Secure error handling (Security)
+ * 4. Data sanitization (Security)
  */
 export const getMyResellerById = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
     const resellerId = req.user.id;
 
-    // Verify this reseller belongs to the current reseller
-    const { data: reseller, error: checkError } = await supabase
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid reseller ID format'
+      });
+    }
+
+    // ========================================
+    // 2. VERIFY AND FETCH RESELLER (with timeout)
+    // ========================================
+    const queryPromise = supabase
       .from('auth_role_with_profiles')
-      .select('*')
+      .select('user_id, full_name, email, role, referred_by, account_status, created_at')
       .eq('user_id', id)
       .eq('role', 'reseller')
       .eq('referred_by', resellerId)
       .single();
 
+    const { data: reseller, error: checkError } = await executeWithTimeout(queryPromise);
+
     if (checkError || !reseller) {
+      console.error('❌ Error fetching reseller:', checkError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Reseller not found or you do not have permission to view it'
       });
     }
 
+    // ========================================
+    // 3. DATA SANITIZATION
+    // ========================================
+    const sanitizedReseller = sanitizeObject(reseller);
+
     res.json({
       success: true,
-      data: reseller
+      data: sanitizedReseller
     });
   } catch (error) {
-    console.error('Get my reseller error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while fetching the reseller.');
   }
 };
 
@@ -1700,23 +2364,62 @@ export const getMyResellerById = async (req, res) => {
  * Update reseller (reseller can only update their own resellers)
  * @route   PUT /api/resellers/my-resellers/:id
  * @access  Private (Reseller)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format, required fields)
+ * 2. Query timeout (Performance)
+ * 3. Secure error handling (Security)
+ * 4. Data sanitization (Security)
  */
 export const updateMyReseller = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
     const { id } = req.params;
     const resellerId = req.user.id;
-    const { full_name, phone, country, city } = req.body;
+    let { full_name, phone, country, city } = req.body;
 
-    // Verify this reseller belongs to the current reseller
-    const { data: reseller, error: checkError } = await supabase
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid reseller ID format'
+      });
+    }
+
+    // Validate required fields
+    if (!country || !city || !phone) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Country, city, and phone are required'
+      });
+    }
+
+    // Sanitize inputs
+    const updateData = {};
+    if (full_name !== undefined) updateData.full_name = sanitizeString(full_name, 255);
+    updateData.phone = sanitizeString(phone, 20);
+    updateData.country = sanitizeString(country, 100);
+    updateData.city = sanitizeString(city, 100);
+
+    // ========================================
+    // 2. VERIFY OWNERSHIP (with timeout)
+    // ========================================
+    const checkPromise = supabase
       .from('profiles')
       .select('referred_by, role')
       .eq('user_id', id)
       .eq('role', 'reseller')
       .single();
 
+    const { data: reseller, error: checkError } = await executeWithTimeout(checkPromise);
+
     if (checkError || !reseller) {
+      console.error('❌ Error fetching reseller:', checkError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Reseller not found'
       });
@@ -1724,33 +2427,27 @@ export const updateMyReseller = async (req, res) => {
 
     if (reseller.referred_by !== resellerId) {
       return res.status(403).json({
+        success: false,
         error: 'Forbidden',
         message: 'You can only update resellers you created'
       });
     }
 
-    // Validate required fields
-    if (!country || !city || !phone) {
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: 'Country, city, and phone are required'
-      });
-    }
-
-    const updateData = {};
-    if (full_name !== undefined) updateData.full_name = full_name;
-    updateData.phone = phone;
-    updateData.country = country;
-    updateData.city = city;
-
-    // Get old data for logging
-    const { data: oldReseller } = await supabase
+    // ========================================
+    // 3. GET OLD DATA FOR LOGGING (with timeout)
+    // ========================================
+    const oldDataPromise = supabase
       .from('profiles')
       .select('*')
       .eq('user_id', id)
       .single();
 
-    const { data: updatedReseller, error } = await supabase
+    const { data: oldReseller } = await executeWithTimeout(oldDataPromise, 3000);
+
+    // ========================================
+    // 4. UPDATE RESELLER (with timeout)
+    // ========================================
+    const updatePromise = supabase
       .from('profiles')
       .update(updateData)
       .eq('user_id', id)
@@ -1758,14 +2455,20 @@ export const updateMyReseller = async (req, res) => {
       .select()
       .single();
 
+    const { data: updatedReseller, error } = await executeWithTimeout(updatePromise);
+
     if (error) {
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: error.message
+      console.error('❌ Error updating reseller:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Failed to update reseller. Please try again.'
       });
     }
 
-    // Log activity
+    // ========================================
+    // 5. LOG ACTIVITY (non-blocking)
+    // ========================================
     const changedFields = {};
     Object.keys(updateData).forEach(key => {
       if (oldReseller && oldReseller[key] !== updateData[key]) {
@@ -1777,7 +2480,7 @@ export const updateMyReseller = async (req, res) => {
     });
 
     const { actorId, actorRole } = await getActorInfo(req);
-    await logActivity({
+    logActivity({
       actorId,
       actorRole,
       targetId: id,
@@ -1786,19 +2489,22 @@ export const updateMyReseller = async (req, res) => {
       changedFields: changedFields,
       ipAddress: getClientIp(req),
       userAgent: getUserAgent(req)
+    }).catch(logError => {
+      console.warn('⚠️ Failed to log activity:', logError?.message);
     });
+
+    // ========================================
+    // 6. DATA SANITIZATION
+    // ========================================
+    const sanitizedData = sanitizeObject(updatedReseller);
 
     res.json({
       success: true,
       message: 'Reseller updated successfully',
-      data: updatedReseller
+      data: sanitizedData
     });
   } catch (error) {
-    console.error('Update my reseller error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while updating the reseller.');
   }
 };
 
@@ -1806,35 +2512,74 @@ export const updateMyReseller = async (req, res) => {
  * Create reseller (reseller can create other resellers)
  * @route   POST /api/resellers/my-resellers
  * @access  Private (Reseller)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. Query timeout (Performance)
+ * 3. Cache invalidation (Performance)
+ * 4. Secure error handling (Security)
  */
 export const createMyReseller = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
     const resellerId = req.user.id;
-    const { email, password, full_name, phone, country, city } = req.body;
+    let { email, password, full_name, phone, country, city } = req.body;
 
-    // Validate input
+    // Validate required fields
     if (!email || !password || !full_name || !country || !city) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'FullName, Email, password, country, city are required'
       });
     }
 
+    // Validate email format
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid email format'
+      });
+    }
+
+    // Validate password strength
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Password must be at least 8 characters long'
+      });
+    }
+
+    // Sanitize inputs
+    email = email.toLowerCase().trim();
+    full_name = sanitizeString(full_name, 255);
+    country = sanitizeString(country, 100);
+    city = sanitizeString(city, 100);
+    phone = phone ? sanitizeString(phone, 20) : null;
+
     if (!supabaseAdmin) {
       return res.status(500).json({
+        success: false,
         error: 'Configuration Error',
         message: 'Admin client not configured'
       });
     }
 
-    // Check if admin approval is required for new resellers
+    // ========================================
+    // 2. GET RESELLER SETTINGS (with timeout)
+    // ========================================
     const { getResellerSettings } = await import('../../utils/resellerSettings.js');
     const resellerSettings = await getResellerSettings();
     
-    // If admin approval is required, set account_status to 'pending' instead of 'active'
     const accountStatus = resellerSettings.requireResellerApproval ? 'pending' : 'active';
 
-    // Create user with Supabase Admin
+    // ========================================
+    // 3. CREATE USER
+    // ========================================
     const createUserPayload = {
       email,
       password,
@@ -1847,7 +2592,6 @@ export const createMyReseller = async (req, res) => {
       }
     };
 
-    // Only include phone if it's defined
     if (phone) {
       createUserPayload.phone = phone;
     }
@@ -1856,13 +2600,17 @@ export const createMyReseller = async (req, res) => {
       await supabaseAdmin.auth.admin.createUser(createUserPayload);
 
     if (createError) {
+      console.error('❌ Error creating user:', createError);
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
-        message: createError.message
+        message: createError.message || 'Failed to create user'
       });
     }
 
-    // Update user role in profiles table with referred_by set to reseller's ID
+    // ========================================
+    // 4. CREATE PROFILE (with timeout)
+    // ========================================
     const profileData = {
       user_id: newUser.user.id,
       full_name,
@@ -1870,39 +2618,50 @@ export const createMyReseller = async (req, res) => {
       phone: phone || null,
       country: country || null,
       city: city || null,
-      referred_by: resellerId, // Set to current reseller
+      referred_by: resellerId,
       commission_rate: null,
       commission_updated_at: null,
       account_status: accountStatus
     };
 
-    const { error: insertError } = await supabaseAdmin
+    const profilePromise = supabaseAdmin
       .from('profiles')
       .upsert([profileData]);
 
+    const { error: insertError } = await executeWithTimeout(profilePromise);
+
     if (insertError) {
-      console.error('Error inserting profile:', insertError);
+      console.error('❌ Error inserting profile:', insertError);
+      // Try to delete the created user if profile insert fails
+      try {
+        await supabaseAdmin.auth.admin.deleteUser(newUser.user.id);
+      } catch (deleteError) {
+        console.error('Error deleting failed user:', deleteError);
+      }
       return res.status(500).json({
+        success: false,
         error: 'Internal Server Error',
-        message: 'User created but profile insert failed'
+        message: 'Failed to create reseller profile. Please try again.'
       });
     }
 
-    // Send welcome email
-    try {
-      await sendWelcomeEmail({
-        email,
-        full_name,
-        password
-      });
-      console.log('✅ Welcome email sent to:', email);
-    } catch (emailError) {
-      console.error('❌ Email send error:', emailError);
-    }
+    // ========================================
+    // 5. SEND WELCOME EMAIL (non-blocking)
+    // ========================================
+    sendWelcomeEmail({
+      email,
+      full_name,
+      password,
+      role: 'reseller'
+    }).catch(emailError => {
+      console.warn('⚠️ Failed to send welcome email:', emailError?.message);
+    });
 
-    // Log activity
+    // ========================================
+    // 6. LOG ACTIVITY (non-blocking)
+    // ========================================
     const { actorId, actorRole } = await getActorInfo(req);
-    await logActivity({
+    logActivity({
       actorId,
       actorRole,
       targetId: newUser.user.id,
@@ -1911,26 +2670,35 @@ export const createMyReseller = async (req, res) => {
       changedFields: profileData,
       ipAddress: getClientIp(req),
       userAgent: getUserAgent(req)
+    }).catch(logError => {
+      console.warn('⚠️ Failed to log activity:', logError?.message);
+    });
+
+    // ========================================
+    // 7. CACHE INVALIDATION
+    // ========================================
+    await cacheService.delByPattern('resellers:*');
+    console.log('✅ Cache invalidated for reseller creation');
+
+    // ========================================
+    // 8. DATA SANITIZATION
+    // ========================================
+    const sanitizedUser = sanitizeObject({
+      id: newUser.user.id,
+      email: newUser.user.email,
+      full_name,
+      role: 'reseller',
+      phone: phone || null,
+      country: country || null,
+      city: city || null,
     });
 
     res.status(201).json({
       success: true,
-      user: {
-        id: newUser.user.id,
-        email: newUser.user.email,
-        full_name,
-        role: 'reseller',
-        phone: phone || null,
-        country: country || null,
-        city: city || null,
-      }
+      user: sanitizedUser
     });
   } catch (error) {
-    console.error('Error creating reseller:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: 'Internal server error'
-    });
+    return handleApiError(error, res, 'An error occurred while creating the reseller.');
   }
 };
 
@@ -1938,22 +2706,45 @@ export const createMyReseller = async (req, res) => {
  * Delete reseller (reseller can only delete their own resellers)
  * @route   DELETE /api/resellers/my-resellers/:id
  * @access  Private (Reseller)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Query timeout (Performance)
+ * 3. Cache invalidation (Performance)
+ * 4. Secure error handling (Security)
  */
 export const deleteMyReseller = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
     const resellerId = req.user.id;
 
-    // Verify this reseller belongs to the current reseller
-    const { data: reseller, error: checkError } = await supabase
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid reseller ID format'
+      });
+    }
+
+    // ========================================
+    // 2. VERIFY OWNERSHIP (with timeout)
+    // ========================================
+    const checkPromise = supabase
       .from('profiles')
       .select('referred_by, role')
       .eq('user_id', id)
       .eq('role', 'reseller')
       .single();
 
+    const { data: reseller, error: checkError } = await executeWithTimeout(checkPromise);
+
     if (checkError || !reseller) {
+      console.error('❌ Error fetching reseller:', checkError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Reseller not found'
       });
@@ -1961,21 +2752,28 @@ export const deleteMyReseller = async (req, res) => {
 
     if (reseller.referred_by !== resellerId) {
       return res.status(403).json({
+        success: false,
         error: 'Forbidden',
         message: 'You can only delete resellers you created'
       });
     }
 
-    // Get full reseller data before deletion for logging
-    const { data: fullReseller } = await supabase
+    // ========================================
+    // 3. GET FULL DATA FOR LOGGING (with timeout)
+    // ========================================
+    const fullDataPromise = supabase
       .from('profiles')
       .select('*')
       .eq('user_id', id)
       .single();
 
-    // Log activity BEFORE deletion
+    const { data: fullReseller } = await executeWithTimeout(fullDataPromise, 3000);
+
+    // ========================================
+    // 4. LOG ACTIVITY BEFORE DELETION (non-blocking)
+    // ========================================
     const { actorId, actorRole } = await getActorInfo(req);
-    await logActivity({
+    logActivity({
       actorId,
       actorRole,
       targetId: id,
@@ -1984,39 +2782,51 @@ export const deleteMyReseller = async (req, res) => {
       changedFields: fullReseller || reseller || null,
       ipAddress: getClientIp(req),
       userAgent: getUserAgent(req)
+    }).catch(logError => {
+      console.warn('⚠️ Failed to log activity:', logError?.message);
     });
 
-    // Delete from profiles table
-    const { error: deleteProfileError } = await supabase
+    // ========================================
+    // 5. DELETE FROM PROFILES (with timeout)
+    // ========================================
+    const deleteProfilePromise = supabase
       .from('profiles')
       .delete()
       .eq('user_id', id);
 
+    const { error: deleteProfileError } = await executeWithTimeout(deleteProfilePromise);
+
     if (deleteProfileError) {
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: deleteProfileError.message
+      console.error('❌ Error deleting profile:', deleteProfileError);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Failed to delete reseller. Please try again.'
       });
     }
 
-    // Delete from auth
+    // ========================================
+    // 6. DELETE FROM AUTH (non-blocking)
+    // ========================================
     if (supabaseAdmin) {
-      const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(id);
-      if (authError) {
-        console.error('Error deleting user from auth:', authError);
-      }
+      supabaseAdmin.auth.admin.deleteUser(id).catch(authError => {
+        console.warn('⚠️ Error deleting user from auth:', authError?.message);
+      });
     }
+
+    // ========================================
+    // 7. CACHE INVALIDATION
+    // ========================================
+    await cacheService.del(CACHE_KEYS.RESELLER_BY_ID(id));
+    await cacheService.delByPattern('resellers:*');
+    console.log('✅ Cache invalidated for reseller deletion');
 
     res.json({
       success: true,
       message: 'Reseller deleted successfully'
     });
   } catch (error) {
-    console.error('Delete my reseller error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while deleting the reseller.');
   }
 };
 

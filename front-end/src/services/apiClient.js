@@ -700,6 +700,69 @@ const apiClient = {
       });
     },
   },
+
+  // ==================== PERMISSIONS ====================
+  permissions: {
+    /**
+     * Get all permissions with optional filters
+     */
+    getAll: (queryString = '') => axiosInstance.get(`/permissions${queryString}`),
+
+    /**
+     * Get permission by ID
+     */
+    getById: (id) => axiosInstance.get(`/permissions/${id}`),
+
+    /**
+     * Get current user's permissions
+     */
+    getMy: () => axiosInstance.get('/permissions/me'),
+
+    /**
+     * Get user permissions
+     */
+    getUserPermissions: (userId) => axiosInstance.get(`/permissions/user/${userId}`),
+
+    /**
+     * Get role permissions
+     */
+    getRolePermissions: (role) => axiosInstance.get(`/permissions/role/${role}`),
+
+    /**
+     * Check if user has permission
+     */
+    check: (userId, permissionName) => axiosInstance.get(`/permissions/check/${userId}/${permissionName}`),
+
+    /**
+     * Assign permissions to role
+     */
+    assignToRole: (role, permissionIds) => axiosInstance.post(`/permissions/role/${role}/assign`, { permissionIds }),
+
+    /**
+     * Remove permissions from role
+     */
+    removeFromRole: (role, permissionIds) => axiosInstance.delete(`/permissions/role/${role}/remove`, { data: { permissionIds } }),
+
+    /**
+     * Assign permissions to user
+     */
+    assignToUser: (userId, permissionIds, granted = true) => axiosInstance.post(`/permissions/user/${userId}/assign`, { permissionIds, granted }),
+
+    /**
+     * Remove permissions from user
+     */
+    removeFromUser: (userId, permissionIds) => axiosInstance.delete(`/permissions/user/${userId}/remove`, { data: { permissionIds } }),
+
+    /**
+     * Set systemadmin status for user
+     */
+    setSystemAdmin: (userId, isSystemAdmin) => axiosInstance.patch(`/permissions/user/${userId}/systemadmin`, { is_systemadmin: isSystemAdmin }),
+
+    /**
+     * Get all users for permissions management
+     */
+    getAllUsers: (search = '') => axiosInstance.get(`/permissions/users${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+  },
 };
 
 export default apiClient;

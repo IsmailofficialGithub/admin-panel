@@ -83,6 +83,20 @@ export {
   updateResellerSettings
 } from './settings';
 
+export {
+  getAllPermissions,
+  getPermissionById,
+  getMyPermissions,
+  getUserPermissions,
+  getRolePermissions,
+  checkUserPermission,
+  assignPermissionsToRole,
+  removePermissionsFromRole,
+  assignPermissionsToUser,
+  removePermissionsFromUser,
+  setSystemAdmin
+} from './permissions';
+
 // Re-export API client for direct access if needed
 export { default as apiClient } from '../../services/apiClient';
 

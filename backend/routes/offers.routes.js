@@ -8,6 +8,12 @@ import {
   getActiveOffer
 } from './controllers/offers.controller.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import {
+  createRateLimitMiddleware,
+  sanitizeInputMiddleware
+} from '../utils/apiOptimization.js';
+
+const rateLimitMiddleware = createRateLimitMiddleware('offers', 100);
 
 const router = express.Router();
 
@@ -16,42 +22,42 @@ const router = express.Router();
  * @desc    Get all offers with pagination and filters
  * @access  Private (Admin or Reseller) - Read-only for resellers
  */
-router.get('/', authenticate, requireRole(['admin', 'reseller']), getAllOffers);
+router.get('/', authenticate, requireRole(['admin', 'reseller']), rateLimitMiddleware, sanitizeInputMiddleware, getAllOffers);
 
 /**
  * @route   GET /api/offers/active/:date?
  * @desc    Get active offer for a specific date (or current date)
  * @access  Private (Admin or Reseller)
  */
-router.get('/active/:date?', authenticate, requireRole(['admin', 'reseller']), getActiveOffer);
+router.get('/active/:date?', authenticate, requireRole(['admin', 'reseller']), rateLimitMiddleware, sanitizeInputMiddleware, getActiveOffer);
 
 /**
  * @route   GET /api/offers/:id
  * @desc    Get a single offer by ID
  * @access  Private (Admin)
  */
-router.get('/:id', authenticate, requireRole(['admin']), getOfferById);
+router.get('/:id', authenticate, requireRole(['admin']), rateLimitMiddleware, sanitizeInputMiddleware, getOfferById);
 
 /**
  * @route   POST /api/offers
  * @desc    Create a new offer
  * @access  Private (Admin)
  */
-router.post('/', authenticate, requireRole(['admin']), createOffer);
+router.post('/', authenticate, requireRole(['admin']), rateLimitMiddleware, sanitizeInputMiddleware, createOffer);
 
 /**
  * @route   PUT /api/offers/:id
  * @desc    Update an offer
  * @access  Private (Admin)
  */
-router.put('/:id', authenticate, requireRole(['admin']), updateOffer);
+router.put('/:id', authenticate, requireRole(['admin']), rateLimitMiddleware, sanitizeInputMiddleware, updateOffer);
 
 /**
  * @route   DELETE /api/offers/:id
  * @desc    Delete an offer
  * @access  Private (Admin)
  */
-router.delete('/:id', authenticate, requireRole(['admin']), deleteOffer);
+router.delete('/:id', authenticate, requireRole(['admin']), rateLimitMiddleware, sanitizeInputMiddleware, deleteOffer);
 
 export default router;
 

@@ -6,7 +6,9 @@ import {
   updateConsumer,
   deleteConsumer,
   resetConsumerPassword,
-  updateConsumerAccountStatus
+  updateConsumerAccountStatus,
+  rateLimitMiddleware,
+  sanitizeInputMiddleware
 } from './controllers/consumers.controller.js';
 
 const router = express.Router();
@@ -16,41 +18,41 @@ const router = express.Router();
  * @desc    Get all consumers (admin only)
  * @access  Private (Admin)
  */
-router.get('/', authenticate, requireAdmin, getAllConsumers);
+router.get('/', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, getAllConsumers);
 
 /**
  * @route   GET /api/consumers/:id
  * @desc    Get consumer by ID
  * @access  Private (Admin)
  */
-router.get('/:id', authenticate, requireAdmin, getConsumerById);
+router.get('/:id', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, getConsumerById);
 
 /**
  * @route   PUT /api/consumers/:id
  * @desc    Update consumer (admin only)
  * @access  Private (Admin)
  */
-router.put('/:id', authenticate, requireAdmin, updateConsumer);
+router.put('/:id', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, updateConsumer);
 
 /**
  * @route   DELETE /api/consumers/:id
  * @desc    Delete consumer (admin only)
  * @access  Private (Admin)
  */
-router.delete('/:id', authenticate, requireAdmin, deleteConsumer);
+router.delete('/:id', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, deleteConsumer);
 
 /**
  * @route   POST /api/consumers/:id/reset-password
  * @desc    Reset consumer password (admin only)
  * @access  Private (Admin)
  */
-router.post('/:id/reset-password', authenticate, requireAdmin, resetConsumerPassword);
+router.post('/:id/reset-password', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, resetConsumerPassword);
 
 /**
  * @route   PATCH /api/consumers/:id/account-status
  * @desc    Update consumer account status (admin only)
  * @access  Private (Admin)
  */
-router.patch('/:id/account-status', authenticate, requireAdmin, updateConsumerAccountStatus);
+router.patch('/:id/account-status', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, updateConsumerAccountStatus);
 
 export default router;

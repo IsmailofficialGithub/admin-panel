@@ -2,6 +2,15 @@ import Stripe from 'stripe';
 import { supabaseAdmin } from '../../config/database.js';
 import { decryptPaymentData } from '../../utils/encryption.js';
 import { logActivity, getActorInfo, getClientIp, getUserAgent } from '../../services/activityLogger.js';
+import {
+  sanitizeString,
+  isValidUUID,
+  sanitizeObject
+} from '../../utils/validation.js';
+import {
+  handleApiError,
+  executeWithTimeout
+} from '../../utils/apiOptimization.js';
 
 // Initialize Stripe with secret key from environment
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
@@ -12,13 +21,23 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
  * Create payment intent for Stripe
  * @route   POST /api/stripe/create-payment-intent
  * @access  Public (but requires encrypted data)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. Query timeout (Performance)
+ * 3. Secure error handling (Security)
+ * 4. Data sanitization (Security)
  */
 export const createPaymentIntent = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
     const { encryptedData } = req.body;
 
     if (!encryptedData) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Encrypted payment data is required'
       });
@@ -31,31 +50,60 @@ export const createPaymentIntent = async (req, res) => {
     } catch (decryptError) {
       console.error('Decryption error:', decryptError);
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Invalid or corrupted payment data'
       });
     }
 
-    const { amount, invoice_id, user_id, invoice_number } = paymentData;
+    let { amount, invoice_id, user_id, invoice_number, currency, payment_method_types, description, metadata } = paymentData;
 
     // Validate required fields
     if (!amount || !invoice_id || !user_id || !invoice_number) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Missing required payment information'
       });
     }
 
-    // Validate invoice exists and belongs to user
-    const { data: invoice, error: invoiceError } = await supabaseAdmin
-      .from('invoices')
-      .select('*')
-      .eq('id', invoice_id)
-      .single();
+    // Validate UUIDs
+    if (!isValidUUID(invoice_id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid invoice ID format'
+      });
+    }
 
+    if (!isValidUUID(user_id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid user ID format'
+      });
+    }
+
+    // Sanitize optional fields
+    currency = currency ? sanitizeString(currency) : 'usd';
+    description = description ? sanitizeString(description) : `Payment for invoice ${invoice_number}`;
+    invoice_number = sanitizeString(invoice_number);
+
+    // ========================================
+    // 2. QUERY TIMEOUT - Fetch invoice
+    // ========================================
+    const { data: invoice, error: invoiceError } = await executeWithTimeout(
+      supabaseAdmin
+        .from('invoices')
+        .select('id, status, total_amount, consumer_id')
+        .eq('id', invoice_id)
+        .single(),
+      5000 // 5 second timeout for invoice fetch
+    );
 
     if (invoiceError || !invoice) {
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Invoice not found'
       });
@@ -72,6 +120,7 @@ export const createPaymentIntent = async (req, res) => {
     // Check if invoice is already paid
     if (invoice.status === 'paid') {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Invoice is already paid',
         invoice_status: 'paid'
@@ -83,18 +132,18 @@ export const createPaymentIntent = async (req, res) => {
 
     if (amountInCents <= 0) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Invalid payment amount'
       });
     }
 
-    // Create payment intent with international bank transfer support
-    // By not specifying payment_method_types, Stripe Payment Element will automatically
-    // show all available payment methods (cards, bank transfers for all countries, etc.)
-    // based on the customer's location and currency
-    const paymentIntent = await stripe.paymentIntents.create({
+    // ========================================
+    // 3. QUERY TIMEOUT - Create Stripe payment intent
+    // ========================================
+    const paymentIntentPromise = stripe.paymentIntents.create({
       amount: amountInCents,
-      currency: 'usd',
+      currency: currency.toLowerCase(),
       // Let Stripe automatically detect and show available payment methods
       // This includes: cards, US ACH, SEPA (EU), Bacs (UK), and other international bank transfers
       // Payment Element will show appropriate methods based on customer location
@@ -106,22 +155,28 @@ export const createPaymentIntent = async (req, res) => {
         invoice_id,
         user_id,
         invoice_number,
+        ...(metadata && typeof metadata === 'object' ? metadata : {})
       },
-      description: `Payment for invoice ${invoice_number}`,
+      description: description,
     });
 
+    const paymentIntent = await executeWithTimeout(
+      paymentIntentPromise,
+      10000 // 10 second timeout for Stripe API call
+    );
 
-    res.json({
+    // ========================================
+    // 4. DATA SANITIZATION
+    // ========================================
+    const response = {
       success: true,
       clientSecret: paymentIntent.client_secret,
       paymentIntentId: paymentIntent.id,
-    });
+    };
+
+    res.json(sanitizeObject(response));
   } catch (error) {
-    console.error('Error creating payment intent:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message || 'Failed to create payment intent'
-    });
+    return handleApiError(error, res, 'An error occurred while creating payment intent.');
   }
 };
 
@@ -129,23 +184,44 @@ export const createPaymentIntent = async (req, res) => {
  * Confirm payment and update invoice
  * @route   POST /api/stripe/confirm-payment
  * @access  Public
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. Query timeout (Performance)
+ * 3. Secure error handling (Security)
+ * 4. Data sanitization (Security)
  */
 export const confirmPayment = async (req, res) => {
   try {
-    const { paymentIntentId, encryptedData } = req.body;
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
+    let { paymentIntentId, encryptedData, paymentMethodType, invoiceId } = req.body;
 
     if (!paymentIntentId) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Payment intent ID is required'
       });
     }
 
-    // Retrieve payment intent from Stripe
-    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    paymentIntentId = sanitizeString(paymentIntentId);
+    paymentMethodType = paymentMethodType ? sanitizeString(paymentMethodType) : null;
+    invoiceId = invoiceId ? sanitizeString(invoiceId) : null;
+
+    // ========================================
+    // 2. QUERY TIMEOUT - Retrieve payment intent from Stripe
+    // ========================================
+    const paymentIntentPromise = stripe.paymentIntents.retrieve(paymentIntentId);
+    const paymentIntent = await executeWithTimeout(
+      paymentIntentPromise,
+      10000 // 10 second timeout for Stripe API call
+    );
 
     if (!paymentIntent) {
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Payment intent not found'
       });
@@ -212,10 +288,13 @@ export const confirmPayment = async (req, res) => {
         ) || paymentStatus === 'processing';
       }
       
+      // ========================================
+      // 3. QUERY TIMEOUT - Update invoice status
+      // ========================================
       // For succeeded payments, mark invoice as paid immediately
       // For processing (bank transfers), invoice stays under_review until payment completes
       if (paymentStatus === 'succeeded') {
-        const { error: updateError } = await supabaseAdmin
+        const updatePromise = supabaseAdmin
           .from('invoices')
           .update({ 
             status: 'paid',
@@ -223,12 +302,13 @@ export const confirmPayment = async (req, res) => {
           })
           .eq('id', invoice_id);
 
+        const { error: updateError } = await executeWithTimeout(updatePromise, 5000);
         if (updateError) {
           console.error('Error updating invoice status:', updateError);
         }
       } else if (paymentStatus === 'processing') {
         // Bank transfer is processing - set invoice to under_review
-        const { error: updateError } = await supabaseAdmin
+        const updatePromise = supabaseAdmin
           .from('invoices')
           .update({ 
             status: 'under_review',
@@ -237,12 +317,15 @@ export const confirmPayment = async (req, res) => {
           .eq('id', invoice_id)
           .in('status', ['unpaid', 'pending']);
 
+        const { error: updateError } = await executeWithTimeout(updatePromise, 5000);
         if (updateError) {
           console.error('Error updating invoice status:', updateError);
         }
       }
 
-      // Create payment record in invoice_payments table
+      // ========================================
+      // 4. QUERY TIMEOUT - Create payment record
+      // ========================================
       const paymentRecord = {
         invoice_id,
         payment_mode: isBankTransfer ? 'bank_transfer' : 'online_payment',
@@ -257,10 +340,11 @@ export const confirmPayment = async (req, res) => {
         reviewed_at: null,
       };
 
-      const { error: paymentRecordError } = await supabaseAdmin
+      const insertPromise = supabaseAdmin
         .from('invoice_payments')
         .insert([paymentRecord]);
 
+      const { error: paymentRecordError } = await executeWithTimeout(insertPromise, 5000);
       if (paymentRecordError) {
         console.error('Error creating payment record:', paymentRecordError);
       }
@@ -287,7 +371,10 @@ export const confirmPayment = async (req, res) => {
         console.error('Error logging activity:', logError);
       }
 
-      res.json({
+      // ========================================
+      // 5. DATA SANITIZATION
+      // ========================================
+      const response = {
         success: true,
         message: paymentStatus === 'succeeded' 
           ? 'Payment confirmed successfully' 
@@ -298,10 +385,13 @@ export const confirmPayment = async (req, res) => {
           amount: paymentIntent.amount / 100,
           payment_method_type: paymentMethodType,
         },
-      });
+      };
+
+      res.json(sanitizeObject(response));
     } else if (paymentIntent.status === 'requires_payment_method') {
       console.log('[fail] Payment requires payment method:', paymentIntentId);
       res.status(400).json({
+        success: false,
         error: 'Payment Failed',
         message: 'Payment method is required',
         paymentIntent: {
@@ -312,6 +402,7 @@ export const confirmPayment = async (req, res) => {
     } else if (paymentIntent.status === 'canceled') {
       console.log('[fail] Payment canceled:', paymentIntentId);
       res.status(400).json({
+        success: false,
         error: 'Payment Canceled',
         message: 'Payment was canceled',
         paymentIntent: {
@@ -322,6 +413,7 @@ export const confirmPayment = async (req, res) => {
     } else {
       console.log('[fail] Payment failed with status:', paymentIntent.status, paymentIntentId);
       res.status(400).json({
+        success: false,
         error: 'Payment Failed',
         message: `Payment status: ${paymentIntent.status}`,
         paymentIntent: {
@@ -331,11 +423,7 @@ export const confirmPayment = async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('[fail] Error confirming payment:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message || 'Failed to confirm payment'
-    });
+    return handleApiError(error, res, 'An error occurred while confirming payment.');
   }
 };
 

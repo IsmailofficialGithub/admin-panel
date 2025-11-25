@@ -132,6 +132,11 @@ function Sidebar({ color, image, routes }) {
         </div>
         <Nav>
           {routes.map((prop, key) => {
+            // Filter out systemAdminOnly routes if user is not systemadmin
+            if (prop.systemAdminOnly && (!profile || profile.is_systemadmin !== true)) {
+              return null;
+            }
+            
             if (!prop.redirect && prop.name && !prop.upgrade && !prop.invisible) {
               const hasSubmenus = prop.submenus && prop.submenus.length > 0;
               const isExpanded = expandedMenus[key];

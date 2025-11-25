@@ -76,7 +76,6 @@ const Login = () => {
           .select('*')
           .eq('user_id', data.user.id)
           .maybeSingle();
-
         if (profileError || !profile?.role) {
           console.error('❌ Login: No profile or role found');
           // Sign out before clearing to ensure complete session removal
@@ -96,7 +95,6 @@ const Login = () => {
           setIsLoading(false);
           return;
         }
-        console.log("profile", profile);
 
         // Check if consumer account is deactivated BEFORE completing login
         if (profile.role === 'consumer' && profile.account_status === 'deactive') {

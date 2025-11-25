@@ -2,13 +2,13 @@
 import Dashboard from "views/Dashboard.js";
 import Users from "views/Users.js";
 import Consumers from "views/Consumers.js";
-import UserProfile from "views/UserProfile.js";
-import TableList from "views/TableList.js";
-import Typography from "views/Typography.js";
-import Icons from "views/Icons.js";
-import Maps from "views/Maps.js";
-import Notifications from "views/Notifications.js";
-import Upgrade from "views/Upgrade.js";
+// import UserProfile from "views/UserProfile.js";
+// import TableList from "views/TableList.js";
+// import Typography from "views/Typography.js";
+// import Icons from "views/Icons.js";
+// import Maps from "views/Maps.js";
+// import Notifications from "views/Notifications.js";
+// import Upgrade from "views/Upgrade.js";
 import Resellers from "views/Resellers.js";
 import ResellerDetail from "views/ResellerDetail.js";
 import ResellerEarningsBreakdown from "views/ResellerEarningsBreakdown.js";
@@ -25,6 +25,7 @@ import AdminSettings from "views/AdminSettings.js";
 import Offers from "views/Offers.js";
 import ProductDetail from "views/ProductDetail.js";
 import Customers from "views/Customers.js";
+import Permissions from "views/Permissions.js";
 
 const dashboardRoutes = [
   // Hidden routes (not shown in sidebar)
@@ -180,48 +181,14 @@ const dashboardRoutes = [
     component: AdminSettings,
     layout: "/admin"
   },
-  // {
-  //   path: "/user-profile",
-  //   name: "User Profile",
-  //   icon: "nc-icon nc-circle-09",
-  //   component: UserProfile,
-  //   layout: "/admin"
-  // },
-  // {
-  //   path: "/table",
-  //   name: "Table List",
-  //   icon: "nc-icon nc-notes",
-  //   component: TableList,
-  //   layout: "/admin"
-  // },
-  // {
-  //   path: "/typography",
-  //   name: "Typography",
-  //   icon: "nc-icon nc-paper-2",
-  //   component: Typography,
-  //   layout: "/admin"
-  // },
-  // {
-  //   path: "/icons",
-  //   name: "Icons",
-  //   icon: "nc-icon nc-atom",
-  //   component: Icons,
-  //   layout: "/admin"
-  // },
-  // {
-  //   path: "/maps",
-  //   name: "Maps",
-  //   icon: "nc-icon nc-pin-3",
-  //   component: Maps,
-  //   layout: "/admin"
-  // },
-  // {
-  //   path: "/notifications",
-  //   name: "Notifications",
-  //   icon: "nc-icon nc-bell-55",
-  //   component: Notifications,
-  //   layout: "/admin"
-  // }
+  {
+    path: "/permissions",
+    name: "Permissions",
+    icon: "nc-icon nc-key-25",
+    component: Permissions,
+    layout: "/admin",
+    systemAdminOnly: true // Only show for systemadmin
+  },
 ];
 
 export default dashboardRoutes;

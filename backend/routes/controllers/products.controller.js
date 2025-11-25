@@ -1,63 +1,175 @@
 import { supabase } from '../../config/database.js';
+import { cacheService } from '../../config/redis.js';
+import {
+  sanitizeString,
+  isValidUUID,
+  validatePagination,
+  sanitizeObject,
+  sanitizeArray
+} from '../../utils/validation.js';
+import {
+  executeWithTimeout,
+  handleApiError,
+  createPaginatedResponse
+} from '../../utils/apiOptimization.js';
+
+// Cache configuration
+const CACHE_TTL = 300; // 5 minutes
+const CACHE_KEYS = {
+  ALL_PRODUCTS: (page, limit) => `products:list:page${page}_limit${limit}`,
+  PRODUCT_BY_ID: (id) => `products:id:${id}`,
+};
+
+// Export middleware for use in routes
+import {
+  createRateLimitMiddleware,
+  sanitizeInputMiddleware
+} from '../../utils/apiOptimization.js';
+export const rateLimitMiddleware = createRateLimitMiddleware('products', 100);
+export { sanitizeInputMiddleware };
 
 /**
- * Get all products
- * @route   GET /api/products
- * @access  Private (Admin)
+ * Get all products with pagination
+ * @route   GET /api/products?page=1&limit=50
+ * @access  Private (Admin/Reseller/Consumer)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Pagination support (Performance)
+ * 2. Field selection instead of * (Performance)
+ * 3. Query timeout (Performance)
+ * 4. Better error handling (Security)
+ * 5. Data sanitization (Security)
+ * 6. Redis caching (Performance)
  */
 export const getAllProducts = async (req, res) => {
   try {
-    console.log('📦 Fetching all products...');
+    // ========================================
+    // 1. INPUT VALIDATION & PAGINATION
+    // ========================================
+    const { page, limit } = req.query;
+    const { pageNum, limitNum } = validatePagination(page, limit);
+    const offset = (pageNum - 1) * limitNum;
 
-    const { data: products, error } = await supabase
+    console.log('📦 Fetching products with pagination:', { page: pageNum, limit: limitNum });
+
+    // ========================================
+    // 2. CACHE CHECK
+    // ========================================
+    const cacheKey = CACHE_KEYS.ALL_PRODUCTS(pageNum, limitNum);
+    const cachedData = await cacheService.get(cacheKey);
+    if (cachedData) {
+      console.log('✅ Cache HIT for products list');
+      return res.json(cachedData);
+    }
+
+    console.log('❌ Cache MISS for products list - fetching from database');
+
+    // ========================================
+    // 3. OPTIMIZED DATABASE QUERY
+    // ========================================
+    const query = supabase
       .from('products')
-      .select('*')
-      .order('created_at', { ascending: false });
+      .select('id, name, description, price, created_at, updated_at', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limitNum - 1);
 
+    const { data: products, error, count } = await executeWithTimeout(query);
+
+    // ========================================
+    // 4. ERROR HANDLING (Security)
+    // ========================================
     if (error) {
       console.error('❌ Error fetching products:', error);
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
-        message: error.message
+        message: 'Failed to fetch products. Please try again.'
       });
     }
 
-    console.log(`✅ Found ${products.length} products`);
+    console.log(`✅ Found ${products?.length || 0} products`);
 
-    res.json({
-      success: true,
-      count: products.length,
-      data: products
-    });
+    // ========================================
+    // 5. DATA SANITIZATION (Security)
+    // ========================================
+    const sanitizedProducts = sanitizeArray(products || []);
+
+    // ========================================
+    // 6. RESPONSE STRUCTURE
+    // ========================================
+    const response = createPaginatedResponse(sanitizedProducts, count, pageNum, limitNum);
+
+    // ========================================
+    // 7. CACHE THE RESPONSE
+    // ========================================
+    await cacheService.set(cacheKey, response, CACHE_TTL);
+
+    res.json(response);
   } catch (error) {
-    console.error('Get products error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while fetching products.');
   }
 };
 
 /**
  * Get product by ID
  * @route   GET /api/products/:id
- * @access  Private (Admin)
+ * @access  Private (Admin/Reseller/Consumer)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Field selection instead of * (Performance)
+ * 3. Query timeout (Performance)
+ * 4. Secure error handling (Security)
+ * 5. Data sanitization (Security)
+ * 6. Redis caching (Performance)
  */
 export const getProductById = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
+
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid product ID format'
+      });
+    }
 
     console.log(`📦 Fetching product with ID: ${id}`);
 
-    const { data: product, error } = await supabase
+    // ========================================
+    // 2. CACHE CHECK
+    // ========================================
+    const cacheKey = CACHE_KEYS.PRODUCT_BY_ID(id);
+    const cachedData = await cacheService.get(cacheKey);
+    if (cachedData) {
+      console.log(`✅ Cache HIT for product ${id}`);
+      return res.json(cachedData);
+    }
+
+    console.log(`❌ Cache MISS for product ${id} - fetching from database`);
+
+    // ========================================
+    // 3. OPTIMIZED DATABASE QUERY
+    // ========================================
+    const query = supabase
       .from('products')
-      .select('*')
+      .select('id, name, description, price, created_at, updated_at')
       .eq('id', id)
       .single();
 
+    const { data: product, error } = await executeWithTimeout(query);
+
+    // ========================================
+    // 4. ERROR HANDLING (Security)
+    // ========================================
     if (error || !product) {
       console.error('❌ Product not found:', error);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Product not found'
       });
@@ -65,16 +177,24 @@ export const getProductById = async (req, res) => {
 
     console.log('✅ Product found:', product.name);
 
-    res.json({
+    // ========================================
+    // 5. DATA SANITIZATION (Security)
+    // ========================================
+    const sanitizedProduct = sanitizeObject(product);
+
+    const response = {
       success: true,
-      data: product
-    });
+      data: sanitizedProduct
+    };
+
+    // ========================================
+    // 6. CACHE THE RESPONSE
+    // ========================================
+    await cacheService.set(cacheKey, response, CACHE_TTL);
+
+    res.json(response);
   } catch (error) {
-    console.error('Get product error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while fetching the product.');
   }
 };
 
@@ -82,22 +202,55 @@ export const getProductById = async (req, res) => {
  * Create new product
  * @route   POST /api/products
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. Secure error handling (Security)
+ * 3. Query timeout (Performance)
  */
 export const createProduct = async (req, res) => {
   try {
-    const { name, description, price } = req.body;
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
+    let { name, description, price } = req.body;
 
-    // Validate input
+    // Validate required fields
     if (!name || !description || price === undefined) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Name, description, and price are required'
       });
     }
 
-    // Validate price is a positive number
-    if (isNaN(price) || parseFloat(price) <= 0) {
+    // Sanitize inputs
+    name = sanitizeString(name, 255);
+    description = sanitizeString(description, 1000);
+
+    // Validate name length
+    if (name.length < 2) {
       return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Product name must be at least 2 characters long'
+      });
+    }
+
+    // Validate description length
+    if (description.length < 5) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Product description must be at least 5 characters long'
+      });
+    }
+
+    // Validate price is a positive number
+    const priceNum = parseFloat(price);
+    if (isNaN(priceNum) || priceNum <= 0) {
+      return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Price must be a positive number'
       });
@@ -105,37 +258,50 @@ export const createProduct = async (req, res) => {
 
     console.log(`📦 Creating product: ${name}`);
 
-    const { data: product, error } = await supabase
+    // ========================================
+    // 2. CREATE PRODUCT (with timeout)
+    // ========================================
+    const insertPromise = supabase
       .from('products')
       .insert([{
         name: name.trim(),
         description: description.trim(),
-        price: parseFloat(price)
+        price: priceNum
       }])
-      .select()
+      .select('id, name, description, price, created_at, updated_at')
       .single();
+
+    const { data: product, error } = await executeWithTimeout(insertPromise);
 
     if (error) {
       console.error('❌ Error creating product:', error);
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
-        message: error.message
+        message: 'Failed to create product. Please try again.'
       });
     }
 
     console.log('✅ Product created successfully:', product.name);
 
+    // ========================================
+    // 3. CACHE INVALIDATION
+    // ========================================
+    await cacheService.delByPattern('products:list:*');
+    console.log('✅ Cache invalidated for product creation');
+
+    // ========================================
+    // 4. DATA SANITIZATION
+    // ========================================
+    const sanitizedProduct = sanitizeObject(product);
+
     res.status(201).json({
       success: true,
       message: 'Product created successfully',
-      data: product
+      data: sanitizedProduct
     });
   } catch (error) {
-    console.error('Create product error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while creating the product.');
   }
 };
 
@@ -143,23 +309,65 @@ export const createProduct = async (req, res) => {
  * Update product
  * @route   PUT /api/products/:id
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. UUID validation (Security)
+ * 3. Secure error handling (Security)
+ * 4. Query timeout (Performance)
  */
 export const updateProduct = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
-    const { name, description, price } = req.body;
+    let { name, description, price } = req.body;
 
-    // Validate input
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid product ID format'
+      });
+    }
+
+    // Validate required fields
     if (!name || !description || price === undefined) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Name, description, and price are required'
       });
     }
 
-    // Validate price is a positive number
-    if (isNaN(price) || parseFloat(price) <= 0) {
+    // Sanitize inputs
+    name = sanitizeString(name, 255);
+    description = sanitizeString(description, 1000);
+
+    // Validate name length
+    if (name.length < 2) {
       return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Product name must be at least 2 characters long'
+      });
+    }
+
+    // Validate description length
+    if (description.length < 5) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Product description must be at least 5 characters long'
+      });
+    }
+
+    // Validate price is a positive number
+    const priceNum = parseFloat(price);
+    if (isNaN(priceNum) || priceNum <= 0) {
+      return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Price must be a positive number'
       });
@@ -167,54 +375,73 @@ export const updateProduct = async (req, res) => {
 
     console.log(`📦 Updating product with ID: ${id}`);
 
-    // Check if product exists
-    const { data: existingProduct, error: fetchError } = await supabase
+    // ========================================
+    // 2. CHECK IF PRODUCT EXISTS (with timeout)
+    // ========================================
+    const checkPromise = supabase
       .from('products')
-      .select('*')
+      .select('id, name')
       .eq('id', id)
       .single();
 
+    const { data: existingProduct, error: fetchError } = await executeWithTimeout(checkPromise);
+
     if (fetchError || !existingProduct) {
+      console.error('❌ Product not found:', fetchError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Product not found'
       });
     }
 
-    // Update product
-    const { data: product, error } = await supabase
+    // ========================================
+    // 3. UPDATE PRODUCT (with timeout)
+    // ========================================
+    const updatePromise = supabase
       .from('products')
       .update({
         name: name.trim(),
         description: description.trim(),
-        price: parseFloat(price),
+        price: priceNum,
         updated_at: new Date().toISOString()
       })
       .eq('id', id)
-      .select()
+      .select('id, name, description, price, created_at, updated_at')
       .single();
+
+    const { data: product, error } = await executeWithTimeout(updatePromise);
 
     if (error) {
       console.error('❌ Error updating product:', error);
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
-        message: error.message
+        message: 'Failed to update product. Please try again.'
       });
     }
 
     console.log('✅ Product updated successfully:', product.name);
 
+    // ========================================
+    // 4. CACHE INVALIDATION
+    // ========================================
+    await cacheService.del(CACHE_KEYS.PRODUCT_BY_ID(id));
+    await cacheService.delByPattern('products:list:*');
+    console.log('✅ Cache invalidated for product update');
+
+    // ========================================
+    // 5. DATA SANITIZATION
+    // ========================================
+    const sanitizedProduct = sanitizeObject(product);
+
     res.json({
       success: true,
       message: 'Product updated successfully',
-      data: product
+      data: sanitizedProduct
     });
   } catch (error) {
-    console.error('Update product error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while updating the product.');
   }
 };
 
@@ -222,52 +449,82 @@ export const updateProduct = async (req, res) => {
  * Delete product
  * @route   DELETE /api/products/:id
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Secure error handling (Security)
+ * 3. Query timeout (Performance)
  */
 export const deleteProduct = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
+
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid product ID format'
+      });
+    }
 
     console.log(`📦 Deleting product with ID: ${id}`);
 
-    // Check if product exists
-    const { data: existingProduct, error: fetchError } = await supabase
+    // ========================================
+    // 2. CHECK IF PRODUCT EXISTS (with timeout)
+    // ========================================
+    const checkPromise = supabase
       .from('products')
-      .select('*')
+      .select('id, name')
       .eq('id', id)
       .single();
 
+    const { data: existingProduct, error: fetchError } = await executeWithTimeout(checkPromise);
+
     if (fetchError || !existingProduct) {
+      console.error('❌ Product not found:', fetchError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Product not found'
       });
     }
 
-    // Delete product
-    const { error } = await supabase
+    // ========================================
+    // 3. DELETE PRODUCT (with timeout)
+    // ========================================
+    const deletePromise = supabase
       .from('products')
       .delete()
       .eq('id', id);
 
+    const { error } = await executeWithTimeout(deletePromise);
+
     if (error) {
       console.error('❌ Error deleting product:', error);
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
-        message: error.message
+        message: 'Failed to delete product. Please try again.'
       });
     }
 
     console.log('✅ Product deleted successfully:', existingProduct.name);
+
+    // ========================================
+    // 4. CACHE INVALIDATION
+    // ========================================
+    await cacheService.del(CACHE_KEYS.PRODUCT_BY_ID(id));
+    await cacheService.delByPattern('products:list:*');
+    console.log('✅ Cache invalidated for product deletion');
 
     res.json({
       success: true,
       message: 'Product deleted successfully'
     });
   } catch (error) {
-    console.error('Delete product error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while deleting the product.');
   }
 };

@@ -1,5 +1,28 @@
 import { supabaseAdmin } from '../../config/database.js';
 import multer from 'multer';
+import { cacheService } from '../../config/redis.js';
+import {
+  sanitizeString,
+  isValidUUID,
+  sanitizeObject,
+  sanitizeArray
+} from '../../utils/validation.js';
+import {
+  executeWithTimeout,
+  handleApiError,
+  createRateLimitMiddleware,
+  sanitizeInputMiddleware
+} from '../../utils/apiOptimization.js';
+
+// Cache configuration
+const CACHE_TTL = 300; // 5 minutes
+const CACHE_KEYS = {
+  INVOICE_PAYMENTS: (invoiceId) => `invoice-payments:${invoiceId}`,
+};
+
+// Export middleware for use in routes
+export { sanitizeInputMiddleware };
+export const rateLimitMiddleware = createRateLimitMiddleware('invoice-payments', 100);
 
 // Configure multer for file uploads (in-memory storage)
 const upload = multer({
@@ -80,21 +103,52 @@ async function uploadPaymentProof(fileBuffer, mimetype, originalName, userId, in
  * @route   POST /api/invoices/:id/payments
  * @access  Private (Admin, Reseller, Consumer)
  */
+/**
+ * Submit payment for an invoice
+ * @route   POST /api/invoices/:id/payments
+ * @access  Private (Admin, Reseller, Consumer)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Query timeout (Performance)
+ * 3. Secure error handling (Security)
+ * 4. Cache invalidation (Performance)
+ */
 export const submitPayment = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id: invoiceId } = req.params;
     const userId = req.user.id;
     const userRole = req.userProfile?.role;
 
-    // Validate invoice exists
-    const { data: invoice, error: invoiceError } = await supabaseAdmin
+    if (!invoiceId || !isValidUUID(invoiceId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid invoice ID format'
+      });
+    }
+
+    // ========================================
+    // 2. VALIDATE INVOICE EXISTS (with timeout)
+    // ========================================
+    const invoicePromise = supabaseAdmin
       .from('invoices')
       .select('id, receiver_id, sender_id, status, total_amount')
       .eq('id', invoiceId)
       .single();
 
+    const { data: invoice, error: invoiceError } = await executeWithTimeout(invoicePromise);
+
+    // ========================================
+    // 3. ERROR HANDLING (Security)
+    // ========================================
     if (invoiceError || !invoice) {
+      console.error('❌ Error fetching invoice:', invoiceError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Invoice not found'
       });
@@ -106,6 +160,7 @@ export const submitPayment = async (req, res) => {
     if (userRole === 'consumer') {
       if (invoice.receiver_id !== userId) {
         return res.status(403).json({
+          success: false,
           error: 'Forbidden',
           message: 'You can only submit payments for your own invoices'
         });
@@ -113,6 +168,7 @@ export const submitPayment = async (req, res) => {
     } else if (userRole === 'reseller') {
       if (invoice.sender_id !== userId) {
         return res.status(403).json({
+          success: false,
           error: 'Forbidden',
           message: 'You can only submit payments for invoices you created'
         });
@@ -122,13 +178,17 @@ export const submitPayment = async (req, res) => {
     // Validate invoice status
     if (invoice.status === 'paid') {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Invoice is already paid'
       });
     }
 
+    // ========================================
+    // 4. INPUT VALIDATION & SANITIZATION
+    // ========================================
     // Get payment data from request body
-    const {
+    let {
       payment_mode,
       payment_date,
       amount,
@@ -152,10 +212,25 @@ export const submitPayment = async (req, res) => {
     // Validate required fields
     if (!payment_mode || !payment_date || !amount) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Payment mode, payment date, and amount are required'
       });
     }
+
+    // Sanitize string inputs
+    payment_mode = sanitizeString(payment_mode, 50);
+    notes = notes ? sanitizeString(notes, 500) : null;
+    bank_name = bank_name ? sanitizeString(bank_name, 100) : null;
+    account_number = account_number ? sanitizeString(account_number, 50) : null;
+    transaction_reference = transaction_reference ? sanitizeString(transaction_reference, 100) : null;
+    utr_number = utr_number ? sanitizeString(utr_number, 50) : null;
+    transaction_id = transaction_id ? sanitizeString(transaction_id, 100) : null;
+    payment_gateway = payment_gateway ? sanitizeString(payment_gateway, 50) : payment_mode;
+    card_last_four = card_last_four ? sanitizeString(card_last_four, 4) : null;
+    cardholder_name = cardholder_name ? sanitizeString(cardholder_name, 100) : null;
+    cheque_number = cheque_number ? sanitizeString(cheque_number, 50) : null;
+    cheque_bank_name = cheque_bank_name ? sanitizeString(cheque_bank_name, 100) : null;
 
     // Get paid_by from authentication token (the logged-in user)
     // This is the person who actually paid/submitted the payment
@@ -165,6 +240,7 @@ export const submitPayment = async (req, res) => {
     const paymentAmount = parseFloat(amount);
     if (isNaN(paymentAmount) || paymentAmount <= 0) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Invalid payment amount'
       });
@@ -226,31 +302,42 @@ export const submitPayment = async (req, res) => {
       status: 'pending' // Default status, admin can approve later
     };
 
-    // Insert payment record
-    const { data: payment, error: paymentError } = await supabaseAdmin
+    // ========================================
+    // 5. INSERT PAYMENT RECORD (with timeout)
+    // ========================================
+    const insertPromise = supabaseAdmin
       .from('invoice_payments')
       .insert(paymentData)
       .select()
       .single();
 
+    const { data: payment, error: paymentError } = await executeWithTimeout(insertPromise);
+
     if (paymentError || !payment) {
-      console.error('Error creating payment record:', paymentError);
+      console.error('❌ Error creating payment record:', paymentError);
       
       // If file was uploaded but payment record failed, delete the file
       if (proofFilePath) {
-        await supabaseAdmin.storage
-          .from('payment-proofs')
-          .remove([proofFilePath]);
+        try {
+          await supabaseAdmin.storage
+            .from('payment-proofs')
+            .remove([proofFilePath]);
+        } catch (deleteError) {
+          console.error('Error deleting uploaded file:', deleteError);
+        }
       }
 
       return res.status(500).json({
+        success: false,
         error: 'Internal Server Error',
-        message: 'Failed to create payment record: ' + (paymentError?.message || 'Unknown error')
+        message: 'Failed to create payment record. Please try again.'
       });
     }
 
-    // Update invoice status to 'under_review' when payment is submitted
-    const { error: updateError } = await supabaseAdmin
+    // ========================================
+    // 6. UPDATE INVOICE STATUS (with timeout)
+    // ========================================
+    const updatePromise = supabaseAdmin
       .from('invoices')
       .update({ 
         status: 'under_review',
@@ -259,28 +346,38 @@ export const submitPayment = async (req, res) => {
       .eq('id', invoiceId)
       .in('status', ['unpaid', 'pending']); // Update if unpaid or pending (from old trigger)
     
+    const { error: updateError } = await executeWithTimeout(updatePromise, 3000);
+    
     if (updateError) {
-      console.error('Error updating invoice status:', updateError);
+      console.error('⚠️ Error updating invoice status (non-fatal):', updateError);
       // Don't fail the payment submission if status update fails
     }
+
+    // ========================================
+    // 7. CACHE INVALIDATION
+    // ========================================
+    await cacheService.del(CACHE_KEYS.INVOICE_PAYMENTS(invoiceId));
+    await cacheService.delByPattern('invoices:*');
+    console.log('✅ Cache invalidated for payment submission');
+
+    // ========================================
+    // 8. DATA SANITIZATION
+    // ========================================
+    const sanitizedData = sanitizeObject({
+      payment_id: payment.id,
+      invoice_id: invoiceId,
+      status: payment.status,
+      message: 'Payment submitted and awaiting approval'
+    });
 
     return res.status(201).json({
       success: true,
       message: 'Payment submitted successfully',
-      data: {
-        payment_id: payment.id,
-        invoice_id: invoiceId,
-        status: payment.status,
-        message: 'Payment submitted and awaiting approval'
-      }
+      data: sanitizedData
     });
 
   } catch (error) {
-    console.error('Error submitting payment:', error);
-    return res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message || 'Failed to submit payment'
-    });
+    return handleApiError(error, res, 'An error occurred while submitting payment.');
   }
 };
 
@@ -288,22 +385,61 @@ export const submitPayment = async (req, res) => {
  * Get payments for an invoice
  * @route   GET /api/invoices/:id/payments
  * @access  Private (Admin, Reseller, Consumer)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Redis caching (Performance)
+ * 3. Query timeout (Performance)
+ * 4. Secure error handling (Security)
+ * 5. Data sanitization (Security)
  */
 export const getInvoicePayments = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id: invoiceId } = req.params;
     const userId = req.user.id;
     const userRole = req.userProfile?.role;
 
-    // Validate invoice exists and user has access
-    const { data: invoice, error: invoiceError } = await supabaseAdmin
+    if (!invoiceId || !isValidUUID(invoiceId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid invoice ID format'
+      });
+    }
+
+    // ========================================
+    // 2. CACHE CHECK
+    // ========================================
+    const cacheKey = CACHE_KEYS.INVOICE_PAYMENTS(invoiceId);
+    const cachedData = await cacheService.get(cacheKey);
+    if (cachedData) {
+      console.log(`✅ Cache HIT for invoice payments ${invoiceId}`);
+      return res.json(cachedData);
+    }
+
+    console.log(`❌ Cache MISS for invoice payments ${invoiceId} - fetching from database`);
+
+    // ========================================
+    // 3. VALIDATE INVOICE EXISTS (with timeout)
+    // ========================================
+    const invoicePromise = supabaseAdmin
       .from('invoices')
       .select('id, receiver_id, sender_id')
       .eq('id', invoiceId)
       .single();
 
+    const { data: invoice, error: invoiceError } = await executeWithTimeout(invoicePromise);
+
+    // ========================================
+    // 4. ERROR HANDLING (Security)
+    // ========================================
     if (invoiceError || !invoice) {
+      console.error('❌ Error fetching invoice:', invoiceError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Invoice not found'
       });
@@ -312,18 +448,22 @@ export const getInvoicePayments = async (req, res) => {
     // Check permissions
     if (userRole === 'consumer' && invoice.receiver_id !== userId) {
       return res.status(403).json({
+        success: false,
         error: 'Forbidden',
         message: 'Access denied'
       });
     } else if (userRole === 'reseller' && invoice.sender_id !== userId) {
       return res.status(403).json({
+        success: false,
         error: 'Forbidden',
         message: 'Access denied'
       });
     }
 
-    // Get payments for this invoice
-    const { data: payments, error: paymentsError } = await supabaseAdmin
+    // ========================================
+    // 5. GET PAYMENTS (with timeout)
+    // ========================================
+    const paymentsPromise = supabaseAdmin
       .from('invoice_payments')
       .select(`
         id,
@@ -355,14 +495,20 @@ export const getInvoicePayments = async (req, res) => {
       .eq('invoice_id', invoiceId)
       .order('created_at', { ascending: false });
 
+    const { data: payments, error: paymentsError } = await executeWithTimeout(paymentsPromise);
+
     if (paymentsError) {
-      console.error('Error fetching payments:', paymentsError);
+      console.error('❌ Error fetching payments:', paymentsError);
       return res.status(500).json({
+        success: false,
         error: 'Internal Server Error',
         message: 'Failed to fetch payments'
       });
     }
 
+    // ========================================
+    // 6. ENRICH WITH USER DATA (with timeout)
+    // ========================================
     // Enrich with user data from auth_role_with_profiles view
     const userIds = new Set();
     (payments || []).forEach(payment => {
@@ -375,11 +521,12 @@ export const getInvoicePayments = async (req, res) => {
     let userProfiles = [];
     
     if (userIdsArray.length > 0) {
-      const { data: profiles } = await supabaseAdmin
+      const profilesPromise = supabaseAdmin
         .from('auth_role_with_profiles')
         .select('user_id, email, full_name, role')
         .in('user_id', userIdsArray);
       
+      const { data: profiles } = await executeWithTimeout(profilesPromise, 3000);
       userProfiles = profiles || [];
     }
 
@@ -439,17 +586,27 @@ export const getInvoicePayments = async (req, res) => {
       };
     }));
 
-    return res.status(200).json({
-      success: true,
-      data: enrichedPayments
-    });
+    // ========================================
+    // 7. DATA SANITIZATION (Security)
+    // ========================================
+    const sanitizedPayments = sanitizeArray(enrichedPayments);
 
+    // ========================================
+    // 8. PREPARE RESPONSE
+    // ========================================
+    const response = {
+      success: true,
+      data: sanitizedPayments
+    };
+
+    // ========================================
+    // 9. CACHE THE RESPONSE
+    // ========================================
+    await cacheService.set(cacheKey, response, CACHE_TTL);
+
+    return res.json(response);
   } catch (error) {
-    console.error('Error fetching invoice payments:', error);
-    return res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message || 'Failed to fetch payments'
-    });
+    return handleApiError(error, res, 'An error occurred while fetching invoice payments.');
   }
 };
 
@@ -457,45 +614,75 @@ export const getInvoicePayments = async (req, res) => {
  * Approve or reject a payment (Admin only)
  * @route   PATCH /api/invoices/payments/:paymentId
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format, status validation)
+ * 2. Query timeout (Performance)
+ * 3. Cache invalidation (Performance)
+ * 4. Secure error handling (Security)
  */
 export const reviewPayment = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { paymentId } = req.params;
     const userId = req.user.id;
     const userRole = req.userProfile?.role;
 
+    if (!paymentId || !isValidUUID(paymentId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid payment ID format'
+      });
+    }
+
     // Only admin can review payments
     if (userRole !== 'admin') {
       return res.status(403).json({
+        success: false,
         error: 'Forbidden',
         message: 'Admin access required'
       });
     }
 
-    const { status, review_notes } = req.body;
+    let { status, review_notes } = req.body;
 
     if (!status || !['approved', 'rejected'].includes(status)) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Status must be either "approved" or "rejected"'
       });
     }
 
-    // Get payment and invoice
-    const { data: payment, error: paymentError } = await supabaseAdmin
+    // Sanitize review notes
+    review_notes = review_notes ? sanitizeString(review_notes, 500) : null;
+
+    // ========================================
+    // 2. GET PAYMENT (with timeout)
+    // ========================================
+    const paymentPromise = supabaseAdmin
       .from('invoice_payments')
       .select('id, invoice_id, amount')
       .eq('id', paymentId)
       .single();
 
+    const { data: payment, error: paymentError } = await executeWithTimeout(paymentPromise);
+
     if (paymentError || !payment) {
+      console.error('❌ Error fetching payment:', paymentError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Payment not found'
       });
     }
 
-    // Update payment status
+    // ========================================
+    // 3. UPDATE PAYMENT STATUS (with timeout)
+    // ========================================
     const updateData = {
       status,
       reviewed_by: userId,
@@ -503,44 +690,64 @@ export const reviewPayment = async (req, res) => {
       review_notes: review_notes || null
     };
 
-    const { data: updatedPayment, error: updateError } = await supabaseAdmin
+    const updatePromise = supabaseAdmin
       .from('invoice_payments')
       .update(updateData)
       .eq('id', paymentId)
       .select()
       .single();
 
+    const { data: updatedPayment, error: updateError } = await executeWithTimeout(updatePromise);
+
     if (updateError || !updatedPayment) {
-      console.error('Error updating payment:', updateError);
+      console.error('❌ Error updating payment:', updateError);
       return res.status(500).json({
+        success: false,
         error: 'Internal Server Error',
         message: 'Failed to update payment status'
       });
     }
 
-    // If payment is approved, update invoice status to 'paid'
+    // ========================================
+    // 4. UPDATE INVOICE STATUS IF APPROVED (with timeout)
+    // ========================================
     if (status === 'approved') {
-      await supabaseAdmin
+      const invoiceUpdatePromise = supabaseAdmin
         .from('invoices')
         .update({ 
           status: 'paid',
           updated_at: new Date().toISOString()
         })
         .eq('id', payment.invoice_id);
+
+      const { error: invoiceUpdateError } = await executeWithTimeout(invoiceUpdatePromise, 3000);
+      
+      if (invoiceUpdateError) {
+        console.error('⚠️ Error updating invoice status (non-fatal):', invoiceUpdateError);
+        // Don't fail the payment review if invoice update fails
+      }
     }
 
-    return res.status(200).json({
+    // ========================================
+    // 5. CACHE INVALIDATION
+    // ========================================
+    await cacheService.del(CACHE_KEYS.INVOICE_PAYMENTS(payment.invoice_id));
+    await cacheService.delByPattern('invoices:*');
+    console.log('✅ Cache invalidated for payment review');
+
+    // ========================================
+    // 6. DATA SANITIZATION
+    // ========================================
+    const sanitizedPayment = sanitizeObject(updatedPayment);
+
+    return res.json({
       success: true,
       message: `Payment ${status} successfully`,
-      data: updatedPayment
+      data: sanitizedPayment
     });
 
   } catch (error) {
-    console.error('Error reviewing payment:', error);
-    return res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message || 'Failed to review payment'
-    });
+    return handleApiError(error, res, 'An error occurred while reviewing payment.');
   }
 };
 

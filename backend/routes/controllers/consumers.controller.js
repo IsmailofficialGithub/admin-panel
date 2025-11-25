@@ -2,6 +2,36 @@ import { supabase, supabaseAdmin } from '../../config/database.js';
 import { sendPasswordResetEmail, sendTrialPeriodChangeEmail, sendTrialExtensionEmail } from '../../services/emailService.js';
 import { generatePassword } from '../../utils/helpers.js';
 import { logActivity, getActorInfo, getClientIp, getUserAgent } from '../../services/activityLogger.js';
+import { cacheService } from '../../config/redis.js';
+import {
+  sanitizeString,
+  isValidUUID,
+  isValidPhone,
+  validatePagination,
+  sanitizeObject,
+  sanitizeArray
+} from '../../utils/validation.js';
+import {
+  executeWithTimeout,
+  createCacheKey,
+  CONSUMER_SELECT_FIELDS,
+  handleApiError,
+  validateAndSanitizeSearch,
+  createPaginatedResponse,
+  createRateLimitMiddleware,
+  sanitizeInputMiddleware
+} from '../../utils/apiOptimization.js';
+
+// Export middleware for use in routes
+export const rateLimitMiddleware = createRateLimitMiddleware('consumers', 100);
+export { sanitizeInputMiddleware };
+
+// Cache configuration
+const CACHE_TTL = 300; // 5 minutes
+const CACHE_KEYS = {
+  ALL_CONSUMERS: (search, status, page, limit) => `consumers:list:${search || 'all'}:${status || 'all'}_page${page}_limit${limit}`,
+  CONSUMER_BY_ID: (id) => `consumers:id:${id}`,
+};
 
 /**
  * Consumers Controller
@@ -9,57 +39,110 @@ import { logActivity, getActorInfo, getClientIp, getUserAgent } from '../../serv
  */
 
 /**
- * Get all consumers with filters (admin only)
- * @route   GET /api/consumers?account_status=active&search=john
+ * Get all consumers with filters and pagination (admin only)
+ * @route   GET /api/consumers?account_status=active&search=john&page=1&limit=50
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. Pagination support (Performance)
+ * 3. Field selection instead of * (Performance)
+ * 4. Query timeout (Performance)
+ * 5. Better error handling (Security)
+ * 6. Data sanitization (Security)
+ * 7. Redis caching (Performance)
  */
 export const getAllConsumers = async (req, res) => {
   try {
-    const { account_status, search } = req.query;
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
+    const { account_status, search, page, limit } = req.query;
 
-    console.log('🔍 Filtering consumers with:', { account_status, search });
+    // Validate and sanitize search input
+    const searchTerm = validateAndSanitizeSearch(search, 100);
+    if (search && !searchTerm) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid search term. Only alphanumeric characters, spaces, @, ., _, and - are allowed.'
+      });
+    }
 
-    // Start building the query
+    // Validate account_status
+    const validStatuses = ['active', 'deactive', 'expired_subscription', 'all'];
+    const statusFilter = account_status && validStatuses.includes(account_status) ? account_status : 'all';
+
+    // Validate pagination parameters
+    const { pageNum, limitNum } = validatePagination(page, limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    console.log('🔍 Filtering consumers with:', { account_status: statusFilter, search: searchTerm, page: pageNum, limit: limitNum });
+
+    // ========================================
+    // 2. CACHE CHECK
+    // ========================================
+    const cacheKey = CACHE_KEYS.ALL_CONSUMERS(searchTerm || '', statusFilter, pageNum, limitNum);
+    const cachedData = await cacheService.get(cacheKey);
+    if (cachedData) {
+      console.log('✅ Cache HIT for consumers list');
+      return res.json(cachedData);
+    }
+
+    console.log('❌ Cache MISS for consumers list - fetching from database');
+
+    // ========================================
+    // 3. OPTIMIZED DATABASE QUERY
+    // ========================================
     let query = supabase
       .from('auth_role_with_profiles')
-      .select('*')
+      .select(CONSUMER_SELECT_FIELDS, { count: 'exact' })
       .eq('role', 'consumer');
 
     // Filter by account_status if provided
-    if (account_status && account_status !== 'all') {
-      query = query.eq('account_status', account_status);
-      console.log('✅ Filtering by account_status:', account_status);
+    if (statusFilter && statusFilter !== 'all') {
+      query = query.eq('account_status', statusFilter);
+      console.log('✅ Filtering by account_status:', statusFilter);
     }
 
     // Apply search filter if provided
-    if (search && search.trim() !== '') {
-      const searchTerm = search.trim();
-      // Search in full_name and email
+    if (searchTerm) {
       query = query.or(`full_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
       console.log('✅ Searching for:', searchTerm);
     }
 
-    // Order by created_at
-    query = query.order('created_at', { ascending: false });
+    // Order and paginate
+    query = query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limitNum - 1);
 
-    const { data: consumers, error } = await query;
+    // Execute query with timeout protection
+    const { data: consumers, error, count } = await executeWithTimeout(query);
 
+    // ========================================
+    // 4. ERROR HANDLING (Security)
+    // ========================================
     if (error) {
       console.error('❌ Error fetching consumers:', error);
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
-        message: error.message
+        message: 'Failed to fetch consumers. Please try again.'
       });
     }
 
-    // Fetch product access for all consumers
+    // ========================================
+    // 5. FETCH PRODUCT ACCESS (with timeout)
+    // ========================================
     const consumersWithProducts = await Promise.all(
-      consumers.map(async (consumer) => {
+      (consumers || []).map(async (consumer) => {
         try {
-          const { data: productAccess, error: productError } = await supabase
+          const productAccessPromise = supabase
             .from('user_product_access')
             .select('product_id')
             .eq('user_id', consumer.user_id);
+
+          const { data: productAccess, error: productError } = await executeWithTimeout(productAccessPromise, 5000);
 
           if (productError) {
             console.error(`Error fetching products for consumer ${consumer.user_id}:`, productError);
@@ -86,53 +169,104 @@ export const getAllConsumers = async (req, res) => {
       })
     );
 
-    res.json({
-      success: true,
-      count: consumersWithProducts.length,
-      data: consumersWithProducts,
-      filters: {
-        account_status: account_status || 'all',
-        search: search || ''
-      }
-    });
+    // ========================================
+    // 6. DATA SANITIZATION (Security)
+    // ========================================
+    const sanitizedConsumers = sanitizeArray(consumersWithProducts);
+
+    // ========================================
+    // 7. RESPONSE STRUCTURE
+    // ========================================
+    const response = createPaginatedResponse(sanitizedConsumers, count, pageNum, limitNum, searchTerm);
+    response.filters = {
+      account_status: statusFilter,
+      search: searchTerm || ''
+    };
+
+    // ========================================
+    // 8. CACHE THE RESPONSE
+    // ========================================
+    await cacheService.set(cacheKey, response, CACHE_TTL);
+
+    res.json(response);
   } catch (error) {
-    console.error('Get consumers error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while fetching consumers.');
   }
 };
 
 /**
- * Get consumer by ID
+ * Get consumer by ID (admin only)
  * @route   GET /api/consumers/:id
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Field selection instead of * (Performance)
+ * 3. Query timeout (Performance)
+ * 4. Secure error handling (Security)
+ * 5. Data sanitization (Security)
+ * 6. Redis caching (Performance)
  */
 export const getConsumerById = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
 
-    const { data: consumer, error } = await supabase
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid consumer ID format'
+      });
+    }
+
+    const cacheKey = CACHE_KEYS.CONSUMER_BY_ID(id);
+
+    // Try to get from cache
+    const cachedData = await cacheService.get(cacheKey);
+    if (cachedData) {
+      console.log(`✅ Cache HIT for consumer ${id}`);
+      return res.json(cachedData);
+    }
+
+    console.log(`❌ Cache MISS for consumer ${id} - fetching from database`);
+
+    // ========================================
+    // 2. OPTIMIZED DATABASE QUERY
+    // ========================================
+    const queryPromise = supabase
       .from('auth_role_with_profiles')
-      .select('*')
+      .select(CONSUMER_SELECT_FIELDS)
       .eq('user_id', id)
       .eq('role', 'consumer')
       .single();
 
-    if (error) {
+    const { data: consumer, error } = await executeWithTimeout(queryPromise);
+
+    // ========================================
+    // 3. ERROR HANDLING (Security)
+    // ========================================
+    if (error || !consumer) {
+      console.error('❌ Error fetching consumer:', error);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Consumer not found'
       });
     }
 
-    // Fetch product access for this consumer
+    // ========================================
+    // 4. FETCH PRODUCT ACCESS (with timeout)
+    // ========================================
     try {
-      const { data: productAccess, error: productError } = await supabase
+      const productAccessPromise = supabase
         .from('user_product_access')
         .select('product_id')
         .eq('user_id', id);
+
+      const { data: productAccess, error: productError } = await executeWithTimeout(productAccessPromise, 5000);
 
       if (productError) {
         console.error(`Error fetching products for consumer ${id}:`, productError);
@@ -146,16 +280,22 @@ export const getConsumerById = async (req, res) => {
       consumer.subscribed_products = [];
     }
 
-    res.json({
+    // ========================================
+    // 5. DATA SANITIZATION (Security)
+    // ========================================
+    const sanitizedConsumer = sanitizeObject(consumer);
+
+    const response = {
       success: true,
-      data: consumer
-    });
+      data: sanitizedConsumer
+    };
+
+    // Cache the response
+    await cacheService.set(cacheKey, response, CACHE_TTL);
+
+    res.json(response);
   } catch (error) {
-    console.error('Get consumer error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while fetching the consumer.');
   }
 };
 
@@ -163,23 +303,83 @@ export const getConsumerById = async (req, res) => {
  * Update consumer (admin only)
  * @route   PUT /api/consumers/:id
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. UUID validation (Security)
+ * 3. Phone validation (Security)
+ * 4. Secure error handling (Security)
+ * 5. Query timeout (Performance)
  */
 export const updateConsumer = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
-    const { full_name, phone, trial_expiry_date, country, city, subscribed_products } = req.body;
+    
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid consumer ID format'
+      });
+    }
+
+    let { full_name, phone, trial_expiry_date, country, city, subscribed_products } = req.body;
     
     console.log('subscribed_products received:', subscribed_products);
 
     // Validate required fields for update
     if (!country || !city || !phone) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Country, city, and phone are required'
       });
     }
 
+    // ========================================
+    // 2. SANITIZATION & VALIDATION
+    // ========================================
     const updateData = {};
+    
+    if (full_name !== undefined) {
+      full_name = sanitizeString(full_name, 255);
+      if (full_name && full_name.length < 2) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: 'Full name must be at least 2 characters long'
+        });
+      }
+      updateData.full_name = full_name;
+    }
+    
+    // Validate and sanitize phone
+    phone = phone.trim();
+    if (!isValidPhone(phone)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid phone number format'
+      });
+    }
+    updateData.phone = phone;
+    
+    // Sanitize country and city
+    updateData.country = sanitizeString(country, 100);
+    updateData.city = sanitizeString(city, 100);
+    
+    if (trial_expiry_date !== undefined) {
+      // Convert to timestamp if provided
+      if (trial_expiry_date) {
+        updateData.trial_expiry = new Date(trial_expiry_date);
+      } else {
+        updateData.trial_expiry = null;
+      }
+    }
+
     if (full_name !== undefined) updateData.full_name = full_name;
     updateData.phone = phone;
     updateData.country = country;
@@ -197,6 +397,7 @@ export const updateConsumer = async (req, res) => {
 
     if (Object.keys(updateData).length === 0 && subscribed_products === undefined) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'No fields to update'
       });
@@ -204,42 +405,53 @@ export const updateConsumer = async (req, res) => {
 
     console.log("updateData", updateData);
 
+    // ========================================
+    // 3. DATABASE QUERIES WITH TIMEOUT
+    // ========================================
     // Get current consumer data before update to compare trial_expiry
-    const { data: currentConsumer, error: fetchError } = await supabase
+    const currentConsumerPromise = supabase
       .from('auth_role_with_profiles')
       .select('email, full_name, trial_expiry')
       .eq('user_id', id)
       .eq('role', 'consumer')
       .single();
 
+    const { data: currentConsumer, error: fetchError } = await executeWithTimeout(currentConsumerPromise);
+
     if (fetchError) {
       console.error('Error fetching consumer before update:', fetchError);
     }
 
     // Get old data for logging changed fields
-    const { data: oldConsumer } = await supabase
+    const oldConsumerPromise = supabase
       .from('profiles')
       .select('*')
       .eq('user_id', id)
       .eq('role', 'consumer')
       .single();
 
+    const { data: oldConsumer } = await executeWithTimeout(oldConsumerPromise);
+
     const oldTrialExpiry = currentConsumer?.trial_expiry || null;
 
-    const { data: updatedConsumer, error } = await supabase
+    const updatePromise = supabase
       .from('profiles')
       .update(updateData)
       .eq('user_id', id)
       .eq('role', 'consumer')
       .select()
       .maybeSingle();
+
+    const { data: updatedConsumer, error } = await executeWithTimeout(updatePromise);
       
     console.log("updatedConsumer", updatedConsumer);
 
     if (error) {
+      console.error('❌ Error updating consumer:', error);
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
-        message: error.message
+        message: 'Failed to update consumer. Please try again.'
       });
     }
 
@@ -329,17 +541,25 @@ export const updateConsumer = async (req, res) => {
       }
     }
 
+    // ========================================
+    // 4. CACHE INVALIDATION
+    // ========================================
+    await cacheService.del(CACHE_KEYS.CONSUMER_BY_ID(id));
+    await cacheService.delByPattern('consumers:list:*');
+    console.log('✅ Cache invalidated for consumer update');
+
+    // ========================================
+    // 5. DATA SANITIZATION
+    // ========================================
+    const sanitizedConsumer = sanitizeObject(updatedConsumer);
+
     res.json({
       success: true,
       message: 'Consumer updated successfully',
-      data: updatedConsumer
+      data: sanitizedConsumer
     });
   } catch (error) {
-    console.error('Update consumer error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while updating the consumer.');
   }
 };
 
@@ -347,21 +567,43 @@ export const updateConsumer = async (req, res) => {
  * Delete consumer (admin only)
  * @route   DELETE /api/consumers/:id
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Secure error handling (Security)
+ * 3. Query timeout (Performance)
  */
 export const deleteConsumer = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
 
-    // Check if consumer exists
-    const { data: consumer, error: fetchError } = await supabase
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid consumer ID format'
+      });
+    }
+
+    // ========================================
+    // 2. CHECK IF CONSUMER EXISTS (with timeout)
+    // ========================================
+    const consumerPromise = supabase
       .from('profiles')
       .select('*')
       .eq('user_id', id)
       .eq('role', 'consumer')
       .single();
 
+    const { data: consumer, error: fetchError } = await executeWithTimeout(consumerPromise);
+
     if (fetchError || !consumer) {
+      console.error('❌ Error fetching consumer:', fetchError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Consumer not found'
       });
@@ -380,39 +622,55 @@ export const deleteConsumer = async (req, res) => {
       userAgent: getUserAgent(req)
     });
 
+    // ========================================
+    // 3. DELETE CONSUMER (with timeout)
+    // ========================================
     // Delete from profiles table first
-    const { error: profileError } = await supabase
+    const deleteProfilePromise = supabase
       .from('profiles')
       .delete()
       .eq('user_id', id);
 
+    const { error: profileError } = await executeWithTimeout(deleteProfilePromise);
+
     if (profileError) {
+      console.error('❌ Error deleting consumer profile:', profileError);
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
-        message: profileError.message
+        message: 'Failed to delete consumer. Please try again.'
       });
     }
 
     // Delete from auth using admin client
     if (supabaseAdmin) {
-      const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(id);
-      
-      if (authError) {
-        console.error('Error deleting user from auth:', authError);
-        // Continue anyway since profile is deleted
+      try {
+        const deleteAuthPromise = supabaseAdmin.auth.admin.deleteUser(id);
+        const { error: authError } = await executeWithTimeout(deleteAuthPromise);
+        
+        if (authError) {
+          console.error('Error deleting user from auth:', authError);
+          // Continue anyway since profile is deleted
+        }
+      } catch (authErr) {
+        console.error('Error in auth deletion:', authErr);
+        // Continue anyway
       }
     }
+
+    // ========================================
+    // 4. CACHE INVALIDATION
+    // ========================================
+    await cacheService.del(CACHE_KEYS.CONSUMER_BY_ID(id));
+    await cacheService.delByPattern('consumers:list:*');
+    console.log('✅ Cache invalidated for consumer deletion');
 
     res.json({
       success: true,
       message: 'Consumer deleted successfully'
     });
   } catch (error) {
-    console.error('Delete consumer error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while deleting the consumer.');
   }
 };
 
@@ -420,16 +678,33 @@ export const deleteConsumer = async (req, res) => {
  * Update consumer account status (admin only)
  * @route   PATCH /api/consumers/:id/account-status
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format, status validation)
+ * 2. Secure error handling (Security)
+ * 3. Query timeout (Performance)
  */
 export const updateConsumerAccountStatus = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
     const { account_status, trial_expiry_date } = req.body;
+
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid consumer ID format'
+      });
+    }
 
     // Validate account_status
     const validStatuses = ['active', 'deactive', 'expired_subscription'];
     if (!account_status) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'account_status is required'
       });
@@ -437,6 +712,7 @@ export const updateConsumerAccountStatus = async (req, res) => {
 
     if (!validStatuses.includes(account_status)) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: `Invalid account_status. Must be one of: ${validStatuses.join(', ')}`
       });
@@ -444,16 +720,22 @@ export const updateConsumerAccountStatus = async (req, res) => {
 
     console.log(`🔄 Updating consumer ${id} account status to:`, account_status);
 
-    // Fetch consumer to check created_at for trial validation
-    const { data: consumer, error: fetchError } = await supabase
+    // ========================================
+    // 2. FETCH CONSUMER (with timeout)
+    // ========================================
+    const consumerPromise = supabase
       .from('profiles')
       .select('created_at, trial_expiry')
       .eq('user_id', id)
       .eq('role', 'consumer')
       .single();
 
+    const { data: consumer, error: fetchError } = await executeWithTimeout(consumerPromise);
+
     if (fetchError || !consumer) {
+      console.error('❌ Error fetching consumer:', fetchError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Consumer not found'
       });
@@ -506,13 +788,17 @@ export const updateConsumerAccountStatus = async (req, res) => {
       console.log('📅 Keeping existing trial_expiry for deactive status');
     }
 
-    // Get consumer email and full_name for email notification
-    const { data: consumerInfo, error: infoError } = await supabase
+    // ========================================
+    // 3. GET CONSUMER INFO (with timeout)
+    // ========================================
+    const consumerInfoPromise = supabase
       .from('auth_role_with_profiles')
       .select('email, full_name, trial_expiry')
       .eq('user_id', id)
       .eq('role', 'consumer')
       .single();
+
+    const { data: consumerInfo, error: infoError } = await executeWithTimeout(consumerInfoPromise);
 
     if (infoError) {
       console.error('Error fetching consumer info:', infoError);
@@ -521,8 +807,10 @@ export const updateConsumerAccountStatus = async (req, res) => {
     // Store old trial_expiry for email (from consumer fetched earlier or from consumerInfo)
     const oldTrialExpiry = consumerInfo?.trial_expiry || consumer?.trial_expiry || null;
 
-    // Update account_status and trial_expiry in profiles table
-    const { data: updatedConsumer, error } = await supabase
+    // ========================================
+    // 4. UPDATE STATUS (with timeout)
+    // ========================================
+    const updatePromise = supabase
       .from('profiles')
       .update(updateData)
       .eq('user_id', id)
@@ -530,11 +818,14 @@ export const updateConsumerAccountStatus = async (req, res) => {
       .select()
       .maybeSingle();
 
+    const { data: updatedConsumer, error } = await executeWithTimeout(updatePromise);
+
     if (error) {
       console.error('❌ Error updating account status:', error);
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
-        message: error.message
+        message: 'Failed to update account status. Please try again.'
       });
     }
 
@@ -596,17 +887,25 @@ export const updateConsumerAccountStatus = async (req, res) => {
       }
     }
 
+    // ========================================
+    // 5. CACHE INVALIDATION
+    // ========================================
+    await cacheService.del(CACHE_KEYS.CONSUMER_BY_ID(id));
+    await cacheService.delByPattern('consumers:list:*');
+    console.log('✅ Cache invalidated for account status update');
+
+    // ========================================
+    // 6. DATA SANITIZATION
+    // ========================================
+    const sanitizedConsumer = sanitizeObject(updatedConsumer);
+
     res.json({
       success: true,
       message: `Consumer account status updated to ${account_status}`,
-      data: updatedConsumer
+      data: sanitizedConsumer
     });
   } catch (error) {
-    console.error('Update account status error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while updating the account status.');
   }
 };
 
@@ -614,15 +913,48 @@ export const updateConsumerAccountStatus = async (req, res) => {
  * Reset consumer password (admin only)
  * @route   POST /api/consumers/:id/reset-password
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Secure error handling (Security)
+ * 3. Query timeout (Performance)
  */
 export const resetConsumerPassword = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { id } = req.params;
 
-    const { data: user, error: userError } = await supabaseAdmin.auth.admin.getUserById(id);
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid consumer ID format'
+      });
+    }
+
+    if (!supabaseAdmin) {
+      return res.status(500).json({
+        success: false,
+        error: 'Configuration Error',
+        message: 'Admin client not configured'
+      });
+    }
+
+    // ========================================
+    // 2. GET USER (with timeout)
+    // ========================================
+    const getUserPromise = supabaseAdmin.auth.admin.getUserById(id);
+    const { data: user, error: userError } = await executeWithTimeout(getUserPromise);
 
     if (userError) {
-      console.error("Error fetching user from auth:", userError);
+      console.error("❌ Error fetching user from auth:", userError);
+      return res.status(404).json({
+        success: false,
+        error: 'Not Found',
+        message: 'Consumer not found'
+      });
     }
 
     // Assume email and full_name may be under user.user_metadata
@@ -633,31 +965,32 @@ export const resetConsumerPassword = async (req, res) => {
 
     if (!profile || !profile.email || !profile.full_name) {
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Email or full name not found'
       });
     }
 
-    if (!supabaseAdmin) {
-      return res.status(500).json({
-        error: 'Configuration Error',
-        message: 'Admin client not configured'
-      });
-    }
-
+    // ========================================
+    // 3. GENERATE AND UPDATE PASSWORD (with timeout)
+    // ========================================
     // Generate new password
     const newPassword = generatePassword();
 
     // Update password using admin client
-    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+    const updatePasswordPromise = supabaseAdmin.auth.admin.updateUserById(
       id,
       { password: newPassword }
     );
 
+    const { error: updateError } = await executeWithTimeout(updatePasswordPromise);
+
     if (updateError) {
+      console.error('❌ Error updating password:', updateError);
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
-        message: updateError.message
+        message: 'Failed to reset password. Please try again.'
       });
     }
 
@@ -674,16 +1007,18 @@ export const resetConsumerPassword = async (req, res) => {
       // Continue anyway - password is reset
     }
 
+    // ========================================
+    // 4. CACHE INVALIDATION
+    // ========================================
+    await cacheService.del(CACHE_KEYS.CONSUMER_BY_ID(id));
+    console.log('✅ Cache invalidated for password reset');
+
     res.json({
       success: true,
       message: 'Password reset successfully. Email sent to consumer.'
     });
   } catch (error) {
-    console.error('Reset password error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while resetting the password.');
   }
 };
 

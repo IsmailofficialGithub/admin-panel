@@ -1,7 +1,9 @@
 import { supabase } from '../config/database.js';
+import { cacheService } from '../config/redis.js';
 
 /**
  * Middleware to verify JWT token from Supabase
+ * Uses Redis caching to reduce Supabase API calls
  */
 export const authenticate = async (req, res, next) => {
   try {
@@ -16,8 +18,68 @@ export const authenticate = async (req, res, next) => {
     }
     const token = authHeader.split(' ')[1];
 
-    // Verify token with Supabase
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    // Check cache first (cache token verification for 5 minutes)
+    const cacheKey = `auth:token:${token.substring(0, 20)}`; // Use first 20 chars as key
+    const cachedUser = await cacheService.get(cacheKey);
+    
+    if (cachedUser) {
+      console.log('✅ Auth cache HIT');
+      req.user = cachedUser;
+      return next();
+    }
+
+    console.log('❌ Auth cache MISS - verifying with Supabase');
+
+    // Verify token with Supabase with timeout handling and retry logic
+    let user, error;
+    let retries = 2; // Retry up to 2 times
+    let lastError = null;
+
+    while (retries >= 0) {
+      try {
+        const result = await Promise.race([
+          supabase.auth.getUser(token),
+          new Promise((_, reject) => 
+            setTimeout(() => {
+              const timeoutErr = new Error('Authentication timeout');
+              timeoutErr.cause = { code: 'UND_ERR_CONNECT_TIMEOUT' };
+              reject(timeoutErr);
+            }, 25000) // 25 second timeout
+          )
+        ]);
+        user = result.data?.user;
+        error = result.error;
+        lastError = null;
+        break; // Success, exit retry loop
+      } catch (timeoutError) {
+        lastError = timeoutError;
+        console.error(`❌ Authentication attempt failed (${2 - retries + 1}/3):`, timeoutError.message);
+        
+        // Check if it's a connection timeout
+        if (timeoutError.cause?.code === 'UND_ERR_CONNECT_TIMEOUT' || 
+            timeoutError.message?.includes('timeout') ||
+            timeoutError.message?.includes('fetch failed')) {
+          
+          if (retries > 0) {
+            // Wait before retry (exponential backoff)
+            const waitTime = (3 - retries) * 1000; // 1s, 2s
+            console.log(`⏳ Retrying authentication in ${waitTime}ms...`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+            retries--;
+            continue; // Retry
+          } else {
+            // All retries exhausted
+            return res.status(503).json({
+              error: 'Service Unavailable',
+              message: 'Authentication service is temporarily unavailable. Please try again later.'
+            });
+          }
+        } else {
+          // Not a timeout error, don't retry
+          throw timeoutError;
+        }
+      }
+    }
 
     if (error || !user) {
       return res.status(401).json({
@@ -25,11 +87,26 @@ export const authenticate = async (req, res, next) => {
         message: 'Invalid or expired token'
       });
     }
+
+    // Cache the verified user for 5 minutes (300 seconds)
+    await cacheService.set(cacheKey, user, 300);
+    
     // Attach user to request object
     req.user = user;
     next();
   } catch (err) {
-    console.error('Authentication error:', err);
+    console.error('❌ Authentication error:', err);
+    
+    // Handle connection timeout errors specifically
+    if (err.cause?.code === 'UND_ERR_CONNECT_TIMEOUT' || 
+        err.message?.includes('timeout') ||
+        err.message?.includes('fetch failed')) {
+      return res.status(503).json({
+        error: 'Service Unavailable',
+        message: 'Authentication service is temporarily unavailable. Please try again later.'
+      });
+    }
+    
     return res.status(500).json({
       error: 'Internal Server Error',
       message: 'Authentication failed'
@@ -53,20 +130,41 @@ export const requireAdmin = async (req, res, next) => {
     // Use profile from loadUserProfile middleware if available, otherwise fetch it
     let profile = req.userProfile;
     if (!profile) {
-      const { data: profileData, error } = await supabase
-        .from('profiles')
-        .select('role, account_status')
-        .eq('user_id', req.user.id)
-        .single();
+      try {
+        const profilePromise = supabase
+          .from('profiles')
+          .select('role, account_status')
+          .eq('user_id', req.user.id)
+          .single();
+          
+        
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Query timeout')), 25000)
+        );
 
-      if (error || !profileData) {
-        return res.status(403).json({
-          error: 'Forbidden',
-          message: 'User profile not found'
+        const { data: profileData, error } = await Promise.race([
+          profilePromise,
+          timeoutPromise
+        ]);
+
+        console.log("profileData", profileData);
+
+        if (error || !profileData) {
+          return res.status(403).json({
+            error: 'Forbidden',
+            message: 'User profile not found'
+          });
+        }
+        profile = profileData;
+        req.userProfile = profile;
+        console.log('======--=-=-=passed here=-=-=--======');
+      } catch (timeoutError) {
+        console.error('❌ Profile fetch timeout:', timeoutError);
+        return res.status(503).json({
+          error: 'Service Unavailable',
+          message: 'Database service is temporarily unavailable. Please try again later.'
         });
       }
-      profile = profileData;
-      req.userProfile = profile;
     }
 
     // Check if admin account is deactivated (shouldn't happen, but safety check)
@@ -108,12 +206,29 @@ export const loadUserProfile = async (req, res, next) => {
       });
     }
 
-    // Fetch user profile from profiles table
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('user_id, email, full_name, role, account_status')
-      .eq('user_id', req.user.id)
-      .single();
+    // Fetch user profile from profiles table with timeout
+    let profile, error;
+    try {
+      const profilePromise = supabase
+        .from('profiles')
+        .select('user_id, email, full_name, role, account_status, is_systemadmin')
+        .eq('user_id', req.user.id)
+        .single();
+      
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Query timeout')), 25000)
+      );
+
+      const result = await Promise.race([profilePromise, timeoutPromise]);
+      profile = result.data;
+      error = result.error;
+    } catch (timeoutError) {
+      console.error('❌ Profile fetch timeout:', timeoutError);
+      // Fallback to auth user data if profile fetch fails
+      profile = null;
+      error = { message: 'Profile fetch timeout' };
+    }
+    
     console.log("profile====", profile);
 
     if (error || !profile) {
@@ -123,7 +238,8 @@ export const loadUserProfile = async (req, res, next) => {
         email: req.user.email,
         full_name: req.user.email,
         role: 'admin', // Default role
-        account_status: 'active'
+        account_status: 'active',
+        is_systemadmin: false
       };
     } else {
       req.userProfile = profile;
@@ -155,21 +271,38 @@ export const requireRole = (allowedRoles = []) => {
 
       // Ensure userProfile is loaded
       if (!req.userProfile) {
-        // Load profile if not already loaded
-        const { data: profile, error } = await supabase
-          .from('profiles')
-          .select('role, account_status')
-          .eq('user_id', req.user.id)
-          .single();
+        try {
+          // Load profile if not already loaded with timeout
+          const profilePromise = supabase
+            .from('profiles')
+            .select('role, account_status, is_systemadmin')
+            .eq('user_id', req.user.id)
+            .single();
+          
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Query timeout')), 25000)
+          );
 
-        if (error || !profile) {
-          return res.status(403).json({
-            error: 'Forbidden',
-            message: 'User profile not found'
+          const { data: profile, error } = await Promise.race([
+            profilePromise,
+            timeoutPromise
+          ]);
+
+          if (error || !profile) {
+            return res.status(403).json({
+              error: 'Forbidden',
+              message: 'User profile not found'
+            });
+          }
+
+          req.userProfile = profile;
+        } catch (timeoutError) {
+          console.error('❌ Profile fetch timeout:', timeoutError);
+          return res.status(503).json({
+            error: 'Service Unavailable',
+            message: 'Database service is temporarily unavailable. Please try again later.'
           });
         }
-
-        req.userProfile = profile;
       }
 
       // Check if account is deactivated (for reseller and consumer roles)

@@ -1,5 +1,35 @@
 import { supabase, supabaseAdmin } from '../../config/database.js';
 import { sendInvoiceCreatedEmail } from '../../services/emailService.js';
+import { cacheService } from '../../config/redis.js';
+import {
+  sanitizeString,
+  isValidUUID,
+  validatePagination,
+  sanitizeObject,
+  sanitizeArray
+} from '../../utils/validation.js';
+import {
+  executeWithTimeout,
+  handleApiError,
+  validateAndSanitizeSearch,
+  createPaginatedResponse,
+  createRateLimitMiddleware,
+  sanitizeInputMiddleware
+} from '../../utils/apiOptimization.js';
+
+// Cache configuration
+const CACHE_TTL = 300; // 5 minutes
+const CACHE_KEYS = {
+  ALL_INVOICES: (search, status, page, limit) => `invoices:list:${search || 'all'}:${status || 'all'}_page${page}_limit${limit}`,
+  MY_INVOICES: (userId, page, limit) => `invoices:my:${userId}_page${page}_limit${limit}`,
+  CONSUMER_INVOICES: (consumerId, page, limit) => `invoices:consumer:${consumerId}_page${page}_limit${limit}`,
+  CONSUMER_PRODUCTS: (consumerId) => `invoices:consumer-products:${consumerId}`,
+  INVOICE_BY_ID: (id) => `invoices:id:${id}`,
+};
+
+// Export middleware for use in routes
+export { sanitizeInputMiddleware };
+export const rateLimitMiddleware = createRateLimitMiddleware('invoices', 100);
 
 /**
  * Invoices Controller
@@ -10,33 +40,66 @@ import { sendInvoiceCreatedEmail } from '../../services/emailService.js';
  * Get consumer's accessed products with prices for invoice creation
  * @route   GET /api/invoices/consumer/:consumerId/products
  * @access  Private (Admin or Reseller)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Query timeout (Performance)
+ * 3. Secure error handling (Security)
+ * 4. Redis caching (Performance)
  */
 export const getConsumerProductsForInvoice = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const { consumerId } = req.params;
+    
+    if (!consumerId || !isValidUUID(consumerId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid consumer ID format'
+      });
+    }
+
     console.log('🔍 getConsumerProductsForInvoice called with consumerId:', consumerId);
-    console.log('🔍 Request user:', req.user?.id);
-    console.log('🔍 Request params:', req.params);
     
     const senderId = req.user.id; // Admin or Reseller creating the invoice
     const senderRole = req.userProfile?.role;
     
     console.log('🔍 Sender ID:', senderId, 'Role:', senderRole);
 
-    // Verify consumer exists and is a consumer
-    const { data: consumer, error: consumerError } = await supabase
+    // ========================================
+    // 2. CACHE CHECK
+    // ========================================
+    const cacheKey = CACHE_KEYS.CONSUMER_PRODUCTS(consumerId);
+    const cachedData = await cacheService.get(cacheKey);
+    if (cachedData) {
+      console.log(`✅ Cache HIT for consumer products ${consumerId}`);
+      return res.json(cachedData);
+    }
+
+    console.log(`❌ Cache MISS for consumer products ${consumerId} - fetching from database`);
+
+    // ========================================
+    // 3. VERIFY CONSUMER (with timeout)
+    // ========================================
+    const consumerPromise = supabase
       .from('auth_role_with_profiles')
       .select('user_id, full_name, email, role, referred_by')
       .eq('user_id', consumerId)
       .eq('role', 'consumer')
       .single();
 
-    console.log('🔍 Consumer query result:', { consumer, error: consumerError });
+    const { data: consumer, error: consumerError } = await executeWithTimeout(consumerPromise);
 
+    // ========================================
+    // 4. ERROR HANDLING (Security)
+    // ========================================
     if (consumerError || !consumer) {
       console.error('❌ Consumer not found:', consumerError);
-      console.error('❌ ConsumerId searched:', consumerId);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Consumer not found'
       });
@@ -45,35 +108,36 @@ export const getConsumerProductsForInvoice = async (req, res) => {
     // If reseller, verify this consumer is referred by them
     if (senderRole === 'reseller') {
       if (!consumer.referred_by || consumer.referred_by !== senderId) {
-        console.error('❌ Reseller permission denied:', {
-          consumerReferredBy: consumer.referred_by,
-          senderId: senderId
-        });
+        console.error('❌ Reseller permission denied');
         return res.status(403).json({
+          success: false,
           error: 'Forbidden',
           message: 'You can only create invoices for your referred consumers'
         });
       }
     }
 
-    // Get consumer's accessed products from user_product_access
-    const { data: productAccess, error: accessError } = await supabaseAdmin
+    // ========================================
+    // 5. GET PRODUCT ACCESS (with timeout)
+    // ========================================
+    const productAccessPromise = supabaseAdmin
       .from('user_product_access')
       .select('product_id, granted_at')
       .eq('user_id', consumerId);
-    
-    console.log('🔍 Product access query result:', { productAccess, error: accessError });
+
+    const { data: productAccess, error: accessError } = await executeWithTimeout(productAccessPromise, 5000);
 
     if (accessError) {
-      console.error('Error fetching product access:', accessError);
+      console.error('❌ Error fetching product access:', accessError);
       return res.status(500).json({
+        success: false,
         error: 'Internal Server Error',
         message: 'Failed to fetch product access'
       });
     }
 
     if (!productAccess || productAccess.length === 0) {
-      return res.json({
+      const response = {
         success: true,
         data: {
           consumer: {
@@ -83,29 +147,35 @@ export const getConsumerProductsForInvoice = async (req, res) => {
           },
           products: []
         }
-      });
+      };
+      await cacheService.set(cacheKey, response, CACHE_TTL);
+      return res.json(response);
     }
 
-    // Get product details with prices
+    // ========================================
+    // 6. GET PRODUCT DETAILS (with timeout)
+    // ========================================
     const productIds = productAccess.map(pa => pa.product_id);
-    console.log('🔍 Fetching products for IDs:', productIds);
-    const { data: products, error: productsError } = await supabaseAdmin
+    const productsPromise = supabaseAdmin
       .from('products')
       .select('id, name, price, description')
       .in('id', productIds);
-    
-    console.log('🔍 Products query result:', { products, error: productsError });
+
+    const { data: products, error: productsError } = await executeWithTimeout(productsPromise, 5000);
 
     if (productsError) {
-      console.error('Error fetching products:', productsError);
+      console.error('❌ Error fetching products:', productsError);
       return res.status(500).json({
+        success: false,
         error: 'Internal Server Error',
         message: 'Failed to fetch products'
       });
     }
 
-    // Combine product access with product details
-    const productsWithAccess = products.map(product => {
+    // ========================================
+    // 7. COMBINE DATA & SANITIZE
+    // ========================================
+    const productsWithAccess = (products || []).map(product => {
       const access = productAccess.find(pa => pa.product_id === product.id);
       return {
         product_id: product.id,
@@ -116,7 +186,7 @@ export const getConsumerProductsForInvoice = async (req, res) => {
       };
     });
 
-    return res.json({
+    const response = {
       success: true,
       data: {
         consumer: {
@@ -124,37 +194,84 @@ export const getConsumerProductsForInvoice = async (req, res) => {
           full_name: consumer.full_name,
           email: consumer.email
         },
-        products: productsWithAccess
+        products: sanitizeArray(productsWithAccess)
       }
-    });
+    };
+
+    // ========================================
+    // 8. CACHE THE RESPONSE
+    // ========================================
+    await cacheService.set(cacheKey, response, CACHE_TTL);
+
+    return res.json(response);
   } catch (error) {
-    console.error('Error in getConsumerProductsForInvoice:', error);
-    return res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while fetching consumer products.');
   }
 };
 
 /**
- * Get all invoices (admin only)
- * @route   GET /api/invoices
+ * Get all invoices with pagination (admin only)
+ * @route   GET /api/invoices?search=john&status=paid&page=1&limit=50
  * @access  Private (Admin)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. Pagination support (Performance)
+ * 3. Query timeout (Performance)
+ * 4. Better error handling (Security)
+ * 5. Data sanitization (Security)
+ * 6. Redis caching (Performance)
  */
 export const getAllInvoices = async (req, res) => {
   try {
-    const { search, status, page = 1, limit = 50 } = req.query;
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
+    const { search, status, page, limit } = req.query;
     const senderRole = req.userProfile?.role;
 
     // Only admin can see all invoices
     if (senderRole !== 'admin') {
       return res.status(403).json({
+        success: false,
         error: 'Forbidden',
         message: 'Admin access required'
       });
     }
 
-    // Build query for invoices
+    // Validate and sanitize search input
+    const searchTerm = validateAndSanitizeSearch(search, 100);
+    if (search && !searchTerm) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid search term. Only alphanumeric characters, spaces, @, ., _, and - are allowed.'
+      });
+    }
+
+    // Validate status
+    const validStatuses = ['paid', 'unpaid', 'under_review', 'all'];
+    const statusFilter = status && validStatuses.includes(status) ? status : 'all';
+
+    // Validate pagination parameters
+    const { pageNum, limitNum } = validatePagination(page, limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    // ========================================
+    // 2. CACHE CHECK
+    // ========================================
+    const cacheKey = CACHE_KEYS.ALL_INVOICES(searchTerm || '', statusFilter, pageNum, limitNum);
+    const cachedData = await cacheService.get(cacheKey);
+    if (cachedData) {
+      console.log('✅ Cache HIT for invoices list');
+      return res.json(cachedData);
+    }
+
+    console.log('❌ Cache MISS for invoices list - fetching from database');
+
+    // ========================================
+    // 3. OPTIMIZED DATABASE QUERY
+    // ========================================
     let query = supabaseAdmin
       .from('invoices')
       .select(`
@@ -184,40 +301,54 @@ export const getAllInvoices = async (req, res) => {
             price
           )
         )
-      `)
+      `, { count: 'exact' })
       .order('created_at', { ascending: false });
 
     // Apply status filter
-    if (status && status !== 'all') {
-      query = query.eq('status', status);
+    if (statusFilter && statusFilter !== 'all') {
+      query = query.eq('status', statusFilter);
     }
 
-    // Apply search filter (if needed, would need to search in related tables)
-    // For now, we'll do search filtering in the application layer
+    // Note: Search filtering done in application layer after fetching
+    // Pagination applied after search filtering
 
-    const { data: invoices, error } = await query;
+    const { data: invoices, error, count } = await executeWithTimeout(query);
 
+    // ========================================
+    // 4. ERROR HANDLING (Security)
+    // ========================================
     if (error) {
-      console.error('Error fetching invoices:', error);
+      console.error('❌ Error fetching invoices:', error);
       return res.status(500).json({
+        success: false,
         error: 'Internal Server Error',
-        message: 'Failed to fetch invoices'
+        message: 'Failed to fetch invoices. Please try again.'
       });
     }
 
-    // Enrich with email from auth_role_with_profiles view
+    // ========================================
+    // 5. ENRICH WITH EMAIL (with timeout)
+    // ========================================
     const receiverIds = Array.from(new Set((invoices || []).map(inv => inv.receiver?.user_id || inv.receiver_id).filter(Boolean)));
     const senderIds = Array.from(new Set((invoices || []).map(inv => inv.sender?.user_id || inv.sender_id).filter(Boolean)));
 
-    const { data: receiverProfiles } = await supabaseAdmin
+    const receiverProfilesPromise = supabaseAdmin
       .from('auth_role_with_profiles')
       .select('user_id, email, full_name, role, referred_by')
       .in('user_id', receiverIds.length ? receiverIds : ['00000000-0000-0000-0000-000000000000']);
 
-    const { data: senderProfiles } = await supabaseAdmin
+    const senderProfilesPromise = supabaseAdmin
       .from('auth_role_with_profiles')
       .select('user_id, email, full_name, role')
       .in('user_id', senderIds.length ? senderIds : ['00000000-0000-0000-0000-000000000000']);
+
+    const [
+      { data: receiverProfiles },
+      { data: senderProfiles }
+    ] = await Promise.all([
+      executeWithTimeout(receiverProfilesPromise, 5000),
+      executeWithTimeout(senderProfilesPromise, 5000)
+    ]);
 
     const receiverIdToEmail = new Map((receiverProfiles || []).map(p => [p.user_id, p.email]));
     const senderIdToProfile = new Map((senderProfiles || []).map(p => [p.user_id, { email: p.email, full_name: p.full_name, role: p.role }]));
@@ -251,10 +382,12 @@ export const getAllInvoices = async (req, res) => {
       created_at: invoice.created_at
     }));
 
-    // Apply search filter if provided
+    // ========================================
+    // 6. APPLY SEARCH FILTER
+    // ========================================
     let filteredInvoices = formattedInvoices;
-    if (search && search.trim() !== '') {
-      const searchLower = search.toLowerCase();
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
       filteredInvoices = formattedInvoices.filter(inv => 
         inv.invoice_number?.toLowerCase().includes(searchLower) ||
         inv.consumer_name?.toLowerCase().includes(searchLower) ||
@@ -263,27 +396,46 @@ export const getAllInvoices = async (req, res) => {
       );
     }
 
-    // Pagination
-    const startIndex = (parseInt(page) - 1) * parseInt(limit);
-    const endIndex = startIndex + parseInt(limit);
+    // ========================================
+    // 7. PAGINATION
+    // ========================================
+    const totalCount = filteredInvoices.length;
+    const startIndex = offset;
+    const endIndex = startIndex + limitNum;
     const paginatedInvoices = filteredInvoices.slice(startIndex, endIndex);
 
-    return res.json({
+    // ========================================
+    // 8. DATA SANITIZATION (Security)
+    // ========================================
+    const sanitizedInvoices = sanitizeArray(paginatedInvoices);
+
+    // ========================================
+    // 9. RESPONSE STRUCTURE
+    // ========================================
+    const response = {
       success: true,
-      data: paginatedInvoices,
+      data: sanitizedInvoices,
       pagination: {
-        total: filteredInvoices.length,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(filteredInvoices.length / parseInt(limit))
+        total: totalCount,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(totalCount / limitNum),
+        hasMore: endIndex < totalCount
+      },
+      filters: {
+        search: searchTerm || '',
+        status: statusFilter
       }
-    });
+    };
+
+    // ========================================
+    // 10. CACHE THE RESPONSE
+    // ========================================
+    await cacheService.set(cacheKey, response, CACHE_TTL);
+
+    return res.json(response);
   } catch (error) {
-    console.error('Error in getAllInvoices:', error);
-    return res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while fetching invoices.');
   }
 };
 
@@ -292,21 +444,62 @@ export const getAllInvoices = async (req, res) => {
  * @route   GET /api/invoices/my-invoices
  * @access  Private (Reseller)
  */
+/**
+ * Get my invoices (reseller only)
+ * @route   GET /api/invoices/my?search=&status=&page=1&limit=50
+ * @access  Private (Reseller)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. Pagination support (Performance)
+ * 3. Query timeout (Performance)
+ * 4. Redis caching (Performance)
+ * 5. Secure error handling (Security)
+ */
 export const getMyInvoices = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
     const senderId = req.user.id;
     const senderRole = req.userProfile?.role;
-    const { search, status, page = 1, limit = 50 } = req.query;
+    let { search, status, page, limit } = req.query;
 
     // Only resellers can access this endpoint
     if (senderRole !== 'reseller') {
       return res.status(403).json({
+        success: false,
         error: 'Forbidden',
         message: 'Reseller access required'
       });
     }
 
-    // Get invoices where sender is this reseller
+    // Validate pagination
+    const { pageNum, limitNum } = validatePagination(page, limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    // Sanitize search
+    search = search ? validateAndSanitizeSearch(search) : null;
+
+    // Validate status
+    const validStatuses = ['all', 'paid', 'unpaid', 'under_review', 'pending'];
+    const statusFilter = status && validStatuses.includes(status) ? status : null;
+
+    // ========================================
+    // 2. CACHE CHECK
+    // ========================================
+    const cacheKey = CACHE_KEYS.MY_INVOICES(senderId, pageNum, limitNum);
+    const cachedData = await cacheService.get(cacheKey);
+    if (cachedData && !search && !statusFilter) {
+      console.log(`✅ Cache HIT for my invoices ${senderId}`);
+      return res.json(cachedData);
+    }
+
+    console.log(`❌ Cache MISS for my invoices ${senderId} - fetching from database`);
+
+    // ========================================
+    // 3. BUILD QUERY
+    // ========================================
     let query = supabaseAdmin
       .from('invoices')
       .select(`
@@ -338,43 +531,59 @@ export const getMyInvoices = async (req, res) => {
             price
           )
         )
-      `)
+      `, { count: 'exact' })
       .eq('sender_id', senderId)
       .order('created_at', { ascending: false });
 
     // Apply status filter
-    if (status && status !== 'all') {
-      query = query.eq('status', status);
+    if (statusFilter && statusFilter !== 'all') {
+      query = query.eq('status', statusFilter);
     }
 
-    const { data: invoices, error } = await query;
+    // ========================================
+    // 4. EXECUTE QUERY WITH TIMEOUT
+    // ========================================
+    const { data: invoices, error, count } = await executeWithTimeout(query.range(offset, offset + limitNum - 1));
 
     if (error) {
-      console.error('Error fetching reseller invoices:', error);
+      console.error('❌ Error fetching reseller invoices:', error);
       return res.status(500).json({
+        success: false,
         error: 'Internal Server Error',
-        message: 'Failed to fetch invoices'
+        message: 'Failed to fetch invoices. Please try again.'
       });
     }
 
-    // Enrich with email from auth_role_with_profiles view
+    // ========================================
+    // 5. ENRICH WITH EMAIL (with timeout)
+    // ========================================
     const receiverIds = Array.from(new Set((invoices || []).map(inv => inv.receiver?.user_id || inv.receiver_id).filter(Boolean)));
-    const { data: receiverProfiles } = await supabaseAdmin
-      .from('auth_role_with_profiles')
-      .select('user_id, email, full_name, role, referred_by')
-      .in('user_id', receiverIds.length ? receiverIds : ['00000000-0000-0000-0000-000000000000']);
-    const receiverIdToEmail = new Map((receiverProfiles || []).map(p => [p.user_id, p.email]));
+    let receiverIdToEmail = new Map();
+    
+    if (receiverIds.length > 0) {
+      const profilesPromise = supabaseAdmin
+        .from('auth_role_with_profiles')
+        .select('user_id, email, full_name, role, referred_by')
+        .in('user_id', receiverIds);
 
-    // Fetch offer details for invoices that have applied_offer_id
+      const { data: receiverProfiles } = await executeWithTimeout(profilesPromise, 3000);
+      receiverIdToEmail = new Map((receiverProfiles || []).map(p => [p.user_id, p.email]));
+    }
+
+    // ========================================
+    // 6. FETCH OFFER DETAILS (with timeout)
+    // ========================================
     const offerIds = Array.from(new Set((invoices || []).map(inv => inv.applied_offer_id).filter(Boolean)));
     let offerMap = new Map();
+    
     if (offerIds.length > 0) {
-      const { data: offers, error: offersError } = await supabaseAdmin
+      const offersPromise = supabaseAdmin
         .from('offers')
         .select('id, name, commission_percentage')
         .in('id', offerIds);
 
-      if (!offersError && offers) {
+      const { data: offers } = await executeWithTimeout(offersPromise, 3000);
+      if (offers) {
         offers.forEach(offer => {
           offerMap.set(offer.id, offer);
         });
@@ -421,7 +630,9 @@ export const getMyInvoices = async (req, res) => {
       };
     });
 
-    // Apply search filter if provided
+    // ========================================
+    // 7. APPLY SEARCH FILTER
+    // ========================================
     let filteredInvoices = formattedInvoices;
     if (search && search.trim() !== '') {
       const searchLower = search.toLowerCase();
@@ -432,52 +643,91 @@ export const getMyInvoices = async (req, res) => {
       );
     }
 
-    // Pagination
-    const startIndex = (parseInt(page) - 1) * parseInt(limit);
-    const endIndex = startIndex + parseInt(limit);
-    const paginatedInvoices = filteredInvoices.slice(startIndex, endIndex);
+    // ========================================
+    // 8. DATA SANITIZATION
+    // ========================================
+    const sanitizedInvoices = sanitizeArray(filteredInvoices);
 
-    return res.json({
-      success: true,
-      data: paginatedInvoices,
-      pagination: {
-        total: filteredInvoices.length,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(filteredInvoices.length / parseInt(limit))
-      }
-    });
+    // ========================================
+    // 9. RESPONSE STRUCTURE
+    // ========================================
+    const response = createPaginatedResponse(sanitizedInvoices, count || filteredInvoices.length, pageNum, limitNum);
+
+    // ========================================
+    // 10. CACHE THE RESPONSE (only if no search/filter)
+    // ========================================
+    if (!search && !statusFilter) {
+      await cacheService.set(cacheKey, response, CACHE_TTL);
+    }
+
+    return res.json(response);
   } catch (error) {
-    console.error('Error in getMyInvoices:', error);
-    return res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while fetching invoices.');
   }
 };
 
 /**
  * Get invoices for a specific consumer
- * @route   GET /api/invoices/consumer/:consumerId
+ * @route   GET /api/invoices/consumer/:consumerId?page=1&limit=10
  * @access  Private (Admin or Reseller)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format, pagination)
+ * 2. Redis caching (Performance)
+ * 3. Query timeout (Performance)
+ * 4. Secure error handling (Security)
+ * 5. Data sanitization (Security)
  */
 export const getConsumerInvoices = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
     const { consumerId } = req.params;
-    const { page = 1, limit = 10 } = req.query;
+    const { page, limit } = req.query;
     const senderId = req.user.id;
     const senderRole = req.userProfile?.role;
 
-    // Verify consumer exists
-    const { data: consumer, error: consumerError } = await supabase
+    if (!consumerId || !isValidUUID(consumerId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid consumer ID format'
+      });
+    }
+
+    // Validate pagination
+    const { pageNum, limitNum } = validatePagination(page, limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    // ========================================
+    // 2. CACHE CHECK
+    // ========================================
+    const cacheKey = CACHE_KEYS.CONSUMER_INVOICES(consumerId, pageNum, limitNum);
+    const cachedData = await cacheService.get(cacheKey);
+    if (cachedData) {
+      console.log(`✅ Cache HIT for consumer invoices ${consumerId}`);
+      return res.json(cachedData);
+    }
+
+    console.log(`❌ Cache MISS for consumer invoices ${consumerId} - fetching from database`);
+
+    // ========================================
+    // 3. VERIFY CONSUMER EXISTS (with timeout)
+    // ========================================
+    const consumerPromise = supabase
       .from('auth_role_with_profiles')
       .select('user_id, full_name, email, role, referred_by')
       .eq('user_id', consumerId)
       .eq('role', 'consumer')
       .single();
 
+    const { data: consumer, error: consumerError } = await executeWithTimeout(consumerPromise);
+
     if (consumerError || !consumer) {
+      console.error('❌ Error fetching consumer:', consumerError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Consumer not found'
       });
@@ -487,13 +737,16 @@ export const getConsumerInvoices = async (req, res) => {
     if (senderRole === 'reseller') {
       if (!consumer.referred_by || consumer.referred_by !== senderId) {
         return res.status(403).json({
+          success: false,
           error: 'Forbidden',
           message: 'You can only view invoices for your referred consumers'
         });
       }
     }
 
-    // Build query for invoices count (for pagination)
+    // ========================================
+    // 4. BUILD COUNT QUERY (with timeout)
+    // ========================================
     let countQuery = supabaseAdmin
       .from('invoices')
       .select('id', { count: 'exact', head: true })
@@ -504,22 +757,20 @@ export const getConsumerInvoices = async (req, res) => {
       countQuery = countQuery.eq('sender_id', senderId);
     }
 
-    const { count: totalCount, error: countError } = await countQuery;
+    const { count: totalCount, error: countError } = await executeWithTimeout(countQuery);
 
     if (countError) {
-      console.error('Error counting consumer invoices:', countError);
+      console.error('❌ Error counting consumer invoices:', countError);
       return res.status(500).json({
+        success: false,
         error: 'Internal Server Error',
-        message: 'Failed to count invoices'
+        message: 'Failed to count invoices. Please try again.'
       });
     }
 
-    // Build query for invoices with pagination
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
-    const from = (pageNum - 1) * limitNum;
-    const to = from + limitNum - 1;
-
+    // ========================================
+    // 5. BUILD INVOICES QUERY (with timeout)
+    // ========================================
     let query = supabaseAdmin
       .from('invoices')
       .select(`
@@ -554,42 +805,54 @@ export const getConsumerInvoices = async (req, res) => {
       `)
       .eq('receiver_id', consumerId)
       .order('created_at', { ascending: false })
-      .range(from, to);
+      .range(offset, offset + limitNum - 1);
 
     // For resellers, only show invoices they created
     if (senderRole === 'reseller') {
       query = query.eq('sender_id', senderId);
     }
 
-    const { data: invoices, error } = await query;
+    const { data: invoices, error } = await executeWithTimeout(query);
 
     if (error) {
-      console.error('Error fetching consumer invoices:', error);
+      console.error('❌ Error fetching consumer invoices:', error);
       return res.status(500).json({
+        success: false,
         error: 'Internal Server Error',
-        message: 'Failed to fetch invoices'
+        message: 'Failed to fetch invoices. Please try again.'
       });
     }
 
-    // Get sender profiles for admin view
+    // ========================================
+    // 6. GET SENDER PROFILES (with timeout)
+    // ========================================
     const senderIds = Array.from(new Set((invoices || []).map(inv => inv.sender_id).filter(Boolean)));
-    const { data: senderProfiles } = await supabaseAdmin
-      .from('auth_role_with_profiles')
-      .select('user_id, email, full_name, role')
-      .in('user_id', senderIds.length ? senderIds : ['00000000-0000-0000-0000-000000000000']);
+    let senderIdToProfile = new Map();
+    
+    if (senderIds.length > 0) {
+      const profilesPromise = supabaseAdmin
+        .from('auth_role_with_profiles')
+        .select('user_id, email, full_name, role')
+        .in('user_id', senderIds);
 
-    const senderIdToProfile = new Map((senderProfiles || []).map(p => [p.user_id, { email: p.email, full_name: p.full_name, role: p.role }]));
+      const { data: senderProfiles } = await executeWithTimeout(profilesPromise, 3000);
+      senderIdToProfile = new Map((senderProfiles || []).map(p => [p.user_id, { email: p.email, full_name: p.full_name, role: p.role }]));
+    }
 
-    // Fetch offer details for invoices that have applied_offer_id
+    // ========================================
+    // 7. FETCH OFFER DETAILS (with timeout)
+    // ========================================
     const offerIds = Array.from(new Set((invoices || []).map(inv => inv.applied_offer_id).filter(Boolean)));
     let offerMap = new Map();
+    
     if (offerIds.length > 0) {
-      const { data: offers, error: offersError } = await supabaseAdmin
+      const offersPromise = supabaseAdmin
         .from('offers')
         .select('id, name, commission_percentage')
         .in('id', offerIds);
 
-      if (!offersError && offers) {
+      const { data: offers } = await executeWithTimeout(offersPromise, 3000);
+      if (offers) {
         offers.forEach(offer => {
           offerMap.set(offer.id, offer);
         });
@@ -635,24 +898,24 @@ export const getConsumerInvoices = async (req, res) => {
       };
     });
 
-    res.json({
-      success: true,
-      count: formattedInvoices.length,
-      total: totalCount || 0,
-      data: formattedInvoices,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total: totalCount || 0,
-        totalPages: Math.ceil((totalCount || 0) / limitNum)
-      }
-    });
+    // ========================================
+    // 8. DATA SANITIZATION
+    // ========================================
+    const sanitizedInvoices = sanitizeArray(formattedInvoices);
+
+    // ========================================
+    // 9. RESPONSE STRUCTURE
+    // ========================================
+    const response = createPaginatedResponse(sanitizedInvoices, totalCount || 0, pageNum, limitNum);
+
+    // ========================================
+    // 10. CACHE THE RESPONSE
+    // ========================================
+    await cacheService.set(cacheKey, response, CACHE_TTL);
+
+    res.json(response);
   } catch (error) {
-    console.error('Error in getConsumerInvoices:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while fetching consumer invoices.');
   }
 };
 
@@ -660,37 +923,75 @@ export const getConsumerInvoices = async (req, res) => {
  * Create invoice with invoice items
  * @route   POST /api/invoices
  * @access  Private (Admin or Reseller)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. Query timeout (Performance)
+ * 3. Cache invalidation (Performance)
+ * 4. Secure error handling (Security)
+ * 5. Data sanitization (Security)
  */
 export const createInvoice = async (req, res) => {
   try {
-    const senderId = req.user.id; // Admin or Reseller creating the invoice
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
+    const senderId = req.user.id;
     const senderRole = req.userProfile?.role;
-    const {
+    let {
       receiver_id,
       issue_date,
       due_date,
       tax_rate,
       notes,
-      items // Array of { product_id, quantity, unit_price, tax_rate }
+      items
     } = req.body;
 
     // Validate required fields
     if (!receiver_id || !issue_date || !due_date || !items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Missing required fields: receiver_id, issue_date, due_date, and items are required'
       });
     }
 
-    // Verify consumer exists and get their info
-    const { data: consumer, error: consumerError } = await supabase
+    // Validate UUID format
+    if (!isValidUUID(receiver_id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid receiver ID format'
+      });
+    }
+
+    // Sanitize notes
+    notes = notes ? sanitizeString(notes, 1000) : null;
+
+    // Validate items array
+    if (items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'At least one item is required'
+      });
+    }
+
+    // ========================================
+    // 2. VERIFY CONSUMER EXISTS (with timeout)
+    // ========================================
+    const consumerPromise = supabase
       .from('auth_role_with_profiles')
       .select('user_id, full_name, email, role, referred_by')
       .eq('user_id', receiver_id)
       .single();
 
+    const { data: consumer, error: consumerError } = await executeWithTimeout(consumerPromise);
+
     if (consumerError || !consumer) {
+      console.error('❌ Error fetching consumer:', consumerError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Consumer not found'
       });
@@ -699,6 +1000,7 @@ export const createInvoice = async (req, res) => {
     // Verify consumer role
     if (consumer.role !== 'consumer') {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Receiver must be a consumer'
       });
@@ -708,33 +1010,57 @@ export const createInvoice = async (req, res) => {
     if (senderRole === 'reseller') {
       if (!consumer.referred_by || consumer.referred_by !== senderId) {
         return res.status(403).json({
+          success: false,
           error: 'Forbidden',
           message: 'You can only create invoices for your referred consumers'
         });
       }
     }
 
-    // Validate items first
+    // ========================================
+    // 3. VALIDATE ITEMS
+    // ========================================
     for (const item of items) {
-      if (!item.product_id || !item.quantity || item.quantity <= 0 || !item.unit_price || item.unit_price < 0) {
+      if (!item.product_id || !isValidUUID(item.product_id)) {
         return res.status(400).json({
+          success: false,
           error: 'Bad Request',
-          message: 'Each item must have product_id, quantity > 0, and unit_price >= 0'
+          message: 'Each item must have a valid product_id'
+        });
+      }
+      if (!item.quantity || item.quantity <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: 'Each item must have quantity > 0'
+        });
+      }
+      if (item.unit_price === undefined || item.unit_price === null || item.unit_price < 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: 'Each item must have unit_price >= 0'
         });
       }
     }
 
-    // Batch verify all products at once
+    // ========================================
+    // 4. BATCH VERIFY PRODUCTS (with timeout)
+    // ========================================
     const productIds = items.map(item => item.product_id);
-    const { data: products, error: productsError } = await supabase
+    const productsPromise = supabase
       .from('products')
       .select('id, name, price')
       .in('id', productIds);
 
+    const { data: products, error: productsError } = await executeWithTimeout(productsPromise);
+
     if (productsError || !products || products.length !== productIds.length) {
       const foundIds = products?.map(p => p.id) || [];
       const missingIds = productIds.filter(id => !foundIds.includes(id));
+      console.error('❌ Error fetching products:', productsError);
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: `Products not found: ${missingIds.join(', ')}`
       });
@@ -799,23 +1125,28 @@ export const createInvoice = async (req, res) => {
 
     const finalTotalAmount = totalAmount + taxTotal;
 
-    // Check minimum invoice amount setting
+    // ========================================
+    // 5. CHECK MINIMUM INVOICE AMOUNT
+    // ========================================
     if (resellerSettings.minInvoiceAmount !== null && resellerSettings.minInvoiceAmount > 0) {
       if (finalTotalAmount < resellerSettings.minInvoiceAmount) {
         return res.status(400).json({
+          success: false,
           error: 'Bad Request',
           message: `Invoice amount ($${finalTotalAmount.toFixed(2)}) is below the minimum allowed amount of $${resellerSettings.minInvoiceAmount.toFixed(2)}`
         });
       }
     }
 
-    // Check for active offer at the invoice creation date/time
+    // ========================================
+    // 6. CHECK FOR ACTIVE OFFER (with timeout)
+    // ========================================
     let activeOffer = null;
     let resellerCommissionPercentage = null;
     const invoiceDate = issue_date || new Date().toISOString();
     
     try {
-      const { data: offers, error: offerError } = await supabaseAdmin
+      const offersPromise = supabaseAdmin
         .from('offers')
         .select('id, commission_percentage')
         .eq('is_active', true)
@@ -823,6 +1154,8 @@ export const createInvoice = async (req, res) => {
         .gte('end_date', invoiceDate)
         .order('created_at', { ascending: false })
         .limit(1);
+
+      const { data: offers, error: offerError } = await executeWithTimeout(offersPromise, 3000);
 
       if (!offerError && offers && offers.length > 0) {
         activeOffer = offers[0];
@@ -955,21 +1288,29 @@ export const createInvoice = async (req, res) => {
       }
     }
 
-    const { data: invoice, error: invoiceError } = await supabaseAdmin
+    // ========================================
+    // 7. CREATE INVOICE (with timeout)
+    // ========================================
+    const invoicePromise = supabaseAdmin
       .from('invoices')
       .insert(invoiceData)
       .select()
       .single();
 
+    const { data: invoice, error: invoiceError } = await executeWithTimeout(invoicePromise);
+
     if (invoiceError || !invoice) {
-      console.error('Error creating invoice:', invoiceError);
+      console.error('❌ Error creating invoice:', invoiceError);
       return res.status(500).json({
+        success: false,
         error: 'Internal Server Error',
-        message: 'Failed to create invoice: ' + (invoiceError?.message || 'Unknown error')
+        message: 'Failed to create invoice. Please try again.'
       });
     }
 
-    // Insert invoice items
+    // ========================================
+    // 8. INSERT INVOICE ITEMS (with timeout)
+    // ========================================
     const invoiceItems = validatedItems.map(item => ({
       invoice_id: invoice.id,
       product_id: item.product_id,
@@ -979,18 +1320,28 @@ export const createInvoice = async (req, res) => {
       // total_price is auto-calculated by the database
     }));
 
-    const { data: insertedItems, error: itemsError } = await supabaseAdmin
+    const itemsPromise = supabaseAdmin
       .from('invoice_items')
       .insert(invoiceItems)
       .select();
 
+    const { data: insertedItems, error: itemsError } = await executeWithTimeout(itemsPromise);
+
     if (itemsError || !insertedItems) {
-      console.error('Error creating invoice items:', itemsError);
+      console.error('❌ Error creating invoice items:', itemsError);
       // Try to delete the invoice if items insertion failed
-      await supabaseAdmin.from('invoices').delete().eq('id', invoice.id);
+      try {
+        await executeWithTimeout(
+          supabaseAdmin.from('invoices').delete().eq('id', invoice.id),
+          3000
+        );
+      } catch (deleteError) {
+        console.error('Error deleting failed invoice:', deleteError);
+      }
       return res.status(500).json({
+        success: false,
         error: 'Internal Server Error',
-        message: 'Failed to create invoice items: ' + (itemsError?.message || 'Unknown error')
+        message: 'Failed to create invoice items. Please try again.'
       });
     }
 
@@ -1046,48 +1397,70 @@ export const createInvoice = async (req, res) => {
       });
     }
 
+    // ========================================
+    // 9. CACHE INVALIDATION
+    // ========================================
+    await cacheService.delByPattern('invoices:*');
+    await cacheService.del(CACHE_KEYS.CONSUMER_INVOICES(receiver_id, 1, 10));
+    await cacheService.del(CACHE_KEYS.MY_INVOICES(senderId, 1, 50));
+    console.log('✅ Cache invalidated for invoice creation');
+
+    // ========================================
+    // 10. DATA SANITIZATION
+    // ========================================
+    const sanitizedInvoice = sanitizeObject(completeInvoice);
+
     return res.status(201).json({
       success: true,
       message: 'Invoice created successfully',
-      data: completeInvoice
+      data: sanitizedInvoice
     });
   } catch (error) {
-    console.error('Error in createInvoice:', error);
-    return res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while creating the invoice.');
   }
 };
 
 /**
  * Resend invoice email
  * @route   POST /api/invoices/:id/resend
- * @access  Private (Admin)
+ * @access  Private (Admin or Reseller)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Query timeout (Performance)
+ * 3. Secure error handling (Security)
  */
 export const resendInvoice = async (req, res) => {
   try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
     const senderId = req.user.id;
     const senderRole = req.userProfile?.role;
     const { id } = req.params;
-    
-    console.log('Resend invoice request - ID:', id, 'Type:', typeof id);
+
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid invoice ID format'
+      });
+    }
 
     // Admin and reseller can resend invoices
     // Resellers can only resend invoices they created
     if (senderRole !== 'admin' && senderRole !== 'reseller') {
       return res.status(403).json({
+        success: false,
         error: 'Forbidden',
         message: 'Admin or Reseller access required'
       });
     }
 
-    // Fetch invoice with receiver and items in one query
-    // Ensure id is a string for comparison
-    const invoiceId = String(id).trim();
-    console.log('Looking for invoice with ID (string):', invoiceId);
-    
-    const { data: invoice, error: invoiceError } = await supabaseAdmin
+    // ========================================
+    // 2. FETCH INVOICE (with timeout)
+    // ========================================
+    const invoicePromise = supabaseAdmin
       .from('invoices')
       .select(`
         id,
@@ -1115,41 +1488,44 @@ export const resendInvoice = async (req, res) => {
           )
         )
       `)
-      .eq('id', invoiceId)
+      .eq('id', id)
       .single();
-      console.log('Invoice query result:', invoice);
+
+    const { data: invoice, error: invoiceError } = await executeWithTimeout(invoicePromise);
 
     if (invoiceError) {
-      console.error('Error fetching invoice:', invoiceError);
-      console.error('Invoice ID searched:', id);
+      console.error('❌ Error fetching invoice:', invoiceError);
       return res.status(404).json({
-        error: 'Not Found',
-        message: `Invoice not found: ${invoiceError.message || 'Database error'}`
-      });
-    }
-
-    if (!invoice) {
-      console.error('Invoice not found for ID:', id);
-      return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Invoice not found'
       });
     }
-    
-    console.log('Invoice found:', invoice.id);
+
+    if (!invoice) {
+      return res.status(404).json({
+        success: false,
+        error: 'Not Found',
+        message: 'Invoice not found'
+      });
+    }
 
     // If reseller, check that they created this invoice
     if (senderRole === 'reseller' && invoice.sender_id !== senderId) {
       return res.status(403).json({
+        success: false,
         error: 'Forbidden',
         message: 'You can only resend invoices you created'
       });
     }
 
-    // Use receiver data from the invoice query
+    // ========================================
+    // 3. VALIDATE RECEIVER DATA
+    // ========================================
     const receiver = invoice.receiver;
     if (!receiver || !receiver.email) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Receiver email not found'
       });
@@ -1185,19 +1561,15 @@ export const resendInvoice = async (req, res) => {
       created_by_name: senderProfile.full_name || 'Admin',
       created_by_role: senderProfile.role || 'admin'
     }).catch(emailError => {
-      console.error('Error sending invoice email:', emailError);
+      console.warn('⚠️ Failed to resend invoice email:', emailError?.message);
     });
 
-    return res.status(200).json({
+    return res.json({
       success: true,
       message: 'Invoice email resent successfully'
     });
   } catch (error) {
-    console.error('Error in resendInvoice:', error);
-    return res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message
-    });
+    return handleApiError(error, res, 'An error occurred while resending the invoice email.');
   }
 };
 

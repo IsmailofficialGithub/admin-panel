@@ -22,9 +22,14 @@ import paypalRoutes from './routes/paypal.routes.js';
 import productDetailRoutes from './routes/productDetail.routes.js';
 import productDatabaseRoutes from './routes/productDatabase.routes.js';
 import customerSupportRoutes from './routes/customerSupport.routes.js';
+import permissionsRoutes from './routes/permissions.routes.js';
+import { testRedisConnection } from './config/redis.js';
 
 // Load environment variables
 dotenv.config();
+
+// Initialize Redis connection
+testRedisConnection();
 
 // Initialize Express app
 const app = express();
@@ -83,6 +88,7 @@ app.use('/api/paypal', paypalRoutes);
 app.use('/api/admin/products', productDetailRoutes);
 app.use('/api/admin/product-databases', productDatabaseRoutes);
 app.use('/api/customer-support', customerSupportRoutes);
+app.use('/api/permissions', permissionsRoutes);
 
 // Debug: Log all registered routes
 console.log('✅ Invoice routes registered at /api/invoices');

@@ -20,7 +20,9 @@ import {
   getMyResellerById,
   createMyReseller,
   updateMyReseller,
-  deleteMyReseller
+  deleteMyReseller,
+  rateLimitMiddleware,
+  sanitizeInputMiddleware
 } from './controllers/resellers.controller.js';
 import {
   getMyCommission,
@@ -37,7 +39,7 @@ const router = express.Router();
  * @desc    Get all resellers (admin only)
  * @access  Private (Admin)
  */
-router.get('/', authenticate, requireAdmin, getAllResellers);
+router.get('/', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, getAllResellers);
 
 /**
  * ==========================================

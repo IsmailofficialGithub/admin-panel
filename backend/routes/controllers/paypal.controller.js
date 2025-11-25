@@ -1,6 +1,15 @@
 import { supabaseAdmin } from '../../config/database.js';
 import { decryptPaymentData } from '../../utils/encryption.js';
 import { logActivity, getActorInfo, getClientIp, getUserAgent } from '../../services/activityLogger.js';
+import {
+  sanitizeString,
+  isValidUUID,
+  sanitizeObject
+} from '../../utils/validation.js';
+import {
+  handleApiError,
+  executeWithTimeout
+} from '../../utils/apiOptimization.js';
 
 // PayPal API configuration
 const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID || '';
@@ -65,21 +74,32 @@ async function getPayPalAccessToken() {
  * Create PayPal order
  * @route   POST /api/paypal/create-order
  * @access  Public (but requires encrypted data)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. Query timeout (Performance)
+ * 3. Secure error handling (Security)
+ * 4. Data sanitization (Security)
  */
 export const createPayPalOrder = async (req, res) => {
   try {
     // Validate PayPal is configured
     if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
       return res.status(500).json({
+        success: false,
         error: 'Configuration Error',
         message: 'PayPal is not configured. Please set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET in your .env file'
       });
     }
 
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
     const { encryptedData } = req.body;
 
     if (!encryptedData) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Encrypted payment data is required'
       });
@@ -92,30 +112,70 @@ export const createPayPalOrder = async (req, res) => {
     } catch (decryptError) {
       console.error('Decryption error:', decryptError);
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Invalid or corrupted payment data'
       });
     }
 
-    const { amount, invoice_id, user_id, invoice_number } = paymentData;
+    let { amount, invoice_id, user_id, invoice_number, currency, description } = paymentData;
 
     // Validate required fields
     if (!amount || !invoice_id || !user_id || !invoice_number) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Missing required payment information'
       });
     }
 
-    // Validate invoice exists
-    const { data: invoice, error: invoiceError } = await supabaseAdmin
-      .from('invoices')
-      .select('*')
-      .eq('id', invoice_id)
-      .single();
+    // Validate UUIDs
+    if (!isValidUUID(invoice_id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid invoice ID format'
+      });
+    }
+
+    if (!isValidUUID(user_id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid user ID format'
+      });
+    }
+
+    // Sanitize optional fields
+    currency = currency ? sanitizeString(currency) : 'USD';
+    description = description ? sanitizeString(description) : `Payment for invoice ${invoice_number}`;
+    invoice_number = sanitizeString(invoice_number);
+
+    // Validate amount
+    const paymentAmount = parseFloat(amount);
+    if (isNaN(paymentAmount) || paymentAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid payment amount'
+      });
+    }
+
+    // ========================================
+    // 2. QUERY TIMEOUT - Validate invoice exists
+    // ========================================
+    const { data: invoice, error: invoiceError } = await executeWithTimeout(
+      supabaseAdmin
+        .from('invoices')
+        .select('id, status, total_amount, consumer_id')
+        .eq('id', invoice_id)
+        .single(),
+      5000 // 5 second timeout for invoice fetch
+    );
 
     if (invoiceError || !invoice) {
       return res.status(404).json({
+        success: false,
         error: 'Not Found',
         message: 'Invoice not found'
       });
@@ -124,23 +184,20 @@ export const createPayPalOrder = async (req, res) => {
     // Check if invoice is already paid
     if (invoice.status === 'paid') {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'Invoice is already paid',
         invoice_status: 'paid'
       });
     }
 
-    // Validate amount
-    const paymentAmount = parseFloat(amount);
-    if (isNaN(paymentAmount) || paymentAmount <= 0) {
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: 'Invalid payment amount'
-      });
-    }
-
-    // Get PayPal access token
-    const accessToken = await getPayPalAccessToken();
+    // ========================================
+    // 3. QUERY TIMEOUT - Get PayPal access token and create order
+    // ========================================
+    const accessToken = await executeWithTimeout(
+      getPayPalAccessToken(),
+      10000 // 10 second timeout for PayPal auth
+    );
 
     // Create PayPal order
     const orderData = {
@@ -148,9 +205,9 @@ export const createPayPalOrder = async (req, res) => {
       purchase_units: [
         {
           reference_id: invoice_id,
-          description: `Payment for invoice ${invoice_number}`,
+          description: description,
           amount: {
-            currency_code: 'USD',
+            currency_code: currency.toUpperCase(),
             value: paymentAmount.toFixed(2),
           },
         },
@@ -165,7 +222,7 @@ export const createPayPalOrder = async (req, res) => {
       },
     };
 
-    const response = await fetch(`${PAYPAL_BASE_URL}/v2/checkout/orders`, {
+    const fetchPromise = fetch(`${PAYPAL_BASE_URL}/v2/checkout/orders`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -175,6 +232,8 @@ export const createPayPalOrder = async (req, res) => {
       body: JSON.stringify(orderData),
     });
 
+    const response = await executeWithTimeout(fetchPromise, 15000); // 15 second timeout for PayPal API
+
     if (!response.ok) {
       const errorData = await response.text();
       console.error('PayPal order creation error:', errorData);
@@ -183,19 +242,20 @@ export const createPayPalOrder = async (req, res) => {
 
     const order = await response.json();
 
-    res.json({
+    // ========================================
+    // 4. DATA SANITIZATION
+    // ========================================
+    const responseData = {
       success: true,
       orderId: order.id,
       // Return order ID for client-side integration (PayPal Buttons)
       // approvalUrl is for redirect flow, but we'll use PayPal Buttons instead
       approvalUrl: order.links?.find(link => link.rel === 'approve')?.href,
-    });
+    };
+
+    res.json(sanitizeObject(responseData));
   } catch (error) {
-    console.error('Error creating PayPal order:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message || 'Failed to create PayPal order'
-    });
+    return handleApiError(error, res, 'An error occurred while creating PayPal order.');
   }
 };
 
@@ -203,17 +263,30 @@ export const createPayPalOrder = async (req, res) => {
  * Capture PayPal payment
  * @route   POST /api/paypal/capture-payment
  * @access  Public
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. Query timeout (Performance)
+ * 3. Secure error handling (Security)
+ * 4. Data sanitization (Security)
  */
 export const capturePayPalPayment = async (req, res) => {
   try {
-    const { orderId, encryptedData } = req.body;
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
+    let { orderId, encryptedData, invoiceId } = req.body;
 
     if (!orderId) {
       return res.status(400).json({
+        success: false,
         error: 'Bad Request',
         message: 'PayPal order ID is required'
       });
     }
+
+    orderId = sanitizeString(orderId);
+    invoiceId = invoiceId ? sanitizeString(invoiceId) : null;
 
     // Decrypt payment data to get invoice info
     let paymentData;
@@ -224,11 +297,16 @@ export const capturePayPalPayment = async (req, res) => {
       // Continue without decrypted data - we can get info from PayPal order
     }
 
-    // Get PayPal access token
-    const accessToken = await getPayPalAccessToken();
+    // ========================================
+    // 2. QUERY TIMEOUT - Get PayPal access token and capture order
+    // ========================================
+    const accessToken = await executeWithTimeout(
+      getPayPalAccessToken(),
+      10000 // 10 second timeout for PayPal auth
+    );
 
     // Capture the PayPal order
-    const response = await fetch(`${PAYPAL_BASE_URL}/v2/checkout/orders/${orderId}/capture`, {
+    const fetchPromise = fetch(`${PAYPAL_BASE_URL}/v2/checkout/orders/${orderId}/capture`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -236,10 +314,13 @@ export const capturePayPalPayment = async (req, res) => {
       },
     });
 
+    const response = await executeWithTimeout(fetchPromise, 15000); // 15 second timeout for PayPal API
+
     if (!response.ok) {
       const errorData = await response.text();
       console.error('PayPal capture error:', errorData);
       return res.status(400).json({
+        success: false,
         error: 'Payment Failed',
         message: `PayPal payment capture failed: ${errorData}`
       });
@@ -271,9 +352,11 @@ export const capturePayPalPayment = async (req, res) => {
         amount,
       });
 
-      // Update invoice status to paid
+      // ========================================
+      // 3. QUERY TIMEOUT - Update invoice status
+      // ========================================
       if (invoice_id) {
-        const { error: updateError } = await supabaseAdmin
+        const updatePromise = supabaseAdmin
           .from('invoices')
           .update({ 
             status: 'paid',
@@ -281,12 +364,15 @@ export const capturePayPalPayment = async (req, res) => {
           })
           .eq('id', invoice_id);
 
+        const { error: updateError } = await executeWithTimeout(updatePromise, 5000);
         if (updateError) {
           console.error('Error updating invoice status:', updateError);
         }
       }
 
-      // Create payment record in invoice_payments table
+      // ========================================
+      // 4. QUERY TIMEOUT - Create payment record
+      // ========================================
       if (invoice_id && user_id) {
         const paymentRecord = {
           invoice_id,
@@ -302,10 +388,11 @@ export const capturePayPalPayment = async (req, res) => {
           reviewed_at: null,
         };
 
-        const { error: paymentRecordError } = await supabaseAdmin
+        const insertPromise = supabaseAdmin
           .from('invoice_payments')
           .insert([paymentRecord]);
 
+        const { error: paymentRecordError } = await executeWithTimeout(insertPromise, 5000);
         if (paymentRecordError) {
           console.error('Error creating payment record:', paymentRecordError);
         }
@@ -337,7 +424,10 @@ export const capturePayPalPayment = async (req, res) => {
         }
       }
 
-      res.json({
+      // ========================================
+      // 5. DATA SANITIZATION
+      // ========================================
+      const responseData = {
         success: true,
         message: 'PayPal payment completed successfully',
         data: {
@@ -348,9 +438,12 @@ export const capturePayPalPayment = async (req, res) => {
           status: capture.status,
           amount: amount
         }
-      });
+      };
+
+      res.json(sanitizeObject(responseData));
     } else {
       res.status(400).json({
+        success: false,
         error: 'Payment Failed',
         message: `PayPal payment status: ${capture.status}`,
         data: {
@@ -360,11 +453,7 @@ export const capturePayPalPayment = async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Error capturing PayPal payment:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: error.message || 'Failed to capture PayPal payment'
-    });
+    return handleApiError(error, res, 'An error occurred while capturing PayPal payment.');
   }
 };
 

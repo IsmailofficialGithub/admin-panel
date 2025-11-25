@@ -1,22 +1,28 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.js';
 import { login, logout, getCurrentUser } from './controllers/auth.controller.js';
+import {
+  createRateLimitMiddleware,
+  sanitizeInputMiddleware
+} from '../utils/apiOptimization.js';
+
+const rateLimitMiddleware = createRateLimitMiddleware('auth', 50); // Lower limit for auth endpoints
 
 const router = express.Router();
 
 // @route POST /api/auth/login
 // @desc  Login user
 // @access Public
-router.post('/login', login);
+router.post('/login', rateLimitMiddleware, sanitizeInputMiddleware, login);
 
 // @route POST /api/auth/logout
 // @desc  Logout user
 // @access Private
-router.post('/logout', authenticate, logout);
+router.post('/logout', authenticate, rateLimitMiddleware, sanitizeInputMiddleware, logout);
 
 // @route GET /api/auth/me
 // @desc  Get current user profile
 // @access Private
-router.get('/me', authenticate, getCurrentUser);
+router.get('/me', authenticate, rateLimitMiddleware, sanitizeInputMiddleware, getCurrentUser);
 
 export default router;

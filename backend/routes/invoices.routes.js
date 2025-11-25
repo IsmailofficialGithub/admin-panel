@@ -14,6 +14,12 @@ import {
   reviewPayment,
   upload
 } from './controllers/invoice_payments.controller.js';
+import {
+  createRateLimitMiddleware,
+  sanitizeInputMiddleware
+} from '../utils/apiOptimization.js';
+
+const rateLimitMiddleware = createRateLimitMiddleware('invoices', 100);
 
 const router = express.Router();
 
@@ -31,6 +37,8 @@ router.get(
   },
   authenticate,
   requireRole(['admin', 'reseller']),
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
   getConsumerProductsForInvoice
 );
 
@@ -43,6 +51,8 @@ router.get(
   '/',
   authenticate,
   requireRole(['admin']),
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
   getAllInvoices
 );
 
@@ -51,6 +61,8 @@ router.get(
   '/invoices',
   authenticate,
   requireRole(['admin']),
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
   getAllInvoices
 );
 
@@ -63,6 +75,8 @@ router.get(
   '/my-invoices',
   authenticate,
   requireRole(['reseller']),
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
   getMyInvoices
 );
 
@@ -75,6 +89,8 @@ router.get(
   '/consumer/:consumerId',
   authenticate,
   requireRole(['admin', 'reseller']),
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
   getConsumerInvoices
 );
 
@@ -87,6 +103,8 @@ router.post(
   '/',
   authenticate,
   requireRole(['admin', 'reseller']),
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
   createInvoice
 );
 
@@ -99,6 +117,8 @@ router.post(
   '/:id/resend',
   authenticate,
   requireRole(['admin']),
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
   resendInvoice
 );
 
@@ -110,7 +130,9 @@ router.post(
 router.post(
   '/:id/payments',
   authenticate,
-  upload.single('proof'), // Handle file upload
+  rateLimitMiddleware,
+  upload.single('proof'), // Handle file upload (must come after rate limit, before sanitize)
+  sanitizeInputMiddleware,
   submitPayment
 );
 
@@ -122,6 +144,8 @@ router.post(
 router.get(
   '/:id/payments',
   authenticate,
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
   getInvoicePayments
 );
 
@@ -134,6 +158,8 @@ router.patch(
   '/payments/:paymentId',
   authenticate,
   requireRole(['admin']),
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
   reviewPayment
 );
 

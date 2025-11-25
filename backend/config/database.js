@@ -14,11 +14,37 @@ if (!supabaseUrl || !supabaseAnonKey) {
   process.exit(1);
 }
 
-// Create Supabase client (for general use)
+// Create Supabase client (for general use) with increased timeout
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
     persistSession: false
+  },
+  global: {
+    fetch: (url, options = {}) => {
+      // Increase timeout for Supabase requests to 30 seconds
+      const timeout = 30000; // 30 seconds instead of default 10 seconds
+      
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      
+      return fetch(url, {
+        ...options,
+        signal: controller.signal
+      }).then(response => {
+        clearTimeout(timeoutId);
+        return response;
+      }).catch(error => {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+          const timeoutError = new Error(`Request timeout after ${timeout}ms`);
+          timeoutError.cause = { code: 'UND_ERR_CONNECT_TIMEOUT' };
+          throw timeoutError;
+        }
+        throw error;
+      });
+    }
   }
 });
 
