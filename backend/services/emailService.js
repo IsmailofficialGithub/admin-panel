@@ -34,9 +34,10 @@ export const transporter = createTransport({
  * @param {string} params.email - Recipient email
  * @param {string} params.full_name - User's full name
  * @param {string} params.password - Temporary password
+ * @param {string} params.role - User role (user, reseller, consumer, admin)
  * @returns {Promise<Object>} Email send result
  */
-export const sendWelcomeEmail = async ({ email, full_name, password }) => {
+export const sendWelcomeEmail = async ({ email, full_name, password, role = 'user' }) => {
   try {
     // Verify transporter is ready
     const verified = await transporter.verify();
@@ -44,23 +45,42 @@ export const sendWelcomeEmail = async ({ email, full_name, password }) => {
       throw new Error("Email server not ready");
     }
 
-    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+    // HARDCODED: Consumers ALWAYS use https://social.duhanashrah.ai/ - no exceptions
+    // CLIENT_URL is the admin panel URL - we NEVER use it for consumers
+    // This ensures consumers never get redirected to admin panel, regardless of env vars
+    const website_url = role === 'consumer' 
+      ? 'https://social.duhanashrah.ai/'  // Hardcoded - ignores CLIENT_URL completely
+      : (process.env.CLIENT_URL || "");   // Only non-consumers use CLIENT_URL (admin panel)
+
+    // Debug log to verify consumer URL is set correctly
+    if (role === 'consumer') {
+      console.log('🔗 Consumer email - Using HARDCODED URL (CLIENT_URL ignored):', website_url);
+    }
 
     const htmlContent = AdminEmailTemplateUserCreated({
       full_name,
       email,
       password,
+      role,
       website_url,
     });
+
+    // Role-based subject line
+    const roleSubjects = {
+      consumer: `Your DNAI account has been created`,
+      reseller: `Your DNAI Reseller account has been created`,
+      admin: `Welcome Administrator: ${full_name}`,
+      user: `New User Created: ${full_name}`
+    };
 
     const ownerMail = {
       from: `"Duha Nashrah" <${process.env.AdminEmail}>`,
       to: email,
-      subject: `New User Created: ${full_name}`,
+      subject: roleSubjects[role] || roleSubjects.user,
       html: htmlContent,
     };
 
-    console.log("📧 Sending custom welcome email to:", email);
+    console.log(`📧 Sending custom welcome email to ${role}:`, email);
     await transporter.sendMail(ownerMail);
     console.log("✅ Welcome email sent successfully");
 

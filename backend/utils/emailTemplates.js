@@ -229,10 +229,16 @@ export const AdminEmailTemplateUserCreated = ({
 
   const roleInfo = roleMessages[role] || roleMessages.user;
 
-  // Hardcoded URL for consumers - always redirect to https://social.duhanashrah.ai/
-  const finalWebsiteUrl = role === 'consumer' 
-    ? 'https://social.duhanashrah.ai/' 
-    : website_url;
+  // HARDCODED: Consumers ALWAYS redirect to https://social.duhanashrah.ai/ - no exceptions
+  // IGNORES website_url parameter and CLIENT_URL env var completely for consumers
+  // This ensures consumers NEVER get admin panel URL, even if accidentally passed
+  let finalWebsiteUrl;
+  if (role === 'consumer') {
+    finalWebsiteUrl = 'https://social.duhanashrah.ai/'; // Hardcoded - never use CLIENT_URL
+    console.log('📧 Email Template - Consumer: Using HARDCODED URL (ignoring any passed URL):', finalWebsiteUrl);
+  } else {
+    finalWebsiteUrl = website_url || process.env.CLIENT_URL || "#";
+  }
 
   const content = `
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
