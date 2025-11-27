@@ -22,6 +22,7 @@ import paypalRoutes from './routes/paypal.routes.js';
 import productDetailRoutes from './routes/productDetail.routes.js';
 import productDatabaseRoutes from './routes/productDatabase.routes.js';
 import customerSupportRoutes from './routes/customerSupport.routes.js';
+import publicSupportRoutes from './routes/publicSupport.routes.js';
 import permissionsRoutes from './routes/permissions.routes.js';
 import { testRedisConnection } from './config/redis.js';
 
@@ -43,11 +44,40 @@ const limiter = rateLimit({
 });
 
 // Middleware
-app.use(helmet()); // Security headers
-app.use(cors({
-  origin: process.env.CLIENT_URL ,
-  credentials: true
-}));
+app.use(helmet({
+  // Configure helmet for public support routes
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+})); // Security headers
+
+// CORS configuration - more permissive for public routes
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, Postman, or same-origin)
+    if (!origin) return callback(null, true);
+    
+    // Allow requests from CLIENT_URL (your admin panel)
+    const allowedOrigins = [
+      process.env.CLIENT_URL,
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:3001',
+    ].filter(Boolean);
+    
+    // For public support routes, allow all origins
+    // For other routes, check against allowed origins
+    if (origin) {
+      callback(null, true); // Allow all origins for now (you can restrict this in production)
+    } else {
+      callback(null, true);
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+};
+
+app.use(cors(corsOptions));
 app.use(express.json()); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 app.use(morgan('dev')); // Logging
@@ -88,12 +118,11 @@ app.use('/api/paypal', paypalRoutes);
 app.use('/api/admin/products', productDetailRoutes);
 app.use('/api/admin/product-databases', productDatabaseRoutes);
 app.use('/api/customer-support', customerSupportRoutes);
+app.use('/api/public/customer-support', publicSupportRoutes);
 app.use('/api/permissions', permissionsRoutes);
 
 // Debug: Log all registered routes
-console.log('✅ Invoice routes registered at /api/invoices');
-console.log('✅ Stripe routes registered at /api/stripe');
-console.log('✅ PayPal routes registered at /api/paypal');
+;
 // 404 Handler
 app.use((req, res) => {
   res.status(404).json({

@@ -40,47 +40,95 @@ export const rateLimitMiddleware = createRateLimitMiddleware('permissions', 100)
  */
 export const getAllPermissions = async (req, res) => {
   try {
-    const { resource, action } = req.query;
-    // Check cache
-    const cacheKey = resource 
-      ? CACHE_KEYS.PERMISSIONS_BY_RESOURCE(resource)
-      : CACHE_KEYS.ALL_PERMISSIONS;
+    const { resource, action, page = 1, limit = 50 } = req.query;
     
+    // 🎯 OPTIMIZATION 1: Better cache key that includes all query params
+    const cacheKey = `permissions:${resource || 'all'}:${action || 'all'}:${page}:${limit}`;
+    
+    // 🎯 OPTIMIZATION 2: Check cache with early return
     const cachedData = await cacheService.get(cacheKey);
     if (cachedData) {
-      console.log('✅ Cache HIT for permissions');
+      res.setHeader('X-Cache', 'HIT');
       return res.json(cachedData);
     }
+    res.setHeader('X-Cache', 'MISS');
 
-    // Build query
-    let query = supabase
+    // 🎯 OPTIMIZATION 3: Input validation (prevent unnecessary DB calls)
+    const validatedResource = resource ? sanitizeString(resource, 50) : null;
+    const validatedAction = action ? sanitizeString(action, 50) : null;
+    
+    // Pagination - default 50 per page
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.min(500, Math.max(1, parseInt(limit, 10))); // Cap at 500, default 50
+    const offset = (pageNum - 1) * limitNum;
+
+    // 🎯 OPTIMIZATION 4: Build queries conditionally (Supabase doesn't have .modify())
+    // Data query with pagination (50 per page)
+    let dataQuery = supabase
       .from('permissions')
-      .select('*')
+      .select('id, name, resource, action, description, created_at') // Include 'name' field for frontend
       .order('resource', { ascending: true })
       .order('action', { ascending: true });
-
-    if (resource) {
-      query = query.eq('resource', sanitizeString(resource, 50));
+    
+    if (validatedResource) {
+      dataQuery = dataQuery.eq('resource', validatedResource);
     }
-    if (action) {
-      query = query.eq('action', sanitizeString(action, 50));
+    if (validatedAction) {
+      dataQuery = dataQuery.eq('action', validatedAction);
+    }
+    
+    // Apply pagination
+    dataQuery = dataQuery.range(offset, offset + limitNum - 1);
+    
+    // Count query for pagination info
+    let countQuery = supabase
+      .from('permissions')
+      .select('id', { count: 'exact', head: true });
+    
+    if (validatedResource) {
+      countQuery = countQuery.eq('resource', validatedResource);
+    }
+    if (validatedAction) {
+      countQuery = countQuery.eq('action', validatedAction);
+    }
+    
+    // 🎯 OPTIMIZATION 5: Execute queries in parallel with timeout
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Query timeout')), 10000)
+    );
+
+    const [{ data, error }, { count, error: countError }] = await Promise.race([
+      Promise.all([dataQuery, countQuery]),
+      timeoutPromise
+    ]);
+
+    if (error || countError) {
+      console.error('❌ Get permissions error:', error || countError);
+      return handleApiError(error || countError, res, 'Failed to fetch permissions');
     }
 
-    const { data, error } = await executeWithTimeout(query, 10000);
-
-    if (error) {
-      console.error('❌ Get permissions error:', error);
-      return handleApiError(error, res, 'Failed to fetch permissions');
-    }
-
+    // 🎯 OPTIMIZATION 6: Build paginated response
+    const totalPages = Math.ceil((count || 0) / limitNum);
     const result = {
       success: true,
       data: sanitizeArray(data || []),
-      count: data?.length || 0
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: count || 0,
+        totalPages,
+        hasNext: pageNum < totalPages,
+        hasPrev: pageNum > 1
+      }
     };
 
-    // Cache result
-    await cacheService.set(cacheKey, result, CACHE_TTL);
+    // 🎯 OPTIMIZATION 7: Cache with TTL based on data size
+    const cacheTTL = count > 1000 ? 300 : 600; // Shorter TTL for large datasets
+    await cacheService.set(cacheKey, result, cacheTTL);
+
+    // 🎯 OPTIMIZATION 8: Set HTTP cache headers
+    res.setHeader('Cache-Control', `private, max-age=${cacheTTL}`);
+    res.setHeader('ETag', `W/"${Buffer.from(JSON.stringify(result)).toString('base64').slice(0, 27)}"`);
 
     res.json(result);
   } catch (err) {

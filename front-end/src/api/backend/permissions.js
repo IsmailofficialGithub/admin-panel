@@ -6,15 +6,17 @@
 import apiClient from '../../services/apiClient';
 
 /**
- * Get all permissions with optional filters
+ * Get all permissions with optional filters and pagination
  * @param {Object} filters - Filter options
  * @param {string} filters.resource - Filter by resource
  * @param {string} filters.action - Filter by action
- * @returns {Promise<Array>} List of permissions
+ * @param {number} filters.page - Page number (default: 1)
+ * @param {number} filters.limit - Items per page (default: 50)
+ * @returns {Promise<Object>} Object with data array and pagination info
  */
 export const getAllPermissions = async (filters = {}) => {
   try {
-    const { resource, action } = filters;
+    const { resource, action, page = 1, limit = 50 } = filters;
     const params = new URLSearchParams();
     
     if (resource && resource.trim() !== '') {
@@ -24,11 +26,22 @@ export const getAllPermissions = async (filters = {}) => {
       params.append('action', action.trim());
     }
     
+    // Add pagination params
+    params.append('page', page.toString());
+    params.append('limit', limit.toString());
+    
     const queryString = params.toString();
-    const response = await apiClient.permissions.getAll(queryString ? `?${queryString}` : '');
+    const response = await apiClient.permissions.getAll(`?${queryString}`);
     console.log("response--==--", response);
-    // Backend returns { success: true, data: [...], count: ... }
-    return response.data?.data || response.data || [];
+    // Axios interceptor returns response.data, so response is already { success: true, data: [...], pagination: {...} }
+    if (response?.error) {
+      return { error: response.error };
+    }
+    // Response structure: { success: true, data: [...], pagination: {...} }
+    return {
+      data: response?.data || [],
+      pagination: response?.pagination || null
+    };
   } catch (error) {
     console.error('getAllPermissions Error:', error);
     return { error: error.message };
@@ -72,7 +85,12 @@ export const getMyPermissions = async () => {
 export const getUserPermissions = async (userId) => {
   try {
     const response = await apiClient.permissions.getUserPermissions(userId);
-    return response.data || [];
+    // Axios interceptor returns response.data, so response is already { success: true, data: [...], count: ... }
+    if (response?.error) {
+      return { error: response.error };
+    }
+    // Response structure: { success: true, data: [...], count: ... }
+    return response?.data || [];
   } catch (error) {
     console.error('getUserPermissions Error:', error);
     return { error: error.message };

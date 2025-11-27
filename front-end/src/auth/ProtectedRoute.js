@@ -71,6 +71,17 @@ const ProtectedRoute = ({ component: Component, allowedRoles = [], ...rest }) =>
           return null;
         }
 
+        // Block consumer access completely - redirect to external site
+        if (profile.role === 'consumer') {
+          console.log('❌ ProtectedRoute: Consumer role detected. Redirecting to external site.');
+          signOut();
+          // Redirect to external site after a brief delay
+          setTimeout(() => {
+            window.location.href = 'https://social.duhanashrah.ai/';
+          }, 100);
+          return null;
+        }
+
         // Check if user's role is allowed
         if (allowedRoles.length > 0 && !allowedRoles.includes(profile.role)) {
           console.log('❌ ProtectedRoute: Role not allowed. Redirecting to correct dashboard.');
@@ -78,8 +89,8 @@ const ProtectedRoute = ({ component: Component, allowedRoles = [], ...rest }) =>
           return <Redirect to={dashboardPath} />;
         }
 
-        // Check if account is deactivated (for reseller and consumer)
-        if ((profile.role === 'reseller' || profile.role === 'consumer') && profile.account_status === 'deactive') {
+        // Check if account is deactivated (for reseller)
+        if (profile.role === 'reseller' && profile.account_status === 'deactive') {
           console.log('❌ ProtectedRoute: Account is deactivated. Signing out and redirecting.');
           signOut();
           return <Redirect to="/login" />;

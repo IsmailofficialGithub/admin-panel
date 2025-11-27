@@ -21,7 +21,10 @@ const Login = () => {
       } else if (profile.role === 'reseller') {
         history.push('/reseller/dashboard');
       } else if (profile.role === 'consumer') {
-        history.push('/consumer/dashboard');
+        toast.error('You are not authorized to access this page. Redirecting to external site...');
+        setTimeout(() => {
+          window.location.href = 'https://social.duhanashrah.ai/';
+        }, 3000);
       }
     }
   }, [user, profile, loading, history]);
@@ -172,16 +175,27 @@ const Login = () => {
             console.error('❌ Redirect failed:', redirectError);
           }
         } else if (profile.role === 'consumer') {
-          toast.success(`Welcome back!`);
+          // Consumers should be redirected to external site without saving token
+          console.log('❌ Login: Consumer role detected. Redirecting to external site without saving token.');
           
-          // Redirect to consumer page
-          try {
-            setTimeout(() => {
-              window.location.href = '/consumer/dashboard';
-            }, 500);
-          } catch (redirectError) {
-            console.error('❌ Redirect failed:', redirectError);
-          }
+          // Sign out immediately before clearing storage
+          await supabase.auth.signOut();
+          // Wait for signOut to complete
+          await new Promise(resolve => setTimeout(resolve, 200));
+          // Clear all tokens and storage
+          localStorage.clear();
+          sessionStorage.clear();
+          // Clear all cookies including Supabase auth cookies with domain
+          document.cookie.split(";").forEach((c) => {
+            const cookieName = c.split("=")[0].trim();
+            document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=${window.location.hostname};`;
+            document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+          });
+          
+          // Redirect to external site
+          setIsLoading(false);
+          window.location.href = 'https://social.duhanashrah.ai/';
+          return;
         } else {
           // Deny access for other roles
           await supabase.auth.signOut();

@@ -41,8 +41,30 @@ export const AuthProvider = ({ children }) => {
       const role = profileData?.role
       const accountStatus = profileData?.account_status
 
-      // Define allowed roles
-      const allowedRoles = ['admin', 'reseller', 'consumer']
+      // Consumers should be redirected to external site immediately
+      if (role === 'consumer') {
+        console.log('❌ AuthContext: Consumer role detected. Redirecting to external site.')
+        await supabase.auth.signOut()
+        // Wait for signOut to complete
+        await new Promise(resolve => setTimeout(resolve, 200))
+        // Clear all tokens and storage
+        localStorage.clear()
+        sessionStorage.clear()
+        // Clear all cookies including Supabase auth cookies
+        document.cookie.split(";").forEach((c) => {
+          const cookieName = c.split("=")[0].trim()
+          document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=${window.location.hostname};`
+          document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`
+        })
+        setUser(null)
+        setProfile(null)
+        // Redirect to external site
+        window.location.href = 'https://social.duhanashrah.ai/'
+        return false
+      }
+
+      // Define allowed roles (consumers are not allowed)
+      const allowedRoles = ['admin', 'reseller']
       
       if (!role || !allowedRoles.includes(role)) {
         await supabase.auth.signOut()
@@ -146,22 +168,28 @@ export const AuthProvider = ({ children }) => {
             .eq('user_id', session.user.id)
             .single()
 
-          // Check if consumer account is deactivated
-          if (profileData?.role === 'consumer' && profileData?.account_status === 'deactive') {
+          // Consumers should be redirected to external site immediately
+          if (profileData?.role === 'consumer') {
+            console.log('❌ AuthContext: Consumer role detected. Redirecting to external site.')
             await supabase.auth.signOut()
+            // Wait for signOut to complete
+            await new Promise(resolve => setTimeout(resolve, 200))
             // Clear all tokens and storage
             localStorage.clear()
             sessionStorage.clear()
             // Clear all cookies including Supabase auth cookies
             document.cookie.split(";").forEach((c) => {
               const cookieName = c.split("=")[0].trim()
+              document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=${window.location.hostname};`
               document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`
             })
             setUser(null)
             setProfile(null)
-            toast.error('Your account has been deactivated. Please contact the administrator.')
-            history.push('/login')
             setLoading(false)
+            toast.error('You are not authorized to access this page. Redirecting to external site...');
+            setTimeout(() => {
+              window.location.href = 'https://social.duhanashrah.ai/';
+            }, 3000);
             return
           }
 

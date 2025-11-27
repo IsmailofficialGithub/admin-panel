@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useHistory } from 'react-router-dom';
 import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, Search, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -37,6 +37,8 @@ const Resellers = () => {
   const [hoveredReseller, setHoveredReseller] = useState(null);
   const [resellerConsumers, setResellerConsumers] = useState({});
   const [loadingConsumers, setLoadingConsumers] = useState({});
+  const [dropdownPosition, setDropdownPosition] = useState({}); // Store dropdown position for each user
+  const actionButtonRefs = useRef({});
   const usersPerPage = 20;
 
   // Debounce search input
@@ -312,7 +314,30 @@ const Resellers = () => {
   };
 
   const toggleDropdown = (userId) => {
-    setOpenDropdown(openDropdown === userId ? null : userId);
+    if (openDropdown === userId) {
+      setOpenDropdown(null);
+      return;
+    }
+
+    // Calculate if dropdown should open upward
+    const buttonElement = actionButtonRefs.current[userId];
+    if (buttonElement) {
+      const rect = buttonElement.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const spaceBelow = viewportHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      const dropdownHeight = 280; // Approximate height of dropdown menu
+      
+      // Open upward if not enough space below but enough space above
+      const shouldOpenUp = spaceBelow < dropdownHeight && spaceAbove > dropdownHeight;
+      
+      setDropdownPosition(prev => ({
+        ...prev,
+        [userId]: shouldOpenUp ? 'up' : 'down'
+      }));
+    }
+    
+    setOpenDropdown(userId);
   };
 
   const paginate = (pageNumber) => {
@@ -940,6 +965,9 @@ const Resellers = () => {
                     </td>
                     <td style={{ padding: '15px 24px', textAlign: 'center', position: 'relative' }}>
                       <button
+                        ref={(el) => {
+                          if (el) actionButtonRefs.current[userId] = el;
+                        }}
                         onClick={() => toggleDropdown(userId)}
                         style={{
                           backgroundColor: 'white',
@@ -968,14 +996,16 @@ const Resellers = () => {
                         <div style={{
                           position: 'absolute',
                           right: '24px',
-                          top: '100%',
+                          ...(dropdownPosition[userId] === 'up' 
+                            ? { bottom: '100%', marginBottom: '4px' }
+                            : { top: '100%', marginTop: '4px' }
+                          ),
                           backgroundColor: 'white',
                           border: '1px solid #e0e0e0',
                           borderRadius: '6px',
                           boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                           zIndex: 1000,
-                          minWidth: '180px',
-                          marginTop: '4px'
+                          minWidth: '180px'
                         }}>
                           <button
                             onClick={() => handleAction('View Details', userId, user.full_name)}

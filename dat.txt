@@ -1,4 +1,4 @@
-import sgMail from "@sendgrid/mail";
+import { createTransport } from "nodemailer";
 import dotenv from "dotenv";
 import {
   AdminEmailTemplateUserCreated,
@@ -13,19 +13,20 @@ import { encryptPaymentData } from "../utils/encryption.js";
 dotenv.config();
 
 /**
- * Email Service for sending transactional emails via SendGrid
+ * Email Service for sending transactional emails
  */
 
-// Initialize SendGrid with API key
-const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
-const SENDER_EMAIL = process.env.AdminEmail || "no-reply@duhanashrah.ai";
+// Create nodemailer transporter
+const user = process.env.AdminEmail;
+const pass = process.env.Nodemailer_Google_App_Password;
 
-
-if (SENDGRID_API_KEY) {
-  sgMail.setApiKey(SENDGRID_API_KEY);
-} else {
-  console.warn("⚠️  SENDGRID_API_KEY not found in environment variables");
-}
+export const transporter = createTransport({
+  service: "gmail",
+  auth: {
+    user,
+    pass,
+  },
+});
 
 /**
  * Send welcome email to new user
@@ -38,10 +39,16 @@ if (SENDGRID_API_KEY) {
  */
 export const sendWelcomeEmail = async ({ email, full_name, password, role = 'user' }) => {
   try {
+    // Verify transporter is ready
+    const verified = await transporter.verify();
+    if (!verified) {
+      throw new Error("Email server not ready");
+    }
+
     // HARDCODED: Consumers ALWAYS use https://social.duhanashrah.ai/ - no exceptions
     // CLIENT_URL is the admin panel URL - we NEVER use it for consumers
     // This ensures consumers never get redirected to admin panel, regardless of env vars
-    const website_url = role === 'consumer' 
+    const website_url = role === 'consumer'
       ? 'https://social.duhanashrah.ai/'  // Hardcoded - ignores CLIENT_URL completely
       : (process.env.CLIENT_URL || "");   // Only non-consumers use CLIENT_URL (admin panel)
 
@@ -66,18 +73,15 @@ export const sendWelcomeEmail = async ({ email, full_name, password, role = 'use
       user: `New User Created: ${full_name}`
     };
 
-    const msg = {
+    const ownerMail = {
+      from: `"Duha Nashrah" <${process.env.AdminEmail}>`,
       to: email,
-      from: {
-        email: SENDER_EMAIL,
-        name: "Duha Nashrah"
-      },
       subject: roleSubjects[role] || roleSubjects.user,
       html: htmlContent,
     };
 
     console.log(`📧 Sending custom welcome email to ${role}:`, email);
-    await sgMail.send(msg);
+    await transporter.sendMail(ownerMail);
     console.log("✅ Welcome email sent successfully");
 
     return {
@@ -86,7 +90,7 @@ export const sendWelcomeEmail = async ({ email, full_name, password, role = 'use
       email,
     };
   } catch (error) {
-    console.error("❌ Error sending welcome email:", error.response?.body || error);
+    console.error("❌ Error sending welcome email:", error);
     throw error;
   }
 };
@@ -105,6 +109,9 @@ export const sendPasswordResetEmail = async ({
   new_password,
 }) => {
   try {
+    // Verify transporter is ready
+    await transporter.verify();
+
     const website_url = process.env.CLIENT_URL || "http://localhost:3000";
 
     const htmlContent = PasswordResetTemplate({
@@ -113,18 +120,15 @@ export const sendPasswordResetEmail = async ({
       website_url,
     });
 
-    const msg = {
+    const resetMail = {
+      from: `"Duha Nashrah" <${process.env.AdminEmail}>`,
       to: email,
-      from: {
-        email: SENDER_EMAIL,
-        name: "Duha Nashrah"
-      },
       subject: `Password Reset: ${full_name}`,
       html: htmlContent,
     };
 
     console.log("📧 Sending password reset email to:", email);
-    await sgMail.send(msg);
+    await transporter.sendMail(resetMail);
     console.log("✅ Password reset email sent successfully");
 
     return {
@@ -133,7 +137,7 @@ export const sendPasswordResetEmail = async ({
       email,
     };
   } catch (error) {
-    console.error("❌ Error sending password reset email:", error.response?.body || error);
+    console.error("❌ Error sending password reset email:", error);
     throw error;
   }
 };
@@ -144,16 +148,13 @@ export const sendPasswordResetEmail = async ({
  */
 export const testEmailConfiguration = async () => {
   try {
-    if (!SENDGRID_API_KEY) {
-      throw new Error("SENDGRID_API_KEY is not configured");
-    }
-    
-    console.log("✅ SendGrid email service is configured");
+    await transporter.verify();
+    console.log("✅ Email service is ready to send emails");
     return true;
   } catch (error) {
     console.error("❌ Email configuration error:", error.message);
     console.warn(
-      "⚠️  Email service will not work. Please configure SENDGRID_API_KEY and AdminEmail in .env"
+      "⚠️  Email service will not work. Please configure AdminEmail and Nodemailer_Google_App_Password in .env"
     );
     return false;
   }
@@ -175,6 +176,9 @@ export const sendTrialPeriodChangeEmail = async ({
   new_trial_date,
 }) => {
   try {
+    // Verify transporter is ready
+    await transporter.verify();
+
     const website_url = process.env.CLIENT_URL || "http://localhost:3000";
 
     const htmlContent = TrialPeriodChangeTemplate({
@@ -184,18 +188,15 @@ export const sendTrialPeriodChangeEmail = async ({
       website_url,
     });
 
-    const msg = {
+    const mail = {
+      from: `"Duha Nashrah" <${process.env.AdminEmail}>`,
       to: email,
-      from: {
-        email: SENDER_EMAIL,
-        name: "Duha Nashrah"
-      },
       subject: `Trial Period Updated: ${full_name}`,
       html: htmlContent,
     };
 
     console.log("📧 Sending trial period change email to:", email);
-    await sgMail.send(msg);
+    await transporter.sendMail(mail);
     console.log("✅ Trial period change email sent successfully");
 
     return {
@@ -204,7 +205,7 @@ export const sendTrialPeriodChangeEmail = async ({
       email,
     };
   } catch (error) {
-    console.error("❌ Error sending trial period change email:", error.response?.body || error);
+    console.error("❌ Error sending trial period change email:", error);
     throw error;
   }
 };
@@ -225,6 +226,9 @@ export const sendTrialExtensionEmail = async ({
   extension_days,
 }) => {
   try {
+    // Verify transporter is ready
+    await transporter.verify();
+
     const website_url = process.env.CLIENT_URL || "http://localhost:3000";
 
     const htmlContent = TrialExtensionTemplate({
@@ -234,18 +238,15 @@ export const sendTrialExtensionEmail = async ({
       website_url,
     });
 
-    const msg = {
+    const mail = {
+      from: `"Duha Nashrah" <${process.env.AdminEmail}>`,
       to: email,
-      from: {
-        email: SENDER_EMAIL,
-        name: "Duha Nashrah"
-      },
       subject: `Trial Extended: ${full_name}`,
       html: htmlContent,
     };
 
     console.log("📧 Sending trial extension email to:", email);
-    await sgMail.send(msg);
+    await transporter.sendMail(mail);
     console.log("✅ Trial extension email sent successfully");
 
     return {
@@ -254,7 +255,7 @@ export const sendTrialExtensionEmail = async ({
       email,
     };
   } catch (error) {
-    console.error("❌ Error sending trial extension email:", error.response?.body || error);
+    console.error("❌ Error sending trial extension email:", error);
     throw error;
   }
 };
@@ -275,6 +276,9 @@ export const sendInviteEmail = async ({
   inviter_name = 'Admin',
 }) => {
   try {
+    // Verify transporter is ready
+    await transporter.verify();
+
     const website_url = process.env.CLIENT_URL || "http://localhost:3000";
 
     const htmlContent = InviteEmailTemplate({
@@ -285,18 +289,15 @@ export const sendInviteEmail = async ({
       inviter_name,
     });
 
-    const msg = {
+    const mail = {
+      from: `"Duha Nashrah" <${process.env.AdminEmail}>`,
       to: email,
-      from: {
-        email: SENDER_EMAIL,
-        name: "Duha Nashrah"
-      },
       subject: `You're Invited to Join as ${role.charAt(0).toUpperCase() + role.slice(1)}!`,
       html: htmlContent,
     };
 
     console.log("📧 Sending invitation email to:", email);
-    await sgMail.send(msg);
+    await transporter.sendMail(mail);
     console.log("✅ Invitation email sent successfully");
 
     return {
@@ -305,9 +306,19 @@ export const sendInviteEmail = async ({
       email,
     };
   } catch (error) {
-    console.error("❌ Error sending invitation email:", error.response?.body || error);
+    console.error("❌ Error sending invitation email:", error);
     throw error;
   }
+};
+
+export default {
+  transporter,
+  sendWelcomeEmail,
+  sendPasswordResetEmail,
+  sendTrialPeriodChangeEmail,
+  sendTrialExtensionEmail,
+  sendInviteEmail,
+  testEmailConfiguration,
 };
 
 /**
@@ -319,29 +330,17 @@ export const sendInviteEmail = async ({
  * @param {string|number} params.total
  * @param {string} params.due_date
  */
-export const sendInvoiceCreatedEmail = async ({ 
-  email, 
-  full_name, 
-  invoice_number, 
-  invoice_id = '', 
-  user_id = '', 
-  issue_date, 
-  due_date, 
-  subtotal, 
-  tax_total, 
-  total, 
-  items = [], 
-  created_by_name = 'Admin', 
-  created_by_role = 'admin' 
-}) => {
+export const sendInvoiceCreatedEmail = async ({ email, full_name, invoice_number, invoice_id = '', user_id = '', issue_date, due_date, subtotal, tax_total, total, items = [], created_by_name = 'Admin', created_by_role = 'admin' }) => {
   try {
+    // Removed transporter.verify() - it's slow (2-3 seconds) and not needed for each email
+    // Verification should be done once at server startup if needed
     const website_url = process.env.CLIENT_URL || "http://localhost:3000";
-    
+
     // Encrypt payment data for secure URL (required)
     if (!invoice_id || !user_id || !invoice_number || !total) {
       throw new Error('Missing required invoice data for payment link encryption');
     }
-    
+
     let encryptedData;
     try {
       encryptedData = encryptPaymentData({
@@ -354,7 +353,7 @@ export const sendInvoiceCreatedEmail = async ({
       console.error('Error encrypting payment data:', encryptError);
       throw new Error('Failed to encrypt payment data. Cannot send invoice email.');
     }
-    
+
     const htmlContent = InvoiceCreatedTemplate({
       full_name,
       invoice_number,
@@ -369,36 +368,20 @@ export const sendInvoiceCreatedEmail = async ({
       created_by_name,
       created_by_role,
       website_url,
-      encrypted_data: encryptedData,
+      encrypted_data: encryptedData, // Pass encrypted data to template
     });
-
-    const msg = {
+    const mail = {
+      from: `"Duha Nashrah" <${process.env.AdminEmail}>`,
       to: email,
-      from: {
-        email: SENDER_EMAIL,
-        name: "Duha Nashrah"
-      },
       subject: `Invoice Created: ${invoice_number}`,
       html: htmlContent,
     };
-
     console.log("📧 Sending invoice created email to:", email);
-    await sgMail.send(msg);
+    await transporter.sendMail(mail);
     console.log("✅ Invoice created email sent successfully");
-    
     return { success: true };
   } catch (error) {
-    console.error("❌ Error sending invoice created email:", error.response?.body || error);
+    console.error("❌ Error sending invoice created email:", error);
     return { success: false, error: error.message };
   }
-};
-
-export default {
-  sendWelcomeEmail,
-  sendPasswordResetEmail,
-  sendTrialPeriodChangeEmail,
-  sendTrialExtensionEmail,
-  sendInviteEmail,
-  sendInvoiceCreatedEmail,
-  testEmailConfiguration,
 };

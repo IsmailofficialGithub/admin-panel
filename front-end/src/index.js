@@ -17,7 +17,7 @@ import Login from "views/Login.js";
 import Payment from "views/Payment.js";
 import ProtectedRoute from "auth/ProtectedRoute.js";
 import { AuthProvider } from "contexts/AuthContext";
-import { Toaster } from "react-hot-toast";
+import toast, { Toaster } from "react-hot-toast";
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 
@@ -54,7 +54,15 @@ root.render(
         <Route exact path="/payment" component={Payment} />
         <ProtectedRoute path="/admin" component={AdminLayout} allowedRoles={['admin']} />
         <ProtectedRoute path="/reseller" component={ResellerLayout} allowedRoles={['reseller']} />
-        <ProtectedRoute path="/consumer" component={ConsumerLayout} allowedRoles={['consumer']} />
+        {/* Consumer routes are blocked - consumers are redirected to external site */}
+        <Route path="/consumer" render={() => {
+          // Immediately redirect consumers to external site
+          toast.error('You are not authorized to access this page. Redirecting to external site...');
+          setTimeout(() => {
+            window.location.href = 'https://social.duhanashrah.ai/';
+          }, 3000);
+          return null;
+        }} />
         <Redirect from="/" to="/login" />
       </Switch>
     </AuthProvider>
