@@ -46,7 +46,7 @@ const createSuccessResponse = (data, message = null, meta = null) => {
 
 /**
  * Create a new call log
- * @route   POST /api/public/call-logs
+ * @route   POST /api/call-logs
  * @access  Public
  */
 export const createCallLog = async (req, res) => {
@@ -133,7 +133,7 @@ export const createCallLog = async (req, res) => {
 
 /**
  * Get call logs by email, id, or phone
- * @route   GET /api/public/call-logs?email=...&id=...&phone=...
+ * @route   GET /api/call-logs?email=...&id=...&phone=...
  * @access  Public
  */
 export const getCallLogs = async (req, res) => {

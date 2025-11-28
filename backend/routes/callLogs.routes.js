@@ -8,10 +8,10 @@ import {
 const router = express.Router();
 
 // Rate limiting for public endpoints
-const publicRateLimitMiddleware = createRateLimitMiddleware('public-call-logs', 30); // 30 requests per minute
+const publicRateLimitMiddleware = createRateLimitMiddleware('call-logs', 30); // 30 requests per minute
 
 /**
- * @route   POST /api/public/call-logs
+ * @route   POST /api/call-logs
  * @desc    Create a new call log (PUBLIC - no authentication required)
  * @access  Public
  * 
@@ -50,7 +50,7 @@ router.post(
 );
 
 /**
- * @route   GET /api/public/call-logs?email=...&id=...&phone=...
+ * @route   GET /api/call-logs?email=...&id=...&phone=...
  * @desc    Get call logs by email, id, or phone (PUBLIC - no authentication required)
  * @access  Public
  * 
@@ -60,10 +60,10 @@ router.post(
  * - phone: string (optional) - Get call logs by phone number
  * 
  * Examples:
- * - GET /api/public/call-logs?email=user@example.com
- * - GET /api/public/call-logs?id=uuid-here
- * - GET /api/public/call-logs?phone=+1234567890
- * - GET /api/public/call-logs?email=user@example.com&phone=+1234567890
+ * - GET /api/call-logs?email=user@example.com
+ * - GET /api/call-logs?id=uuid-here
+ * - GET /api/call-logs?phone=+1234567890
+ * - GET /api/call-logs?email=user@example.com&phone=+1234567890
  * 
  * Response (single result if id provided):
  * {
