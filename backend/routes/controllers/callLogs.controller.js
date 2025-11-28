@@ -51,12 +51,12 @@ const createSuccessResponse = (data, message = null, meta = null) => {
  */
 export const createCallLog = async (req, res) => {
   try {
-    const { name, email, phone, call_url, agent, notes, call_duration, call_type, call_status } = req.body;
+    const { name, phone, call_url, agent, call_type, call_status } = req.body;
 
     // Validate required fields
     const missingFields = [];
     if (!name || !name.trim()) missingFields.push('name');
-    if (!email || !email.trim()) missingFields.push('email');
+    if (!phone || !phone.trim()) missingFields.push('phone');
     if (!call_url || !call_url.trim()) missingFields.push('call_url');
 
     if (missingFields.length > 0) {
@@ -69,26 +69,12 @@ export const createCallLog = async (req, res) => {
       return res.status(statusCode).json(response);
     }
 
-    // Validate email format
-    if (!isValidEmail(email)) {
-      const { statusCode, response } = createErrorResponse(
-        400,
-        'INVALID_EMAIL',
-        'Invalid email address format',
-        { email: email }
-      );
-      return res.status(statusCode).json(response);
-    }
-
     // Sanitize inputs
     const callLogData = {
       name: sanitizeString(name, 255),
-      email: email.toLowerCase().trim(),
-      phone: phone ? sanitizeString(phone, 50) : null,
+      phone: sanitizeString(phone, 50), // Required field
       call_url: sanitizeString(call_url, 500), // Required field
       agent: agent ? sanitizeString(agent, 255) : null,
-      notes: notes ? sanitizeString(notes, 5000) : null,
-      call_duration: call_duration ? parseInt(call_duration) : null,
       call_type: call_type ? sanitizeString(call_type, 50) : null,
       call_status: call_status ? sanitizeString(call_status, 50) : null,
     };
@@ -138,25 +124,14 @@ export const createCallLog = async (req, res) => {
  */
 export const getCallLogs = async (req, res) => {
   try {
-    const { email, id, phone } = req.query;
+    const { id, phone } = req.query;
 
     // At least one parameter must be provided
-    if (!email && !id && !phone) {
+    if (!id && !phone) {
       const { statusCode, response } = createErrorResponse(
         400,
         'VALIDATION_ERROR',
-        'At least one parameter is required: email, id, or phone'
-      );
-      return res.status(statusCode).json(response);
-    }
-
-    // Validate email format if provided
-    if (email && !isValidEmail(email)) {
-      const { statusCode, response } = createErrorResponse(
-        400,
-        'INVALID_EMAIL',
-        'Invalid email address format',
-        { email: email }
+        'At least one parameter is required: id or phone'
       );
       return res.status(statusCode).json(response);
     }
@@ -181,9 +156,6 @@ export const getCallLogs = async (req, res) => {
     // Apply filters
     if (id) {
       query = query.eq("id", id);
-    }
-    if (email) {
-      query = query.eq("email", email.toLowerCase().trim());
     }
     if (phone) {
       query = query.eq("phone", phone.trim());

@@ -35,6 +35,10 @@
     isOpen: false,
     currentView: 'form', // 'form' or 'tickets'
     selectedFiles: [],
+    uploadedFileUrls: [], // Store uploaded file URLs
+    uploadedFilePaths: [], // Store uploaded file paths for deletion
+    uploadedFileMetadata: [], // Store file metadata (name, size, type)
+    ticketId: null, // Store ticket ID from first file upload (UUID)
 
     /**
      * Initialize the widget
@@ -106,7 +110,10 @@
                 </div>
                 <div class="support-widget-field">
                   <label for="support-subject">Subject *</label>
-                  <input type="text" id="support-subject" name="subject" required>
+                  <input type="text" id="support-subject" name="subject" required maxlength="255">
+                  <div class="support-widget-char-count">
+                    <span id="support-subject-count">0</span>/255 characters
+                  </div>
                 </div>
                 <div class="support-widget-field">
                   <label for="support-category">Category</label>
@@ -121,7 +128,10 @@
                 </div>
                 <div class="support-widget-field">
                   <label for="support-message">Message *</label>
-                  <textarea id="support-message" name="message" rows="5" required placeholder="Please describe your issue in detail..."></textarea>
+                  <textarea id="support-message" name="message" rows="5" required placeholder="Please describe your issue in detail..." maxlength="5000"></textarea>
+                  <div class="support-widget-char-count">
+                    <span id="support-message-count">0</span>/5000 characters
+                  </div>
                 </div>
                 <div class="support-widget-field">
                   <label for="support-priority">Priority</label>
@@ -179,49 +189,311 @@
         this.submitTicket();
       });
 
+      // Add real-time validation on blur
+      const fields = ['name', 'email', 'subject', 'message'];
+      fields.forEach(fieldName => {
+        const field = document.getElementById(`support-${fieldName}`);
+        if (field) {
+          field.addEventListener('blur', () => {
+            this.validateField(fieldName);
+          });
+          field.addEventListener('input', () => {
+            // Clear error on input
+            if (field.classList.contains('support-widget-field-error')) {
+              const errorDiv = field.parentElement.querySelector('.support-widget-field-error-message');
+              if (errorDiv) {
+                errorDiv.remove();
+                field.classList.remove('support-widget-field-error');
+              }
+            }
+            // Update character count
+            this.updateCharCount(fieldName);
+          });
+        }
+      });
+
+      // Initialize character counts
+      this.updateCharCount('subject');
+      this.updateCharCount('message');
+
       // Handle file selection
       const fileInput = document.getElementById('support-files');
       fileInput.addEventListener('change', (e) => {
-        this.handleFileSelection(e.target.files);
+        if (e.target.files && e.target.files.length > 0) {
+          this.handleFileSelection(e.target.files);
+        }
+        // Reset input to allow selecting same file again
+        e.target.value = '';
       });
     },
 
     /**
-     * Handle file selection
+     * Handle file selection and upload immediately
      */
     handleFileSelection: function(files) {
-      this.selectedFiles = Array.from(files).slice(0, 5); // Max 5 files
+      const newFiles = Array.from(files).slice(0, 5); // Max 5 files
+      const fileList = document.getElementById('support-widget-file-list');
+
+      if (newFiles.length === 0) return;
+
+      // Validate and upload each file
+      newFiles.forEach((file, index) => {
+        if (file.size > 10 * 1024 * 1024) {
+          this.showError(`File "${file.name}" exceeds 10MB limit`);
+          return;
+        }
+
+        // Add file to selected files
+        const fileIndex = this.selectedFiles.length;
+        this.selectedFiles.push(file);
+        this.uploadedFileUrls.push(null); // Placeholder for URL
+        this.uploadedFilePaths.push(null); // Placeholder for path
+        this.uploadedFileMetadata.push({
+          name: file.name,
+          size: file.size,
+          type: file.type
+        }); // Store file metadata
+
+        // Create file item with upload status
+        const fileItem = document.createElement('div');
+        fileItem.id = `support-file-item-${fileIndex}`;
+        fileItem.className = 'support-widget-file-item';
+        fileItem.innerHTML = `
+          <div class="support-widget-file-info">
+            <span class="support-widget-file-name">${file.name}</span>
+            <span class="support-widget-file-size">${this.formatFileSize(file.size)}</span>
+          </div>
+          <div class="support-widget-file-status">
+            <span class="support-widget-upload-status" id="support-upload-status-${fileIndex}">Uploading...</span>
+            <div class="support-widget-upload-progress" id="support-upload-progress-${fileIndex}">
+              <div class="support-widget-progress-bar"></div>
+            </div>
+          </div>
+          <button type="button" class="support-widget-file-remove" onclick="SupportWidget.removeFile(${fileIndex})" aria-label="Remove file" style="display: none;">&times;</button>
+        `;
+        fileList.appendChild(fileItem);
+
+        // Upload file immediately
+        this.uploadFile(file, fileIndex);
+      });
+    },
+
+    /**
+     * Upload file to bucket and get URL
+     */
+    uploadFile: function(file, fileIndex) {
+      const statusElement = document.getElementById(`support-upload-status-${fileIndex}`);
+      const progressElement = document.getElementById(`support-upload-progress-${fileIndex}`);
+      const progressBar = progressElement.querySelector('.support-widget-progress-bar');
+      const fileItem = document.getElementById(`support-file-item-${fileIndex}`);
+      const removeBtn = fileItem.querySelector('.support-widget-file-remove');
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      // Create XMLHttpRequest for upload progress
+      const xhr = new XMLHttpRequest();
+
+      // Track upload progress
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const percentComplete = (e.loaded / e.total) * 100;
+          progressBar.style.width = percentComplete + '%';
+        }
+      });
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status === 200) {
+          try {
+            const response = JSON.parse(xhr.responseText);
+            if (response.success && response.data.file_url) {
+              // Store the URL and path
+              // Prefer public URL if available (more reliable)
+              const fileUrl = response.data.file_url_public || response.data.file_url;
+              this.uploadedFileUrls[fileIndex] = fileUrl;
+              this.uploadedFilePaths[fileIndex] = response.data.file_path;
+              
+              // Update metadata with file_name from response if available
+              if (response.data.file_name && this.uploadedFileMetadata[fileIndex]) {
+                this.uploadedFileMetadata[fileIndex].name = response.data.file_name;
+              }
+              if (response.data.file_size && this.uploadedFileMetadata[fileIndex]) {
+                this.uploadedFileMetadata[fileIndex].size = response.data.file_size;
+              }
+              if (response.data.file_type && this.uploadedFileMetadata[fileIndex]) {
+                this.uploadedFileMetadata[fileIndex].type = response.data.file_type;
+              }
+              
+              // Store ticket_id from first file upload (all files from same upload share same ticket_id)
+              if (response.data.ticket_id && !this.ticketId) {
+                this.ticketId = response.data.ticket_id;
+              }
+              
+              // Update UI to show success
+              statusElement.textContent = 'Uploaded ✓';
+              statusElement.className = 'support-widget-upload-status support-widget-upload-success';
+              progressBar.style.width = '100%';
+              progressBar.className = 'support-widget-progress-bar support-widget-progress-complete';
+              removeBtn.style.display = 'flex';
+              
+              // Hide progress bar after a moment
+              setTimeout(() => {
+                progressElement.style.display = 'none';
+              }, 1000);
+            } else {
+              throw new Error(response.error?.message || 'Upload failed');
+            }
+          } catch (error) {
+            this.handleUploadError(fileIndex, error.message || 'Failed to parse response');
+          }
+        } else {
+          try {
+            const error = JSON.parse(xhr.responseText);
+            this.handleUploadError(fileIndex, error.error?.message || 'Upload failed');
+          } catch (e) {
+            this.handleUploadError(fileIndex, 'Upload failed');
+          }
+        }
+      });
+
+      xhr.addEventListener('error', () => {
+        this.handleUploadError(fileIndex, 'Network error during upload');
+      });
+
+      xhr.addEventListener('abort', () => {
+        this.handleUploadError(fileIndex, 'Upload cancelled');
+      });
+
+      // Start upload
+      xhr.open('POST', this.config.apiUrl + '/upload');
+      xhr.send(formData);
+    },
+
+    /**
+     * Handle upload error
+     */
+    handleUploadError: function(fileIndex, errorMessage) {
+      const statusElement = document.getElementById(`support-upload-status-${fileIndex}`);
+      const progressElement = document.getElementById(`support-upload-progress-${fileIndex}`);
+      const fileItem = document.getElementById(`support-file-item-${fileIndex}`);
+      const removeBtn = fileItem.querySelector('.support-widget-file-remove');
+
+      statusElement.textContent = 'Upload failed';
+      statusElement.className = 'support-widget-upload-status support-widget-upload-error';
+      progressElement.style.display = 'none';
+      removeBtn.style.display = 'flex';
+
+      // Remove from arrays
+      this.selectedFiles.splice(fileIndex, 1);
+      this.uploadedFileUrls.splice(fileIndex, 1);
+      this.uploadedFilePaths.splice(fileIndex, 1);
+      this.uploadedFileMetadata.splice(fileIndex, 1);
+
+      // Show error message
+      this.showError(`Failed to upload file: ${errorMessage}`);
+
+      // Re-render file list
+      this.renderFileList();
+    },
+
+    /**
+     * Remove file from selection and delete from bucket
+     */
+    removeFile: function(index) {
+      if (index >= 0 && index < this.selectedFiles.length) {
+        const filePath = this.uploadedFilePaths[index];
+        
+        // If file was uploaded, delete it from bucket
+        if (filePath) {
+          this.deleteFileFromBucket(filePath, index);
+        } else {
+          // If file wasn't uploaded yet, just remove from arrays
+          this.selectedFiles.splice(index, 1);
+          this.uploadedFileUrls.splice(index, 1);
+          this.uploadedFilePaths.splice(index, 1);
+          this.renderFileList();
+        }
+      }
+      const fileInput = document.getElementById('support-files');
+      fileInput.value = '';
+    },
+
+    /**
+     * Delete file from bucket
+     */
+    deleteFileFromBucket: function(filePath, fileIndex) {
+      fetch(this.config.apiUrl + '/upload', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ file_path: filePath })
+      })
+      .then(response => {
+        if (!response.ok) {
+          return response.json().then(err => {
+            throw new Error(err.error?.message || 'Failed to delete file');
+          });
+        }
+        return response.json();
+      })
+      .then(result => {
+        if (result.success) {
+          // Remove from arrays
+          this.selectedFiles.splice(fileIndex, 1);
+          this.uploadedFileUrls.splice(fileIndex, 1);
+          this.uploadedFilePaths.splice(fileIndex, 1);
+          this.uploadedFileMetadata.splice(fileIndex, 1);
+          this.renderFileList();
+        } else {
+          throw new Error(result.error?.message || 'Failed to delete file');
+        }
+      })
+      .catch(error => {
+        console.error('Support Widget Error:', error);
+          // Still remove from UI even if deletion fails
+        this.selectedFiles.splice(fileIndex, 1);
+        this.uploadedFileUrls.splice(fileIndex, 1);
+        this.uploadedFilePaths.splice(fileIndex, 1);
+        this.uploadedFileMetadata.splice(fileIndex, 1);
+        this.renderFileList();
+        this.showError(`Failed to delete file: ${error.message || 'Please try again'}`);
+      });
+    },
+
+    /**
+     * Render file list
+     */
+    renderFileList: function() {
       const fileList = document.getElementById('support-widget-file-list');
       fileList.innerHTML = '';
 
       if (this.selectedFiles.length === 0) return;
 
       this.selectedFiles.forEach((file, index) => {
-        if (file.size > 10 * 1024 * 1024) {
-          this.showError(`File "${file.name}" exceeds 10MB limit`);
-          this.selectedFiles.splice(index, 1);
-          return;
-        }
-
         const fileItem = document.createElement('div');
+        fileItem.id = `support-file-item-${index}`;
         fileItem.className = 'support-widget-file-item';
+        
+        const isUploaded = this.uploadedFileUrls[index] !== null && this.uploadedFileUrls[index] !== undefined;
+        const statusText = isUploaded ? 'Uploaded ✓' : 'Uploading...';
+        const statusClass = isUploaded ? 'support-widget-upload-success' : '';
+        
         fileItem.innerHTML = `
-          <span class="support-widget-file-name">${file.name}</span>
-          <span class="support-widget-file-size">${this.formatFileSize(file.size)}</span>
+          <div class="support-widget-file-info">
+            <span class="support-widget-file-name">${file.name}</span>
+            <span class="support-widget-file-size">${this.formatFileSize(file.size)}</span>
+          </div>
+          <div class="support-widget-file-status" style="${isUploaded ? 'display: none;' : ''}">
+            <span class="support-widget-upload-status ${statusClass}" id="support-upload-status-${index}">${statusText}</span>
+            <div class="support-widget-upload-progress" id="support-upload-progress-${index}">
+              <div class="support-widget-progress-bar ${isUploaded ? 'support-widget-progress-complete' : ''}" style="${isUploaded ? 'width: 100%;' : ''}"></div>
+            </div>
+          </div>
           <button type="button" class="support-widget-file-remove" onclick="SupportWidget.removeFile(${index})" aria-label="Remove file">&times;</button>
         `;
         fileList.appendChild(fileItem);
       });
-    },
-
-    /**
-     * Remove file from selection
-     */
-    removeFile: function(index) {
-      this.selectedFiles.splice(index, 1);
-      this.handleFileSelection({ length: 0 }); // Re-render
-      const fileInput = document.getElementById('support-files');
-      fileInput.value = '';
     },
 
     /**
@@ -259,8 +531,17 @@
       modal.classList.remove('support-widget-open');
       document.body.style.overflow = '';
       this.selectedFiles = [];
-      document.getElementById('support-widget-form').reset();
+      this.uploadedFileUrls = [];
+      this.uploadedFilePaths = [];
+      this.uploadedFileMetadata = [];
+      this.ticketId = null;
+      const form = document.getElementById('support-widget-form');
+      form.reset();
+      this.clearFieldErrors();
       document.getElementById('support-widget-file-list').innerHTML = '';
+      const messageDiv = document.getElementById('support-widget-message');
+      messageDiv.innerHTML = '';
+      messageDiv.className = 'support-widget-message';
     },
 
     /**
@@ -353,6 +634,199 @@
     },
 
     /**
+     * Validate form fields
+     */
+    validateForm: function() {
+      const form = document.getElementById('support-widget-form');
+      const formData = new FormData(form);
+      const errors = {};
+
+      // Get field values
+      const name = (formData.get('name') || '').trim();
+      const email = (formData.get('email') || '').trim();
+      const subject = (formData.get('subject') || '').trim();
+      const message = (formData.get('message') || '').trim();
+
+      // Clear previous errors
+      this.clearFieldErrors();
+
+      // Validate name (required)
+      if (!name) {
+        errors.name = 'Name is required';
+      } else if (name.length < 2) {
+        errors.name = 'Name must be at least 2 characters';
+      } else if (name.length > 255) {
+        errors.name = 'Name must not exceed 255 characters';
+      }
+
+      // Validate email (required, format, length)
+      if (!email) {
+        errors.email = 'Email is required';
+      } else if (!this.isValidEmail(email)) {
+        errors.email = 'Please enter a valid email address';
+      } else if (email.length > 255) {
+        errors.email = 'Email must not exceed 255 characters';
+      }
+
+      // Validate subject/title (required, length)
+      if (!subject) {
+        errors.subject = 'Subject is required';
+      } else if (subject.length < 3) {
+        errors.subject = 'Subject must be at least 3 characters';
+      } else if (subject.length > 255) {
+        errors.subject = 'Subject must not exceed 255 characters';
+      }
+
+      // Validate message/description (required, length)
+      if (!message) {
+        errors.message = 'Message is required';
+      } else if (message.length < 10) {
+        errors.message = 'Message must be at least 10 characters';
+      } else if (message.length > 5000) {
+        errors.message = 'Message must not exceed 5000 characters';
+      }
+
+      // Display errors
+      if (Object.keys(errors).length > 0) {
+        this.displayFieldErrors(errors);
+        return false;
+      }
+
+      return true;
+    },
+
+    /**
+     * Display field errors
+     */
+    displayFieldErrors: function(errors) {
+      Object.keys(errors).forEach(fieldName => {
+        const field = document.getElementById(`support-${fieldName}`);
+        if (field) {
+          field.classList.add('support-widget-field-error');
+          
+          // Create or update error message
+          let errorDiv = field.parentElement.querySelector('.support-widget-field-error-message');
+          if (!errorDiv) {
+            errorDiv = document.createElement('div');
+            errorDiv.className = 'support-widget-field-error-message';
+            field.parentElement.appendChild(errorDiv);
+          }
+          errorDiv.textContent = errors[fieldName];
+        }
+      });
+    },
+
+    /**
+     * Clear all field errors
+     */
+    clearFieldErrors: function() {
+      const fields = document.querySelectorAll('#support-widget-form input, #support-widget-form textarea');
+      fields.forEach(field => {
+        field.classList.remove('support-widget-field-error');
+        const errorDiv = field.parentElement.querySelector('.support-widget-field-error-message');
+        if (errorDiv) {
+          errorDiv.remove();
+        }
+      });
+    },
+
+    /**
+     * Validate individual field
+     */
+    validateField: function(fieldName) {
+      const form = document.getElementById('support-widget-form');
+      const formData = new FormData(form);
+      const field = document.getElementById(`support-${fieldName}`);
+      
+      if (!field) return true;
+
+      let value = (formData.get(fieldName) || '').trim();
+      let error = null;
+
+      switch(fieldName) {
+        case 'name':
+          if (!value) {
+            error = 'Name is required';
+          } else if (value.length < 2) {
+            error = 'Name must be at least 2 characters';
+          } else if (value.length > 255) {
+            error = 'Name must not exceed 255 characters';
+          }
+          break;
+        case 'email':
+          if (!value) {
+            error = 'Email is required';
+          } else if (!this.isValidEmail(value)) {
+            error = 'Please enter a valid email address';
+          } else if (value.length > 255) {
+            error = 'Email must not exceed 255 characters';
+          }
+          break;
+        case 'subject':
+          if (!value) {
+            error = 'Subject is required';
+          } else if (value.length < 3) {
+            error = 'Subject must be at least 3 characters';
+          } else if (value.length > 255) {
+            error = 'Subject must not exceed 255 characters';
+          }
+          break;
+        case 'message':
+          if (!value) {
+            error = 'Message is required';
+          } else if (value.length < 10) {
+            error = 'Message must be at least 10 characters';
+          } else if (value.length > 5000) {
+            error = 'Message must not exceed 5000 characters';
+          }
+          break;
+      }
+
+      // Clear previous error
+      field.classList.remove('support-widget-field-error');
+      const existingError = field.parentElement.querySelector('.support-widget-field-error-message');
+      if (existingError) {
+        existingError.remove();
+      }
+
+      // Display error if any
+      if (error) {
+        field.classList.add('support-widget-field-error');
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'support-widget-field-error-message';
+        errorDiv.textContent = error;
+        field.parentElement.appendChild(errorDiv);
+        return false;
+      }
+
+      return true;
+    },
+
+    /**
+     * Update character count for field
+     */
+    updateCharCount: function(fieldName) {
+      const field = document.getElementById(`support-${fieldName}`);
+      const countElement = document.getElementById(`support-${fieldName}-count`);
+      
+      if (field && countElement) {
+        const length = field.value.length;
+        const maxLength = fieldName === 'subject' ? 255 : 5000;
+        countElement.textContent = length;
+        
+        // Change color if approaching limit
+        const charCountDiv = countElement.parentElement;
+        if (length > maxLength * 0.9) {
+          charCountDiv.style.color = '#dc3545';
+        } else if (length > maxLength * 0.75) {
+          charCountDiv.style.color = '#ffc107';
+        } else {
+          charCountDiv.style.color = '#6c757d';
+        }
+      }
+    },
+
+    /**
      * Escape HTML
      */
     escapeHtml: function(text) {
@@ -374,6 +848,14 @@
      * Submit ticket
      */
     submitTicket: function() {
+      // Validate form before submission
+      if (!this.validateForm()) {
+        const messageDiv = document.getElementById('support-widget-message');
+        messageDiv.className = 'support-widget-message support-widget-error';
+        messageDiv.innerHTML = '<strong>✗ Please fix the errors above</strong>';
+        return;
+      }
+
       const form = document.getElementById('support-widget-form');
       const submitBtn = document.getElementById('support-widget-submit');
       const messageDiv = document.getElementById('support-widget-message');
@@ -400,24 +882,50 @@
         }
       };
 
-      // Create FormData for file upload
-      const uploadFormData = new FormData();
-      Object.keys(data).forEach(key => {
-        if (key === 'metadata') {
-          uploadFormData.append(key, JSON.stringify(data[key]));
-        } else {
-          uploadFormData.append(key, data[key]);
+      // Check if all files are uploaded
+      const pendingUploads = this.uploadedFileUrls.filter((url, index) => 
+        this.selectedFiles[index] && url === null
+      ).length;
+
+      if (pendingUploads > 0) {
+        messageDiv.className = 'support-widget-message support-widget-error';
+        messageDiv.innerHTML = '<strong>✗ Please wait for all files to finish uploading</strong>';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit Ticket';
+        return;
+      }
+
+      // Prepare data with file information (URLs, paths, and metadata)
+      const fileInfos = [];
+      this.uploadedFileUrls.forEach((url, index) => {
+        if (url !== null && this.uploadedFileMetadata[index]) {
+          fileInfos.push({
+            file_url: url,
+            file_path: this.uploadedFilePaths[index],
+            file_name: this.uploadedFileMetadata[index].name,
+            file_size: this.uploadedFileMetadata[index].size,
+            file_type: this.uploadedFileMetadata[index].type
+          });
         }
       });
+      
+      if (fileInfos.length > 0) {
+        data.file_attachments = fileInfos; // Send complete file information
+      }
+      
+      // Include ticket_id if available (from file uploads)
+      // This ensures the ticket uses the same UUID as the files
+      if (this.ticketId) {
+        data.ticket_id = this.ticketId;
+      }
 
-      // Add files
-      this.selectedFiles.forEach(file => {
-        uploadFormData.append('files', file);
-      });
-
+      // Send as JSON instead of FormData since files are already uploaded
       fetch(this.config.apiUrl + '/tickets', {
         method: 'POST',
-        body: uploadFormData
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
       })
       .then(response => {
         if (!response.ok) {
@@ -438,7 +946,14 @@
           `;
           form.reset();
           this.selectedFiles = [];
+          this.uploadedFileUrls = [];
+          this.uploadedFilePaths = [];
+          this.uploadedFileMetadata = [];
+          this.ticketId = null;
           document.getElementById('support-widget-file-list').innerHTML = '';
+          this.clearFieldErrors();
+          this.updateCharCount('subject');
+          this.updateCharCount('message');
           
           setTimeout(() => {
             this.closeModal();
@@ -631,6 +1146,25 @@
           border-color: #667eea;
           box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
+        .support-widget-field input.support-widget-field-error,
+        .support-widget-field textarea.support-widget-field-error {
+          border-color: #dc3545;
+          box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.1);
+        }
+        .support-widget-field-error-message {
+          color: #dc3545;
+          font-size: 13px;
+          margin-top: 4px;
+          font-weight: 500;
+          font-family: inherit;
+        }
+        .support-widget-char-count {
+          font-size: 12px;
+          color: #6c757d;
+          margin-top: 4px;
+          text-align: right;
+          font-family: inherit;
+        }
         .support-widget-field textarea {
           resize: vertical;
           min-height: 120px;
@@ -675,15 +1209,54 @@
           border-radius: 8px;
           font-size: 14px;
           font-family: inherit;
+          position: relative;
+        }
+        .support-widget-file-info {
+          display: flex;
+          flex-direction: column;
+          flex: 1;
+          gap: 4px;
         }
         .support-widget-file-name {
-          flex: 1;
           color: #495057;
           font-weight: 500;
         }
         .support-widget-file-size {
           color: #6c757d;
           font-size: 13px;
+        }
+        .support-widget-file-status {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          min-width: 120px;
+        }
+        .support-widget-upload-status {
+          font-size: 12px;
+          color: #6c757d;
+          font-weight: 500;
+        }
+        .support-widget-upload-success {
+          color: #28a745;
+        }
+        .support-widget-upload-error {
+          color: #dc3545;
+        }
+        .support-widget-upload-progress {
+          width: 100%;
+          height: 4px;
+          background: #e9ecef;
+          border-radius: 2px;
+          overflow: hidden;
+        }
+        .support-widget-progress-bar {
+          height: 100%;
+          background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+          width: 0%;
+          transition: width 0.3s ease;
+        }
+        .support-widget-progress-complete {
+          background: #28a745;
         }
         .support-widget-file-remove {
           background: none;

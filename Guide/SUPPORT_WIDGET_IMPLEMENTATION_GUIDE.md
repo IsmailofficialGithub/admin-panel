@@ -19,26 +19,26 @@ You need to host the `support-widget.js` file on a publicly accessible URL. Opti
 3. **GitHub Pages**: Host it for free on GitHub Pages
 
 **Example URLs:**
-- `https://yourdomain.com/assets/support-widget.js`
+- `http://dev.duhanashrah.ai/support-widget.js`
 - `https://cdn.yourdomain.com/support-widget.js`
 - `https://yourusername.github.io/support-widget.js`
 
 ### Step 2: Get Your API Details
 
 From the admin panel, you'll receive:
-- **API URL**: `https://your-api-domain.com/api/public/customer-support`
-- **API Key** (optional): `sk_live_abc123xyz` (unique for your website)
+- **API URL**: `http://dev.duhanashrah.ai/api/api/public/customer-support`
+- **API Key** (optional): `1234567890` (unique for your website)
 
 ### Step 3: Add to Your Website
 
 Add these two lines before the closing `</body>` tag:
 
 ```html
-<script src="https://yourdomain.com/support-widget.js"></script>
+<script src="http://dev.duhanashrah.ai/support-widget.js"></script>
 <script>
   SupportWidget.init({
-    apiUrl: 'https://your-api-domain.com/api/public/customer-support',
-    apiKey: 'sk_live_abc123xyz', // Your unique API key
+    apiUrl: 'http://dev.duhanashrah.ai/api/api/public/customer-support',
+    apiKey: '1234567890', // Your unique API key
     buttonText: 'Contact Support',
     position: 'bottom-right' // bottom-right, bottom-left, top-right, top-left
   });
@@ -67,15 +67,15 @@ export default function RootLayout({ children }) {
         {children}
         
         <Script 
-          src="https://yourdomain.com/support-widget.js"
+          src="http://dev.duhanashrah.ai/support-widget.js"
           strategy="afterInteractive"
         />
         <Script id="support-widget-init" strategy="afterInteractive">
           {`
             if (typeof SupportWidget !== 'undefined') {
               SupportWidget.init({
-                apiUrl: 'https://your-api-domain.com/api/public/customer-support',
-                apiKey: 'sk_live_abc123xyz',
+                apiUrl: 'http://dev.duhanashrah.ai/api/api/public/customer-support',
+                apiKey: '1234567890',
                 buttonText: 'Contact Support',
                 position: 'bottom-right'
               });
@@ -102,7 +102,7 @@ export default function RootLayout({ children }) {
     <div id="root"></div>
     
     <!-- Support Widget -->
-    <script src="https://yourdomain.com/support-widget.js"></script>
+    <script src="http://dev.duhanashrah.ai/support-widget.js"></script>
     <script>
       window.addEventListener('load', function() {
         if (typeof SupportWidget !== 'undefined') {
@@ -121,8 +121,8 @@ export default function RootLayout({ children }) {
 
 **File: `.env`**
 ```
-REACT_APP_SUPPORT_API_URL=https://your-api-domain.com/api/public/customer-support
-REACT_APP_SUPPORT_API_KEY=sk_live_abc123xyz
+REACT_APP_SUPPORT_API_URL=http://dev.duhanashrah.ai/api/api/public/customer-support
+REACT_APP_SUPPORT_API_KEY=1234567890
 ```
 
 #### Option C: React Component (Dynamic Loading)
@@ -136,7 +136,7 @@ export default function SupportWidget() {
   useEffect(() => {
     // Load script dynamically
     const script = document.createElement('script');
-    script.src = 'https://yourdomain.com/support-widget.js';
+    script.src = 'http://dev.duhanashrah.ai/support-widget.js';
     script.async = true;
     script.onload = () => {
       if (window.SupportWidget) {
@@ -185,7 +185,7 @@ function App() {
 
 ```php
 <!-- Support Widget -->
-<script src="https://yourdomain.com/support-widget.js"></script>
+<script src="http://dev.duhanashrah.ai/support-widget.js"></script>
 <script>
   SupportWidget.init({
     apiUrl: '<?php echo getenv('SUPPORT_API_URL'); ?>',
@@ -198,8 +198,8 @@ function App() {
 
 **File: `.env` or `config.php`**
 ```php
-define('SUPPORT_API_URL', 'https://your-api-domain.com/api/public/customer-support');
-define('SUPPORT_API_KEY', 'sk_live_abc123xyz');
+define('SUPPORT_API_URL', 'http://dev.duhanashrah.ai/api/api/public/customer-support');
+define('SUPPORT_API_KEY', '1234567890');
 ```
 
 #### Option B: WordPress
@@ -209,7 +209,7 @@ define('SUPPORT_API_KEY', 'sk_live_abc123xyz');
 ```php
 function add_support_widget() {
     ?>
-    <script src="https://yourdomain.com/support-widget.js"></script>
+    <script src="http://dev.duhanashrah.ai/support-widget.js"></script>
     <script>
       SupportWidget.init({
         apiUrl: '<?php echo get_option('support_api_url'); ?>',
@@ -246,7 +246,7 @@ add_action('admin_init', function() {
     @yield('content')
     
     <!-- Support Widget -->
-    <script src="https://yourdomain.com/support-widget.js"></script>
+    <script src="http://dev.duhanashrah.ai/support-widget.js"></script>
     <script>
       SupportWidget.init({
         apiUrl: '{{ config('support.api_url') }}',
@@ -263,15 +263,15 @@ add_action('admin_init', function() {
 ```php
 <?php
 return [
-    'api_url' => env('SUPPORT_API_URL', 'https://your-api-domain.com/api/public/customer-support'),
-    'api_key' => env('SUPPORT_API_KEY', 'sk_live_abc123xyz'),
+    'api_url' => env('SUPPORT_API_URL', 'http://dev.duhanashrah.ai/api/api/public/customer-support'),
+    'api_key' => env('SUPPORT_API_KEY', '1234567890'),
 ];
 ```
 
 **File: `.env`**
 ```
-SUPPORT_API_URL=https://your-api-domain.com/api/public/customer-support
-SUPPORT_API_KEY=sk_live_abc123xyz
+SUPPORT_API_URL=http://dev.duhanashrah.ai/api/api/public/customer-support
+SUPPORT_API_KEY=1234567890
 ```
 
 ---
@@ -292,7 +292,7 @@ SUPPORT_API_KEY=sk_live_abc123xyz
     {% block content %}{% endblock %}
     
     <!-- Support Widget -->
-    <script src="https://yourdomain.com/support-widget.js"></script>
+    <script src="http://dev.duhanashrah.ai/support-widget.js"></script>
     <script>
       SupportWidget.init({
         apiUrl: '{{ support_api_url }}',
@@ -307,8 +307,8 @@ SUPPORT_API_KEY=sk_live_abc123xyz
 
 **File: `settings.py`**
 ```python
-SUPPORT_API_URL = os.getenv('SUPPORT_API_URL', 'https://your-api-domain.com/api/public/customer-support')
-SUPPORT_API_KEY = os.getenv('SUPPORT_API_KEY', 'sk_live_abc123xyz')
+SUPPORT_API_URL = os.getenv('SUPPORT_API_URL', 'http://dev.duhanashrah.ai/api/api/public/customer-support')
+SUPPORT_API_KEY = os.getenv('SUPPORT_API_KEY', '1234567890')
 ```
 
 **File: `views.py` or `context_processors.py`**
@@ -324,8 +324,8 @@ def support_widget_context(request):
 
 **File: `.env`**
 ```
-SUPPORT_API_URL=https://your-api-domain.com/api/public/customer-support
-SUPPORT_API_KEY=sk_live_abc123xyz
+SUPPORT_API_URL=http://dev.duhanashrah.ai/api/api/public/customer-support
+SUPPORT_API_KEY=1234567890
 ```
 
 #### Option B: Flask
@@ -342,7 +342,7 @@ SUPPORT_API_KEY=sk_live_abc123xyz
     {% block content %}{% endblock %}
     
     <!-- Support Widget -->
-    <script src="https://yourdomain.com/support-widget.js"></script>
+    <script src="http://dev.duhanashrah.ai/support-widget.js"></script>
     <script>
       SupportWidget.init({
         apiUrl: '{{ config.SUPPORT_API_URL }}',
@@ -361,8 +361,8 @@ import os
 from flask import Flask
 
 app = Flask(__name__)
-app.config['SUPPORT_API_URL'] = os.getenv('SUPPORT_API_URL', 'https://your-api-domain.com/api/public/customer-support')
-app.config['SUPPORT_API_KEY'] = os.getenv('SUPPORT_API_KEY', 'sk_live_abc123xyz')
+app.config['SUPPORT_API_URL'] = os.getenv('SUPPORT_API_URL', 'http://dev.duhanashrah.ai/api/api/public/customer-support')
+app.config['SUPPORT_API_KEY'] = os.getenv('SUPPORT_API_KEY', '1234567890')
 ```
 
 ---
@@ -378,7 +378,7 @@ export default {
   head: {
     script: [
       {
-        src: 'https://yourdomain.com/support-widget.js',
+        src: 'http://dev.duhanashrah.ai/support-widget.js',
         async: true,
         defer: true
       }
@@ -408,8 +408,8 @@ export default function ({ $config }) {
 
 **File: `.env`**
 ```
-SUPPORT_API_URL=https://your-api-domain.com/api/public/customer-support
-SUPPORT_API_KEY=sk_live_abc123xyz
+SUPPORT_API_URL=http://dev.duhanashrah.ai/api/api/public/customer-support
+SUPPORT_API_KEY=1234567890
 ```
 
 #### Option B: Vue.js (Vue CLI)
@@ -425,7 +425,7 @@ SUPPORT_API_KEY=sk_live_abc123xyz
   <body>
     <div id="app"></div>
     
-    <script src="https://yourdomain.com/support-widget.js"></script>
+    <script src="http://dev.duhanashrah.ai/support-widget.js"></script>
     <script>
       window.addEventListener('load', function() {
         if (window.SupportWidget) {
@@ -456,7 +456,7 @@ SUPPORT_API_KEY=sk_live_abc123xyz
         "build": {
           "options": {
             "scripts": [
-              "https://yourdomain.com/support-widget.js"
+              "http://dev.duhanashrah.ai/support-widget.js"
             ]
           }
         }
@@ -498,8 +498,8 @@ export class AppComponent implements OnInit {
 
 ```typescript
 export const environment = {
-  supportApiUrl: 'https://your-api-domain.com/api/public/customer-support',
-  supportApiKey: 'sk_live_abc123xyz'
+  supportApiUrl: 'http://dev.duhanashrah.ai/api/api/public/customer-support',
+  supportApiKey: '1234567890'
 };
 ```
 
@@ -520,11 +520,11 @@ export const environment = {
     <!-- Your content -->
     
     <!-- Support Widget -->
-    <script src="https://yourdomain.com/support-widget.js"></script>
+    <script src="http://dev.duhanashrah.ai/support-widget.js"></script>
     <script>
       SupportWidget.init({
-        apiUrl: 'https://your-api-domain.com/api/public/customer-support',
-        apiKey: 'sk_live_abc123xyz',
+        apiUrl: 'http://dev.duhanashrah.ai/api/api/public/customer-support',
+        apiKey: '1234567890',
         buttonText: 'Contact Support',
         position: 'bottom-right'
       });
@@ -542,10 +542,10 @@ export const environment = {
 ```javascript
 SupportWidget.init({
   // Required
-  apiUrl: 'https://your-api-domain.com/api/public/customer-support',
+  apiUrl: 'http://dev.duhanashrah.ai/api/api/public/customer-support',
   
   // Optional
-  apiKey: 'sk_live_abc123xyz',              // Your API key (for tracking)
+  apiKey: '1234567890',              // Your API key (for tracking)
   buttonText: 'Contact Support',            // Button text
   position: 'bottom-right',                  // bottom-right, bottom-left, top-right, top-left
   zIndex: 9999                               // CSS z-index (default: 9999)
@@ -569,7 +569,7 @@ formData.append('subject', 'Need Help');
 formData.append('message', 'I need assistance with...');
 formData.append('category', 'technical');
 formData.append('priority', 'medium');
-formData.append('api_key', 'sk_live_abc123xyz');
+formData.append('api_key', '1234567890');
 formData.append('source_url', window.location.href);
 
 // Add files if any
@@ -577,7 +577,7 @@ files.forEach(file => {
   formData.append('files', file);
 });
 
-fetch('https://your-api-domain.com/api/public/customer-support/tickets', {
+fetch('http://dev.duhanashrah.ai/api/api/public/customer-support/tickets', {
   method: 'POST',
   body: formData
 })
@@ -599,11 +599,11 @@ $data = [
     'message' => 'I need assistance with...',
     'category' => 'technical',
     'priority' => 'medium',
-    'api_key' => 'sk_live_abc123xyz',
+    'api_key' => '1234567890',
     'source_url' => $_SERVER['HTTP_REFERER']
 ];
 
-$ch = curl_init('https://your-api-domain.com/api/public/customer-support/tickets');
+$ch = curl_init('http://dev.duhanashrah.ai/api/api/public/customer-support/tickets');
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 curl_setopt($ch, CURLOPT_POST, true);
 curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
@@ -629,7 +629,7 @@ data = {
     'message': 'I need assistance with...',
     'category': 'technical',
     'priority': 'medium',
-    'api_key': 'sk_live_abc123xyz',
+    'api_key': '1234567890',
     'source_url': 'https://yourwebsite.com'
 }
 
@@ -639,7 +639,7 @@ if 'attachment' in request.files:
     files = [('files', open('attachment.pdf', 'rb'))]
 
 response = requests.post(
-    'https://your-api-domain.com/api/public/customer-support/tickets',
+    'http://dev.duhanashrah.ai/api/api/public/customer-support/tickets',
     data=data,
     files=files
 )
@@ -657,7 +657,7 @@ Users can view their tickets by email:
 
 ```javascript
 // Get all tickets for an email
-fetch('https://your-api-domain.com/api/public/customer-support/tickets?email=user@example.com')
+fetch('http://dev.duhanashrah.ai/api/api/public/customer-support/tickets?email=user@example.com')
   .then(response => response.json())
   .then(data => {
     if (data.success) {
@@ -666,7 +666,7 @@ fetch('https://your-api-domain.com/api/public/customer-support/tickets?email=use
   });
 
 // Get specific ticket
-fetch('https://your-api-domain.com/api/public/customer-support/tickets?email=user@example.com&ticket_number=TICKET-20241201-12345')
+fetch('http://dev.duhanashrah.ai/api/api/public/customer-support/tickets?email=user@example.com&ticket_number=TICKET-20241201-12345')
   .then(response => response.json())
   .then(data => {
     if (data.success) {
@@ -729,9 +729,9 @@ For issues or questions:
 
 **Minimum Implementation (2 lines):**
 ```html
-<script src="https://yourdomain.com/support-widget.js"></script>
+<script src="http://dev.duhanashrah.ai/support-widget.js"></script>
 <script>
-  SupportWidget.init({ apiUrl: 'YOUR_API_URL', apiKey: 'YOUR_API_KEY' });
+  SupportWidget.init({ apiUrl: 'http://dev.duhanashrah.ai/api/api/public/customer-support', apiKey: '1234567890' });
 </script>
 ```
 

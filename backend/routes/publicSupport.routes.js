@@ -1,5 +1,5 @@
 import express from 'express';
-import { createPublicTicket, getPublicTickets, upload } from './controllers/publicSupport.controller.js';
+import { createPublicTicket, getPublicTickets, uploadPublicFile, deletePublicFile, getPublicFileUrl, upload } from './controllers/publicSupport.controller.js';
 import {
   createRateLimitMiddleware,
   sanitizeInputMiddleware
@@ -70,6 +70,84 @@ router.get(
   publicRateLimitMiddleware,
   sanitizeInputMiddleware,
   getPublicTickets
+);
+
+/**
+ * @route   POST /api/public/customer-support/upload
+ * @desc    Upload file to bucket and get URL (PUBLIC - for widget)
+ * @access  Public
+ * 
+ * Request Body (multipart/form-data):
+ * - file: File (required, max 10MB)
+ * 
+ * Response:
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "file_url": "https://...",
+ *     "file_path": "...",
+ *     "file_name": "...",
+ *     "file_size": 12345,
+ *     "file_type": "image/png"
+ *   }
+ * }
+ */
+router.post(
+  '/upload',
+  publicRateLimitMiddleware,
+  upload.single('file'),
+  sanitizeInputMiddleware,
+  uploadPublicFile
+);
+
+/**
+ * @route   GET /api/public/customer-support/upload?file_path=...
+ * @desc    Get fresh file URL (refresh signed URL if needed)
+ * @access  Public
+ * 
+ * Query Parameters:
+ * - file_path: string (required) - Path to the file in storage
+ * 
+ * Response:
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "file_url": "https://...",
+ *     "file_path": "..."
+ *   }
+ * }
+ */
+router.get(
+  '/upload',
+  publicRateLimitMiddleware,
+  sanitizeInputMiddleware,
+  getPublicFileUrl
+);
+
+/**
+ * @route   DELETE /api/public/customer-support/upload
+ * @desc    Delete file from bucket (PUBLIC - for widget)
+ * @access  Public
+ * 
+ * Request Body (JSON):
+ * {
+ *   "file_path": "public-support/temp/ticket/filename.jpg"
+ * }
+ * 
+ * Response:
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "message": "File deleted successfully",
+ *     "file_path": "..."
+ *   }
+ * }
+ */
+router.delete(
+  '/upload',
+  publicRateLimitMiddleware,
+  sanitizeInputMiddleware,
+  deletePublicFile
 );
 
 export default router;

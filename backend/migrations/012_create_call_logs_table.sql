@@ -7,8 +7,7 @@ CREATE TABLE IF NOT EXISTS call_logs (
   
   -- Customer information
   name VARCHAR(255) NOT NULL,
-  email VARCHAR(255) NOT NULL,
-  phone VARCHAR(50),
+  phone VARCHAR(50) NOT NULL,
   call_url VARCHAR(500) NOT NULL, -- URL of the call recording or call link
   
   -- Agent assignment
@@ -19,17 +18,13 @@ CREATE TABLE IF NOT EXISTS call_logs (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   
   -- Additional metadata (optional)
-  notes TEXT, -- Call notes or summary
-  call_duration INTEGER, -- Duration in seconds (optional)
   call_type VARCHAR(50), -- 'incoming', 'outgoing' (optional)
   call_status VARCHAR(50), -- 'completed', 'missed', 'voicemail', etc. (optional)
   
   -- Indexes for better query performance
-  CONSTRAINT call_logs_email_check CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$')
 );
 
 -- Create indexes for common queries
-CREATE INDEX IF NOT EXISTS idx_call_logs_email ON call_logs(email);
 CREATE INDEX IF NOT EXISTS idx_call_logs_phone ON call_logs(phone);
 CREATE INDEX IF NOT EXISTS idx_call_logs_agent ON call_logs(agent);
 CREATE INDEX IF NOT EXISTS idx_call_logs_created_at ON call_logs(created_at DESC);
@@ -70,12 +65,9 @@ CREATE POLICY "Public can insert call logs"
 -- Add comment to table
 COMMENT ON TABLE call_logs IS 'Stores call log information including customer details and agent assignments';
 COMMENT ON COLUMN call_logs.name IS 'Customer name';
-COMMENT ON COLUMN call_logs.email IS 'Customer email address';
-COMMENT ON COLUMN call_logs.phone IS 'Customer phone number';
+COMMENT ON COLUMN call_logs.phone IS 'Customer phone number (required)';
 COMMENT ON COLUMN call_logs.call_url IS 'URL of the call recording or call link';
 COMMENT ON COLUMN call_logs.agent IS 'Agent (user) who made/received the call';
-COMMENT ON COLUMN call_logs.notes IS 'Call notes or summary';
-COMMENT ON COLUMN call_logs.call_duration IS 'Call duration in seconds';
 COMMENT ON COLUMN call_logs.call_type IS 'Type of call: incoming or outgoing';
 COMMENT ON COLUMN call_logs.call_status IS 'Status of call: completed, missed, voicemail, etc.';
 

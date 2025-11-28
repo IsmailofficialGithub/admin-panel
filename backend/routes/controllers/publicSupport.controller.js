@@ -1,5 +1,6 @@
 import { supabase, supabaseAdmin } from "../../config/database.js";
 import multer from "multer";
+import crypto from "crypto";
 import {
   isValidUUID,
   sanitizeString,
@@ -122,7 +123,7 @@ async function uploadAttachment(
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").split("T")[0] + "-" + Date.now();
   const sanitizedName = originalName.replace(/[^a-zA-Z0-9.-]/g, "_");
   const fileName = `${timestamp}-${sanitizedName}`;
-  const filePath = `public-support/${ticketId}/${messageId || "ticket"}/${fileName}`;
+  const filePath = `support/${ticketId}/${messageId || "ticket"}/${fileName}`;
 
   const { data, error } = await supabaseAdmin.storage
     .from("support-attachments")
@@ -136,25 +137,39 @@ async function uploadAttachment(
     throw new Error(`Failed to upload file: ${error.message}`);
   }
 
-  // Generate signed URL
+  // Generate public URL (works for both public and private buckets)
+  // For public buckets, this URL will work directly
+  // For private buckets, we'll need signed URLs for access
+  const { data: publicUrlData } = supabaseAdmin.storage
+    .from("support-attachments")
+    .getPublicUrl(filePath);
+
+  // Try to generate a signed URL (for private buckets or better security)
+  // Use a shorter expiry for public support files (30 days)
   const { data: signedUrlData, error: signedUrlError } =
     await supabaseAdmin.storage
       .from("support-attachments")
-      .createSignedUrl(filePath, 31536000); // 1 year expiry
+      .createSignedUrl(filePath, 2592000); // 30 days expiry
 
-  if (signedUrlError) {
-    const { data: urlData } = supabaseAdmin.storage
-      .from("support-attachments")
-      .getPublicUrl(filePath);
-    return {
-      url: urlData.publicUrl,
-      path: filePath,
-      fileName: originalName,
-    };
+  // Prefer signed URL if available (more secure, works with private buckets)
+  // Fallback to public URL if signed URL generation fails
+  let fileUrl = publicUrlData.publicUrl;
+  
+  if (!signedUrlError && signedUrlData?.signedUrl) {
+    // Validate the signed URL format before using it
+    try {
+      const url = new URL(signedUrlData.signedUrl);
+      if (url.searchParams.has('token')) {
+        fileUrl = signedUrlData.signedUrl;
+      }
+    } catch (urlError) {
+      console.warn('Invalid signed URL format, using public URL:', urlError);
+      // Keep using public URL
+    }
   }
 
   return {
-    url: signedUrlData.signedUrl,
+    url: fileUrl,
     path: filePath,
     fileName: originalName,
   };
@@ -232,7 +247,9 @@ export const createPublicTicket = async (req, res) => {
       api_key,
       source_url,
       user_agent,
-      metadata
+      metadata,
+      file_urls, // Array of pre-uploaded file URLs (legacy support)
+      file_attachments // Array of file objects with url, path, name, size, type
     } = req.body;
 
     // Validate required fields with detailed errors
@@ -318,9 +335,12 @@ export const createPublicTicket = async (req, res) => {
     // 4. HANDLE FILE ATTACHMENTS (if any)
     // ========================================
     let attachments = [];
+    let preUploadedUrls = [];
+    let ticketIdFromFiles = null; // UUID from pre-uploaded files
+    
+    // Handle files uploaded with request (multipart/form-data)
     if (req.files && req.files.length > 0) {
       try {
-        // We'll upload files after ticket creation
         attachments = req.files.map(file => ({
           buffer: file.buffer,
           mimetype: file.mimetype,
@@ -336,6 +356,33 @@ export const createPublicTicket = async (req, res) => {
         );
         return res.status(statusCode).json(response);
       }
+    }
+    
+    // Handle pre-uploaded file URLs (from widget)
+    // New format: file_attachments array with complete file info
+    if (file_attachments && Array.isArray(file_attachments)) {
+      // Extract URLs and metadata from file_attachments
+      preUploadedUrls = file_attachments.map(file => ({
+        url: file.file_url,
+        path: file.file_path,
+        name: file.file_name,
+        size: file.file_size,
+        type: file.file_type
+      }));
+    } else if (file_urls && Array.isArray(file_urls)) {
+      // Legacy format: just URLs
+      preUploadedUrls = file_urls.map(url => ({
+        url: url,
+        path: null,
+        name: null,
+        size: null,
+        type: null
+      }));
+    }
+    
+    // Get ticket_id from request body if provided (from widget file uploads)
+    if (req.body.ticket_id && isValidUUID(req.body.ticket_id)) {
+      ticketIdFromFiles = req.body.ticket_id;
     }
 
     // ========================================
@@ -354,6 +401,7 @@ export const createPublicTicket = async (req, res) => {
     // ========================================
     // 6. CREATE TICKET
     // ========================================
+    // Use ticket ID from files if available, otherwise let database generate one
     const ticketData = {
       ticket_number: ticketNumber,
       subject: subject.trim(),
@@ -370,6 +418,12 @@ export const createPublicTicket = async (req, res) => {
         ? `Source: ${source_url}\nUser Agent: ${user_agent}\nAPI Key: ${api_key ? 'Provided' : 'None'}`
         : null,
     };
+    
+    // If we have a ticket ID from pre-uploaded files, use it
+    // This ensures files are stored in the correct location matching the ticket ID
+    if (ticketIdFromFiles && isValidUUID(ticketIdFromFiles)) {
+      ticketData.id = ticketIdFromFiles;
+    }
 
     if (metadata && typeof metadata === 'object') {
       try {
@@ -475,6 +529,8 @@ export const createPublicTicket = async (req, res) => {
     // 8. UPLOAD ATTACHMENTS (if any)
     // ========================================
     const uploadedAttachments = [];
+    
+    // Handle files uploaded with request (multipart/form-data)
     if (attachments.length > 0) {
       for (const file of attachments) {
         try {
@@ -508,6 +564,67 @@ export const createPublicTicket = async (req, res) => {
         } catch (uploadError) {
           console.error("⚠️ Failed to upload attachment:", uploadError);
           // Don't fail the entire request if attachment upload fails
+        }
+      }
+    }
+    
+    // Handle pre-uploaded file URLs (from widget)
+    if (preUploadedUrls.length > 0) {
+      for (const fileInfo of preUploadedUrls) {
+        try {
+          // Extract file information
+          const fileUrl = fileInfo.url || fileInfo;
+          const filePath = fileInfo.path || fileUrl;
+          let fileName = fileInfo.name;
+          let fileSize = fileInfo.size;
+          let fileType = fileInfo.type;
+          
+          // If metadata not provided, try to extract from URL
+          if (!fileName) {
+            // Extract file name from URL (remove query parameters first)
+            const urlWithoutQuery = fileUrl.split('?')[0];
+            const urlParts = urlWithoutQuery.split('/');
+            fileName = urlParts[urlParts.length - 1] || `attachment-${Date.now()}`;
+          }
+          
+          const fileExtension = fileName.split('.').pop() || '';
+          
+          // Extract actual storage path from file_path if it's a full URL
+          let storagePath = filePath;
+          if (filePath && filePath.includes('/storage/v1/object/')) {
+            // Extract path from signed URL
+            // URL format: .../storage/v1/object/sign/support-attachments/{path}?token=...
+            const pathMatch = filePath.match(/support-attachments\/(.+?)(\?|$)/);
+            if (pathMatch && pathMatch[1]) {
+              storagePath = pathMatch[1];
+            }
+          } else if (filePath && !filePath.startsWith('http')) {
+            // Already a storage path
+            storagePath = filePath;
+          }
+          
+          // Store attachment in database (same format as old method)
+          await supabase.from("support_attachments").insert({
+            ticket_id: ticket.id,
+            message_id: initialMessage.id,
+            file_name: fileName,
+            file_path: storagePath, // Store actual storage path
+            file_url: fileUrl, // Store full URL for access
+            file_size: fileSize || null,
+            file_type: fileType || null,
+            file_extension: fileExtension,
+            uploaded_by: null,
+            is_public: false,
+          });
+
+          uploadedAttachments.push({
+            file_name: fileName,
+            file_size: fileSize,
+            file_type: fileType,
+          });
+        } catch (urlError) {
+          console.error("⚠️ Failed to store pre-uploaded file:", urlError);
+          // Don't fail the entire request if URL storage fails
         }
       }
     }
@@ -549,6 +666,167 @@ export const createPublicTicket = async (req, res) => {
       'INTERNAL_SERVER_ERROR',
       'An unexpected error occurred. Please try again later.',
       process.env.NODE_ENV === 'development' ? { error: error.message, stack: error.stack } : null
+    );
+    return res.status(statusCode).json(response);
+  }
+};
+
+/**
+ * Delete file from bucket (public endpoint for widget)
+ * @route   DELETE /api/public/customer-support/upload
+ * @access  Public
+ */
+export const deletePublicFile = async (req, res) => {
+  try {
+    const { file_path } = req.body;
+
+    if (!file_path || typeof file_path !== 'string') {
+      const { statusCode, response } = createErrorResponse(
+        400,
+        'VALIDATION_ERROR',
+        'file_path is required'
+      );
+      return res.status(statusCode).json(response);
+    }
+
+    // Delete file from Supabase Storage
+    const { data, error } = await supabaseAdmin.storage
+      .from("support-attachments")
+      .remove([file_path]);
+
+    if (error) {
+      console.error("Error deleting file from Supabase Storage:", error);
+      const { statusCode, response } = createErrorResponse(
+        500,
+        'DELETE_ERROR',
+        `Failed to delete file: ${error.message}`
+      );
+      return res.status(statusCode).json(response);
+    }
+
+    const response = createSuccessResponse({
+      message: 'File deleted successfully',
+      file_path: file_path
+    });
+
+    return res.status(200).json(response);
+  } catch (error) {
+    console.error('❌ Error deleting public file:', error);
+    const { statusCode, response } = createErrorResponse(
+      500,
+      'DELETE_ERROR',
+      error.message || 'Failed to delete file'
+    );
+    return res.status(statusCode).json(response);
+  }
+};
+
+/**
+ * Get fresh URL for a file (refresh signed URL if needed)
+ * @route   GET /api/public/customer-support/upload?file_path=...
+ * @access  Public
+ */
+export const getPublicFileUrl = async (req, res) => {
+  try {
+    const { file_path } = req.query;
+
+    if (!file_path || typeof file_path !== 'string') {
+      const { statusCode, response } = createErrorResponse(
+        400,
+        'VALIDATION_ERROR',
+        'file_path query parameter is required'
+      );
+      return res.status(statusCode).json(response);
+    }
+
+    // Generate fresh signed URL
+    const { data: signedUrlData, error: signedUrlError } =
+      await supabaseAdmin.storage
+        .from("support-attachments")
+        .createSignedUrl(file_path, 2592000); // 30 days expiry
+
+    if (signedUrlError) {
+      // Fallback to public URL
+      const { data: publicUrlData } = supabaseAdmin.storage
+        .from("support-attachments")
+        .getPublicUrl(file_path);
+      
+      const response = createSuccessResponse({
+        file_url: publicUrlData.publicUrl,
+        file_path: file_path
+      });
+      return res.status(200).json(response);
+    }
+
+    const response = createSuccessResponse({
+      file_url: signedUrlData.signedUrl,
+      file_path: file_path
+    });
+
+    return res.status(200).json(response);
+  } catch (error) {
+    console.error('❌ Error getting file URL:', error);
+    const { statusCode, response } = createErrorResponse(
+      500,
+      'URL_ERROR',
+      error.message || 'Failed to get file URL'
+    );
+    return res.status(statusCode).json(response);
+  }
+};
+
+/**
+ * Upload file to bucket (public endpoint for widget)
+ * @route   POST /api/public/customer-support/upload
+ * @access  Public
+ */
+export const uploadPublicFile = async (req, res) => {
+  try {
+    if (!req.file) {
+      const { statusCode, response } = createErrorResponse(
+        400,
+        'VALIDATION_ERROR',
+        'No file provided'
+      );
+      return res.status(statusCode).json(response);
+    }
+
+    // Generate a temporary UUID for the ticket ID (will be used when ticket is created)
+    // This ensures files are stored in the correct structure: support/{ticketId}/ticket/{filename}
+    const tempTicketId = crypto.randomUUID();
+
+    // Upload file to storage
+    const uploadResult = await uploadAttachment(
+      req.file.buffer,
+      req.file.mimetype,
+      req.file.originalname,
+      tempTicketId, // Use UUID instead of 'temp'
+      null
+    );
+
+    // Always return both public URL and path
+    // Public URL is more reliable for direct access
+    const { data: publicUrlData } = supabaseAdmin.storage
+      .from("support-attachments")
+      .getPublicUrl(uploadResult.path);
+
+    const response = createSuccessResponse({
+      file_url: uploadResult.url, // This might be signed or public
+      file_url_public: publicUrlData.publicUrl, // Always include public URL as backup
+      file_path: uploadResult.path,
+      file_name: uploadResult.fileName,
+      file_size: req.file.size,
+      file_type: req.file.mimetype,
+      ticket_id: tempTicketId // Return the UUID so widget can use it for ticket creation
+    });
+
+    return res.status(200).json(response);
+  } catch (error) {
+    console.error('❌ Error uploading public file:', error);
+    const { statusCode, response } = createErrorResponse(
+      500,
+      'UPLOAD_ERROR',
+      error.message || 'Failed to upload file'
     );
     return res.status(statusCode).json(response);
   }
