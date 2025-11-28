@@ -24,6 +24,7 @@ import productDatabaseRoutes from './routes/productDatabase.routes.js';
 import customerSupportRoutes from './routes/customerSupport.routes.js';
 import publicSupportRoutes from './routes/publicSupport.routes.js';
 import permissionsRoutes from './routes/permissions.routes.js';
+import callLogsRoutes from './routes/callLogs.routes.js';
 import { testRedisConnection } from './config/redis.js';
 
 // Load environment variables
@@ -120,6 +121,7 @@ app.use('/api/admin/product-databases', productDatabaseRoutes);
 app.use('/api/customer-support', customerSupportRoutes);
 app.use('/api/public/customer-support', publicSupportRoutes);
 app.use('/api/permissions', permissionsRoutes);
+app.use('/api/call-logs', callLogsRoutes);
 
 // Debug: Log all registered routes
 ;
