@@ -690,7 +690,7 @@ export const updateConsumerAccountStatus = async (req, res) => {
     // 1. INPUT VALIDATION
     // ========================================
     const { id } = req.params;
-    const { account_status, trial_expiry_date } = req.body;
+    const { account_status, trial_expiry_date, lifetime_access } = req.body;
 
     if (!id || !isValidUUID(id)) {
       return res.status(400).json({
@@ -725,7 +725,7 @@ export const updateConsumerAccountStatus = async (req, res) => {
     // ========================================
     const consumerPromise = supabase
       .from('profiles')
-      .select('created_at, trial_expiry')
+      .select('created_at, trial_expiry, lifetime_access')
       .eq('user_id', id)
       .eq('role', 'consumer')
       .single();
@@ -744,7 +744,18 @@ export const updateConsumerAccountStatus = async (req, res) => {
     // Prepare update data
     const updateData = { account_status };
 
-    // Handle trial_expiry based on account status
+    // Handle lifetime access - set lifetime_access field
+    if (lifetime_access === true) {
+      updateData.lifetime_access = true;
+      console.log('♾️ Granting lifetime access (setting lifetime_access to true)');
+    } else if (lifetime_access === false) {
+      // Allow explicitly revoking lifetime access
+      updateData.lifetime_access = false;
+      console.log('♾️ Revoking lifetime access (setting lifetime_access to false)');
+    }
+    // If lifetime_access is not provided, keep existing value
+
+    // Handle trial_expiry based on account status (don't modify if lifetime_access is being set)
     if (account_status === 'expired_subscription') {
       // Set trial_expiry to current date to mark as expired
       updateData.trial_expiry = new Date().toISOString();
@@ -752,7 +763,7 @@ export const updateConsumerAccountStatus = async (req, res) => {
     } else if (account_status === 'active') {
       // If trial_expiry_date is provided, use it
       if (trial_expiry_date) {
-        // Validate: trial_expiry cannot exceed 7 days from created_at
+        // Validate: trial_expiry cannot exceed 7 days from created_at (unless it's null for lifetime)
         const createdAt = new Date(consumer.created_at);
         const maxTrialDate = new Date(createdAt);
         maxTrialDate.setDate(maxTrialDate.getDate() + 7);
@@ -762,7 +773,7 @@ export const updateConsumerAccountStatus = async (req, res) => {
         if (requestedExpiryDate > maxTrialDate) {
           return res.status(400).json({
             error: 'Bad Request',
-            message: 'Trial cannot be extended beyond 7 days from account creation date'
+            message: 'Trial cannot be extended beyond 7 days from account creation date. Use lifetime_access: true for unlimited access.'
           });
         }
         

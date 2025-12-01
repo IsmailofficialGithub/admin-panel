@@ -956,7 +956,7 @@ export const getMyConsumers = async (req, res) => {
     // ========================================
     const consumersPromise = supabase
       .from('auth_role_with_profiles')
-      .select('user_id, full_name, email, role, phone, trial_expiry, referred_by, created_at, updated_at, country, city')
+      .select('user_id, full_name, email, role, phone, trial_expiry, lifetime_access, referred_by, created_at, updated_at, country, city')
       .eq('role', 'consumer')
       .eq('referred_by', resellerId)
       .order('created_at', { ascending: false });

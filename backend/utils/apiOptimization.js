@@ -74,6 +74,7 @@ export const CONSUMER_SELECT_FIELDS = [
   'city',
   'account_status',
   'trial_expiry',
+  'lifetime_access',
   'created_at',
   'updated_at'
 ].join(',');
