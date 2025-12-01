@@ -55,9 +55,9 @@ export const createCallLog = async (req, res) => {
 
     // Validate required fields
     const missingFields = [];
-    if (!name || !name.trim()) missingFields.push('name');
+    // if (!name || !name.trim()) missingFields.push('name');
     if (!phone || !phone.trim()) missingFields.push('phone');
-    if (!call_url || !call_url.trim()) missingFields.push('call_url');
+    // if (!call_url || !call_url.trim()) missingFields.push('call_url');
 
     if (missingFields.length > 0) {
       const { statusCode, response } = createErrorResponse(
@@ -71,12 +71,12 @@ export const createCallLog = async (req, res) => {
 
     // Sanitize inputs
     const callLogData = {
-      name: sanitizeString(name, 255),
+      name: sanitizeString(name, 255) || null,
       phone: sanitizeString(phone, 50), // Required field
-      call_url: sanitizeString(call_url, 500), // Required field
-      agent: agent ? sanitizeString(agent, 255) : null,
-      call_type: call_type ? sanitizeString(call_type, 50) : null,
-      call_status: call_status ? sanitizeString(call_status, 50) : null,
+      call_url: sanitizeString(call_url, 500) || null,
+      agent: sanitizeString(agent, 255) || null,
+      call_type: sanitizeString(call_type, 50) || null,
+      call_status: sanitizeString(call_status, 50) || null,
     };
 
     // Insert call log

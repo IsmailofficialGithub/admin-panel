@@ -18,7 +18,7 @@ const publicRateLimitMiddleware = createRateLimitMiddleware('call-logs', 30); //
  * Request Body (JSON):
  * {
  *   "name": "John Doe" (required),
- *   "phone": "+1234567890" (required),
+x` *   "phone": "+1234567890" (required),
  *   "call_url": "https://..." (required),
  *   "agent": "Agent Name" (optional),
  *   "call_type": "incoming" or "outgoing" (optional),
