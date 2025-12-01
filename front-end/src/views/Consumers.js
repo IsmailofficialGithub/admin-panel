@@ -9,7 +9,8 @@ import {
   updateConsumer, 
   deleteConsumer,
   resetConsumerPassword,
-  updateConsumerAccountStatus
+  updateConsumerAccountStatus,
+  grantLifetimeAccess
 } from '../api/backend';
 import CreateConsumerModal from '../components/ui/createConsumerModel';
 import UpdateConsumerModal from '../components/ui/updateConsumerModel';
@@ -162,6 +163,46 @@ const Consumers = () => {
         setExtendTrialData({ id: userId, name: userName, consumer });
         setExtendTrialDays('');
         setShowExtendTrialModal(true);
+      }
+    } else if (action === 'Grant Lifetime Access') {
+      const consumer = users.find(u => u.user_id === userId);
+      if (consumer) {
+        // Check if already has lifetime access
+        if (consumer.lifetime_access === true) {
+          toast.error('This consumer already has lifetime access.');
+          return;
+        }
+        // Show confirmation before granting lifetime access
+        if (window.confirm(`Are you sure you want to grant lifetime access to "${userName}"? This will grant unlimited access regardless of trial expiry.`)) {
+          const loadingToast = toast.loading(`Granting lifetime access to ${userName}...`);
+          
+          try {
+            const result = await grantLifetimeAccess(userId);
+            
+            if (result.error) {
+              toast.error(`Error: ${result.error}`, { id: loadingToast });
+            } else {
+              // Update consumer in local state
+              setUsers(prevUsers => 
+                prevUsers.map(user => {
+                  if (user.user_id === userId) {
+                    return {
+                      ...user,
+                      lifetime_access: true,
+                      account_status: 'active'
+                    };
+                  }
+                  return user;
+                })
+              );
+              
+              toast.success(`Lifetime access granted to "${userName}"!`, { id: loadingToast });
+            }
+          } catch (error) {
+            console.error('Error granting lifetime access:', error);
+            toast.error('Failed to grant lifetime access. Please try again.', { id: loadingToast });
+          }
+        }
       }
     } else {
       toast(`${action} action clicked for consumer: ${userName}`);
@@ -528,7 +569,18 @@ const Consumers = () => {
   };
 
   // Calculate trial status
-  const getTrialStatus = (trial_expiry) => {
+  const getTrialStatus = (trial_expiry, lifetime_access) => {
+    // Check for lifetime access using lifetime_access field
+    if (lifetime_access === true) {
+      return { 
+        text: 'Lifetime Access', 
+        color: '#74317e', 
+        bgColor: '#f3e8ff',
+        icon: '♾️'
+      };
+    }
+
+    // If no trial expiry date, show "No Trial"
     if (!trial_expiry) {
       return { text: 'No Trial', color: '#6c757d', bgColor: '#f8f9fa' };
     }
@@ -1056,7 +1108,7 @@ const Consumers = () => {
                     </td>
                     <td style={{ padding: '15px 24px' }}>
                       {(() => {
-                        const trialStatus = getTrialStatus(user.trial_expiry);
+                        const trialStatus = getTrialStatus(user.trial_expiry, user.lifetime_access);
                         return (
                           <span style={{
                             backgroundColor: trialStatus.bgColor,
@@ -1241,25 +1293,60 @@ const Consumers = () => {
                           </button>
                           <button
                             onClick={() => handleAction('Extend Trial', userId, user.full_name)}
+                            disabled={user.lifetime_access === true}
                             style={{
                               width: '100%',
                               padding: '10px 16px',
                               border: 'none',
                               backgroundColor: 'transparent',
                               textAlign: 'left',
-                              cursor: 'pointer',
+                              cursor: user.lifetime_access === true ? 'not-allowed' : 'pointer',
                               fontSize: '14px',
-                              color: '#333',
+                              color: user.lifetime_access === true ? '#999' : '#333',
                               display: 'flex',
                               alignItems: 'center',
                               gap: '8px',
-                              transition: 'background-color 0.2s'
+                              transition: 'background-color 0.2s',
+                              opacity: user.lifetime_access === true ? 0.5 : 1
                             }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                            onMouseEnter={(e) => {
+                              if (user.lifetime_access !== true) {
+                                e.currentTarget.style.backgroundColor = '#f8f9fa';
+                              }
+                            }}
                             onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                           >
                             <Calendar size={16} />
                             Extend Trial
+                          </button>
+                          <button
+                            onClick={() => handleAction('Grant Lifetime Access', userId, user.full_name)}
+                            disabled={user.lifetime_access === true}
+                            style={{
+                              width: '100%',
+                              padding: '10px 16px',
+                              border: 'none',
+                              backgroundColor: 'transparent',
+                              textAlign: 'left',
+                              cursor: user.lifetime_access === true ? 'not-allowed' : 'pointer',
+                              fontSize: '14px',
+                              color: user.lifetime_access === true ? '#999' : '#74317e',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              transition: 'background-color 0.2s',
+                              opacity: user.lifetime_access === true ? 0.5 : 1,
+                              fontWeight: '500'
+                            }}
+                            onMouseEnter={(e) => {
+                              if (user.lifetime_access !== true) {
+                                e.currentTarget.style.backgroundColor = '#f3e8ff';
+                              }
+                            }}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                          >
+                            <CheckCircle size={16} />
+                            Grant Lifetime Access
                           </button>
                           <div style={{ 
                             height: '1px', 

@@ -20,7 +20,8 @@ export {
   updateConsumer,
   deleteConsumer,
   resetConsumerPassword,
-  updateConsumerAccountStatus
+  updateConsumerAccountStatus,
+  grantLifetimeAccess
 } from './consumers';
 
 export {

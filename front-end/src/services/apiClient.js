@@ -288,12 +288,25 @@ const apiClient = {
     /**
      * Update consumer account status
      */
-    updateAccountStatus: (id, account_status, trial_expiry_date = null) => {
+    updateAccountStatus: (id, account_status, trial_expiry_date = null, lifetime_access = false) => {
       const payload = { account_status };
       if (trial_expiry_date) {
         payload.trial_expiry_date = trial_expiry_date;
       }
+      if (lifetime_access) {
+        payload.lifetime_access = true;
+      }
       return axiosInstance.patch(`/consumers/${id}/account-status`, payload);
+    },
+
+    /**
+     * Grant lifetime access to consumer
+     */
+    grantLifetimeAccess: (id) => {
+      return axiosInstance.patch(`/consumers/${id}/account-status`, {
+        account_status: 'active',
+        lifetime_access: true
+      });
     },
   },
 

@@ -204,11 +204,13 @@ export const resetConsumerPassword = async (consumerId) => {
  * Update consumer account status
  * @param {string} consumerId - Consumer ID
  * @param {string} accountStatus - New account status (active, deactive, expired_subscription)
+ * @param {string|null} trialExpiryDate - Trial expiry date (optional)
+ * @param {boolean} lifetimeAccess - Whether to grant lifetime access (optional)
  * @returns {Promise<Object>} Success status
  */
-export const updateConsumerAccountStatus = async (consumerId, accountStatus, trialExpiryDate = null) => {
+export const updateConsumerAccountStatus = async (consumerId, accountStatus, trialExpiryDate = null, lifetimeAccess = false) => {
   try {
-    const response = await apiClient.consumers.updateAccountStatus(consumerId, accountStatus, trialExpiryDate);
+    const response = await apiClient.consumers.updateAccountStatus(consumerId, accountStatus, trialExpiryDate, lifetimeAccess);
     
     if (response.success) {
       return {
@@ -225,6 +227,30 @@ export const updateConsumerAccountStatus = async (consumerId, accountStatus, tri
   }
 };
 
+/**
+ * Grant lifetime access to a consumer
+ * @param {string} consumerId - Consumer ID
+ * @returns {Promise<Object>} Success status
+ */
+export const grantLifetimeAccess = async (consumerId) => {
+  try {
+    const response = await apiClient.consumers.grantLifetimeAccess(consumerId);
+    
+    if (response.success) {
+      return {
+        success: true,
+        message: response.message || 'Lifetime access granted successfully',
+        data: response.data
+      };
+    }
+    
+    return { error: 'Failed to grant lifetime access' };
+  } catch (error) {
+    console.error('grantLifetimeAccess Error:', error);
+    return { error: error.message };
+  }
+};
+
 export default {
   getConsumers,
   getConsumerById,
@@ -232,6 +258,7 @@ export default {
   updateConsumer,
   deleteConsumer,
   resetConsumerPassword,
-  updateConsumerAccountStatus
+  updateConsumerAccountStatus,
+  grantLifetimeAccess
 };
 

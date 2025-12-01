@@ -196,7 +196,7 @@ jobs:
             npm install --legacy-peer-deps
             
             echo "🔄 Restarting backend with PM2..."
-            pm2 restart backend || pm2 start npm --name "backend" -- start
+            pm2 restart backend-api || pm2 start npm --name "backend-api" -- start
             pm2 save
             
             echo "✅ Backend deployment completed!"
