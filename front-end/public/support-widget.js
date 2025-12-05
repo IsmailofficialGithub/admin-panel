@@ -6,7 +6,7 @@
  * - View tickets by email
  * - Production-level error handling
  * - Modern, responsive design with system fonts
- * - Accessible and user-friendly
+ * - Accessible and user-friendly.
  * 
  * Usage:
  * <script src="https://your-domain.com/support-widget.js"></script>

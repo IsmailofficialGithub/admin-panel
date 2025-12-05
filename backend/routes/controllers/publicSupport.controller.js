@@ -111,7 +111,7 @@ export const upload = multer({
 });
 
 /**
- * Upload attachment file to Supabase Storage
+ * Upload attachment file to Supabase Storage ..
  */
 async function uploadAttachment(
   fileBuffer,

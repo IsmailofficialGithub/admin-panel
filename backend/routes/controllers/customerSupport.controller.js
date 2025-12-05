@@ -1020,7 +1020,7 @@ export const updateTicketStatus = async (req, res) => {
  * OPTIMIZATIONS:
  * 1. Query timeout (Performance)
  * 2. Redis caching (Performance)
- * 3. Optimized queries (Performance)
+ * 3. Optimized queries (Performance).
  * 4. Secure error handling (Security)
  */
 export const getTicketStats = async (req, res) => {

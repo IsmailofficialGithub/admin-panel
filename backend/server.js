@@ -84,7 +84,7 @@ app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 app.use(morgan('dev')); // Logging
 app.use('/api/', limiter); // Apply rate limiting to all API routes
 
-// Routes
+// Routes.
 app.get('/', (req, res) => {
   res.json({
     message: 'Admin Panel Backend API',

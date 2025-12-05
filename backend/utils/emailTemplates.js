@@ -301,7 +301,7 @@ export const AdminEmailTemplateUserCreated = ({
 };
 
 /**
- * Password Reset Email Template
+ * Password Reset Email Template.
  */
 export const PasswordResetTemplate = ({
   full_name = "User",

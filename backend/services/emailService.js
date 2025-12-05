@@ -317,7 +317,7 @@ export const sendInviteEmail = async ({
  * @param {string} params.full_name
  * @param {string} params.invoice_number
  * @param {string|number} params.total
- * @param {string} params.due_date
+ * @param {string} params.due_date.
  */
 export const sendInvoiceCreatedEmail = async ({ 
   email, 

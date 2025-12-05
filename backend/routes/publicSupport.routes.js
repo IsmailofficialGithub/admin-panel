@@ -7,7 +7,7 @@ import {
 
 const router = express.Router();
 
-// More lenient rate limiting for public endpoint (handled in controller by IP)
+// More lenient rate limiting for public endpoint (handled in controller by IP).
 const publicRateLimitMiddleware = createRateLimitMiddleware('public-support', 20); // 20 requests per minute
 
 /**
