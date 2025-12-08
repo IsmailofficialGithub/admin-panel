@@ -24,6 +24,81 @@ const CACHE_KEYS = {
   ROLE_PERMISSIONS: (role) => `permissions:role:${role}`,
 };
 
+/**
+ * Clear all permission-related caches
+ * This function clears all caches that might be affected by permission changes
+ * @param {Object} options - Options for cache clearing
+ * @param {string} options.role - Role name to clear role-specific cache
+ * @param {string} options.userId - User ID to clear user-specific cache
+ * @param {boolean} options.clearAllPermissions - Whether to clear all permissions cache
+ * @param {string} options.resource - Resource name to clear resource-specific cache
+ */
+const clearPermissionCaches = async (options = {}) => {
+  const { role, userId, clearAllPermissions = true, resource } = options;
+  const keysToDelete = [];
+  const patternsToDelete = [];
+
+  try {
+    // Always clear the main permissions cache when permissions are modified
+    if (clearAllPermissions) {
+      keysToDelete.push(CACHE_KEYS.ALL_PERMISSIONS);
+      
+      // Clear all paginated permission caches by pattern
+      // The getAllPermissions function uses cache keys like: permissions:all:all:1:50
+      // Clear all variations using pattern matching
+      patternsToDelete.push('permissions:*:*:*:*'); // Pattern for paginated queries
+      patternsToDelete.push('permissions:id:*'); // Pattern for individual permission caches
+      
+      // Also clear all resource-specific permission caches
+      if (resource) {
+        keysToDelete.push(CACHE_KEYS.PERMISSIONS_BY_RESOURCE(resource));
+        // Also clear paginated resource caches
+        patternsToDelete.push(`permissions:${resource}:*:*:*`);
+      } else {
+        // Clear all resource-specific caches
+        patternsToDelete.push('permissions:resource:*');
+      }
+      
+      console.log('🔄 Clearing all permission-related caches (including paginated queries)');
+    }
+
+    // Clear role-specific cache
+    if (role) {
+      keysToDelete.push(CACHE_KEYS.ROLE_PERMISSIONS(role));
+    }
+
+    // Clear user-specific cache
+    if (userId) {
+      keysToDelete.push(CACHE_KEYS.USER_PERMISSIONS(userId));
+    }
+
+    // Clear specific keys
+    if (keysToDelete.length > 0) {
+      await Promise.all(keysToDelete.map(key => cacheService.del(key)));
+      console.log(`✅ Cleared ${keysToDelete.length} specific permission cache(s):`, keysToDelete);
+    }
+
+    // Clear keys by pattern (for paginated and dynamic caches)
+    if (patternsToDelete.length > 0) {
+      const deletePromises = patternsToDelete.map(pattern => cacheService.delByPattern(pattern));
+      const deleteResults = await Promise.all(deletePromises);
+      const totalDeleted = deleteResults.reduce((sum, count) => sum + count, 0);
+      if (totalDeleted > 0) {
+        console.log(`✅ Cleared ${totalDeleted} permission cache(s) by pattern:`, patternsToDelete);
+      }
+    }
+
+    // If role permissions changed, note that user permission caches may be affected
+    // Users inherit permissions from roles, so role changes can affect user permission checks
+    if (role && clearAllPermissions) {
+      console.log(`⚠️ Role permissions changed for ${role}. Related caches cleared.`);
+    }
+  } catch (error) {
+    console.error('❌ Error clearing permission caches:', error);
+    // Don't throw - cache clearing failure shouldn't break the operation
+  }
+};
+
 // Export middleware for use in routes
 export { sanitizeInputMiddleware };
 export const rateLimitMiddleware = createRateLimitMiddleware('permissions', 100);
@@ -402,6 +477,119 @@ export const checkUserPermission = async (req, res) => {
 };
 
 /**
+ * Check if user has multiple permissions (optimized bulk check)
+ * @route   POST /api/permissions/check-bulk/:userId
+ * @access  Private (permissions.view)
+ * 
+ * Request body: { permissionNames: string[] }
+ * Response: { permissions: { [permissionName]: boolean } }
+ */
+export const checkUserPermissionsBulk = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { permissionNames } = req.body;
+
+    if (!isValidUUID(userId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid user ID'
+      });
+    }
+
+    if (!Array.isArray(permissionNames) || permissionNames.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'permissionNames must be a non-empty array'
+      });
+    }
+
+    // Validate and sanitize permission names
+    const validPermissionNames = permissionNames
+      .filter(name => name && typeof name === 'string')
+      .map(name => sanitizeString(name, 100))
+      .filter(name => name.length > 0);
+
+    if (validPermissionNames.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'No valid permission names provided'
+      });
+    }
+
+    // Limit to prevent abuse (max 50 permissions per request)
+    if (validPermissionNames.length > 50) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Maximum 50 permissions can be checked at once'
+      });
+    }
+
+    // Check if user is systemadmin (optimization: single query)
+    const profilePromise = supabase
+      .from('profiles')
+      .select('is_systemadmin')
+      .eq('user_id', userId)
+      .single();
+
+    const { data: profile, error: profileError } = await executeWithTimeout(profilePromise, 5000);
+
+    // If systemadmin, return all true (optimization)
+    if (!profileError && profile?.is_systemadmin === true) {
+      const permissions = {};
+      validPermissionNames.forEach(name => {
+        permissions[name] = true;
+      });
+      return res.json({
+        success: true,
+        data: sanitizeObject({
+          userId,
+          permissions
+        })
+      });
+    }
+
+    // Check all permissions in parallel (optimized with Promise.all)
+    const permissionChecks = validPermissionNames.map(permissionName =>
+      executeWithTimeout(
+        supabase.rpc('has_permission', {
+          p_user_id: userId,
+          p_permission_name: permissionName
+        }),
+        10000
+      )
+    );
+
+    const results = await Promise.all(permissionChecks);
+
+    // Build result object
+    const permissions = {};
+    results.forEach((result, index) => {
+      const permissionName = validPermissionNames[index];
+      if (result.error) {
+        console.error(`❌ Check permission error for ${permissionName}:`, result.error);
+        permissions[permissionName] = false;
+      } else {
+        permissions[permissionName] = result.data === true;
+      }
+    });
+
+    res.json({
+      success: true,
+      data: sanitizeObject({
+        userId,
+        permissions
+      })
+    });
+  } catch (err) {
+    return handleApiError(err, res, 'Failed to check permissions');
+  }
+};
+
+/**
  * Assign permissions to role
  * @route   POST /api/permissions/role/:role/assign
  * @access  Private (permissions.manage)
@@ -464,8 +652,8 @@ export const assignPermissionsToRole = async (req, res) => {
       return handleApiError(error, res, 'Failed to assign permissions to role');
     }
 
-    // Clear cache
-    await cacheService.del(CACHE_KEYS.ROLE_PERMISSIONS(role));
+    // Clear all related caches
+    await clearPermissionCaches({ role, clearAllPermissions: true });
 
     // Log activity (non-blocking)
     logActivity({
@@ -545,8 +733,8 @@ export const removePermissionsFromRole = async (req, res) => {
       return handleApiError(error, res, 'Failed to remove permissions from role');
     }
 
-    // Clear cache
-    await cacheService.del(CACHE_KEYS.ROLE_PERMISSIONS(role));
+    // Clear all related caches
+    await clearPermissionCaches({ role, clearAllPermissions: true });
 
     // Log activity (non-blocking)
     logActivity({
@@ -610,31 +798,50 @@ export const assignPermissionsToUser = async (req, res) => {
       });
     }
 
-    // Insert user permissions
-    const userPermissions = sanitizedIds.map(permissionId => ({
-      user_id: userId,
-      permission_id: permissionId,
-      granted: granted === true
-    }));
-
-    const { data, error } = await executeWithTimeout(
+    // Replace all user permissions: First delete all existing, then insert new ones
+    // This ensures that permissions not in the request are removed
+    
+    // Step 1: Delete all existing permissions for this user
+    const { error: deleteError } = await executeWithTimeout(
       supabase
         .from('user_permissions')
-        .upsert(userPermissions, {
-          onConflict: 'user_id,permission_id',
-          ignoreDuplicates: false
-        })
-        .select(),
+        .delete()
+        .eq('user_id', userId),
       10000
     );
 
-    if (error) {
-      console.error('❌ Assign permissions to user error:', error);
-      return handleApiError(error, res, 'Failed to assign permissions to user');
+    if (deleteError) {
+      console.error('❌ Delete existing user permissions error:', deleteError);
+      return handleApiError(deleteError, res, 'Failed to clear existing user permissions');
     }
 
-    // Clear cache
-    await cacheService.del(CACHE_KEYS.USER_PERMISSIONS(userId));
+    // Step 2: Insert new permissions (only if there are any to add)
+    let data = [];
+    if (sanitizedIds.length > 0) {
+      const userPermissions = sanitizedIds.map(permissionId => ({
+        user_id: userId,
+        permission_id: permissionId,
+        granted: granted === true
+      }));
+
+      const { data: insertData, error: insertError } = await executeWithTimeout(
+        supabase
+          .from('user_permissions')
+          .insert(userPermissions)
+          .select(),
+        10000
+      );
+
+      if (insertError) {
+        console.error('❌ Insert user permissions error:', insertError);
+        return handleApiError(insertError, res, 'Failed to assign permissions to user');
+      }
+
+      data = insertData || [];
+    }
+
+    // Clear all related caches
+    await clearPermissionCaches({ userId, clearAllPermissions: true });
 
     // Log activity (non-blocking)
     logActivity({
@@ -652,7 +859,9 @@ export const assignPermissionsToUser = async (req, res) => {
 
     res.json({
       success: true,
-      message: `Successfully assigned ${sanitizedIds.length} permission(s) to user`,
+      message: sanitizedIds.length > 0 
+        ? `Successfully updated user permissions: ${sanitizedIds.length} permission(s) assigned`
+        : `Successfully removed all permissions from user`,
       data: sanitizeArray(data || [])
     });
   } catch (err) {
@@ -714,8 +923,8 @@ export const removePermissionsFromUser = async (req, res) => {
       return handleApiError(error, res, 'Failed to remove permissions from user');
     }
 
-    // Clear cache
-    await cacheService.del(CACHE_KEYS.USER_PERMISSIONS(userId));
+    // Clear all related caches
+    await clearPermissionCaches({ userId, clearAllPermissions: true });
 
     // Log activity (non-blocking)
     logActivity({
@@ -780,8 +989,8 @@ export const setSystemAdmin = async (req, res) => {
       return handleApiError(error, res, 'Failed to update systemadmin status');
     }
 
-    // Clear user permissions cache
-    await cacheService.del(CACHE_KEYS.USER_PERMISSIONS(userId));
+    // Clear all related caches (systemadmin status affects permission checks)
+    await clearPermissionCaches({ userId, clearAllPermissions: true });
 
     // Log activity (non-blocking)
     logActivity({

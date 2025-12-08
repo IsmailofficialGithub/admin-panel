@@ -4,9 +4,12 @@
  * Features:
  * - File attachment support (up to 5 files, 10MB each)
  * - View tickets by email
+ * - Real-time chat messaging (Supabase realtime or polling fallback)
+ * - Chat popup for ticket conversations
+ * - Auto-fill user information from config
  * - Production-level error handling
  * - Modern, responsive design with system fonts
- * - Accessible and user-friendly. 
+ * - Accessible and user-friendly
  * 
  * Usage:
  * <script src="https://your-domain.com/support-widget.js"></script>
@@ -15,7 +18,14 @@
  *     apiUrl: 'https://your-api-domain.com/api/public/customer-support',
  *     apiKey: 'your-api-key-here', // Optional
  *     buttonText: 'Contact Support',
- *     position: 'bottom-right' // bottom-right, bottom-left, top-right, top-left
+ *     position: 'bottom-right', // bottom-right, bottom-left, top-right, top-left
+ *     // Optional: User information for auto-fill
+ *     userId: 'user-123', // Optional: User ID
+ *     userName: 'John Doe', // Optional: User name (auto-fills form, disabled if provided)
+ *     userEmail: 'user@example.com', // Optional: User email (auto-fills form and tickets search, disabled if provided)
+ *     // Optional: Supabase config for real-time messaging
+ *     supabaseUrl: 'https://your-project.supabase.co', // Optional: For realtime messaging
+ *     supabaseKey: 'your-anon-key' // Optional: For realtime messaging
  *   });
  * </script>
  */
@@ -29,16 +39,31 @@
       apiKey: null,
       buttonText: 'Contact Support',
       position: 'bottom-right',
-      zIndex: 9999
+      zIndex: 9999,
+      userId: null, // Optional: User ID
+      userName: null, // Optional: User name for auto-fill
+      userEmail: null // Optional: User email for auto-fill
     },
 
     isOpen: false,
-    currentView: 'form', // 'form' or 'tickets'
+    currentView: 'form', // 'form', 'tickets', or 'chat'
     selectedFiles: [],
     uploadedFileUrls: [], // Store uploaded file URLs
     uploadedFilePaths: [], // Store uploaded file paths for deletion
     uploadedFileMetadata: [], // Store file metadata (name, size, type)
     ticketId: null, // Store ticket ID from first file upload (UUID)
+    // Chat popup state
+    currentTicketId: null, // Currently open ticket for chat
+    currentTicket: null, // Ticket details
+    ticketMessages: [], // Array of messages for current ticket
+    realtimeSubscription: null, // Supabase subscription object
+    // Chat attachments state
+    chatSelectedFiles: [], // Files selected for chat message
+    chatUploadedAttachments: [], // Uploaded attachment data for current message
+    messagePollInterval: null, // Polling interval ID (fallback if no Supabase)
+    supabaseClient: null, // Supabase client instance
+    loadedTickets: [], // Store loaded tickets for click handling
+    currentTicketsEmail: null, // Email used to load current tickets list
 
     /**
      * Initialize the widget
@@ -56,10 +81,42 @@
         return;
       }
 
+      // Initialize Supabase client if URL and key provided
+      if (this.config.supabaseUrl && this.config.supabaseKey) {
+        this.initSupabase();
+      }
+
       this.createButton();
       this.createModal();
       this.injectStyles();
       console.log('✅ Support Widget initialized');
+    },
+
+    /**
+     * Initialize Supabase client for realtime
+     */
+    initSupabase: function() {
+      // Dynamically load Supabase JS from CDN
+      if (typeof window.supabase !== 'undefined') {
+        // Supabase already loaded
+        this.supabaseClient = window.supabase.createClient(this.config.supabaseUrl, this.config.supabaseKey);
+        console.log('✅ Supabase client initialized (already loaded)');
+        return;
+      }
+
+      // Load Supabase from CDN
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
+      script.onload = () => {
+        if (window.supabase) {
+          this.supabaseClient = window.supabase.createClient(this.config.supabaseUrl, this.config.supabaseKey);
+          console.log('✅ Supabase client initialized');
+        }
+      };
+      script.onerror = () => {
+        console.warn('⚠️ Failed to load Supabase. Realtime features will use polling fallback.');
+      };
+      document.head.appendChild(script);
     },
 
     /**
@@ -177,6 +234,35 @@
               </div>
               <div id="support-widget-tickets-list" class="support-widget-tickets-list"></div>
             </div>
+            <!-- Chat View -->
+            <div id="support-widget-chat-view" class="support-widget-view" style="display: none;">
+              <div class="support-widget-chat-header">
+                <button type="button" onclick="SupportWidget.closeChatPopup()" class="support-widget-back-btn">← Back</button>
+                <div class="support-widget-chat-title">
+                  <h3 id="support-widget-chat-ticket-number">Ticket #</h3>
+                  <span id="support-widget-chat-status" class="support-widget-ticket-status"></span>
+                </div>
+              </div>
+              <div id="support-widget-chat-subject" class="support-widget-chat-subject"></div>
+              <div id="support-widget-chat-messages" class="support-widget-chat-messages"></div>
+              <div class="support-widget-chat-input-area">
+                <div id="support-widget-chat-error" class="support-widget-message"></div>
+                <div id="support-widget-chat-file-list" class="support-widget-chat-file-list" style="display: none;"></div>
+                <textarea id="support-widget-chat-input" placeholder="Type your message..." rows="3" maxlength="5000"></textarea>
+                <div class="support-widget-chat-input-footer">
+                  <div class="support-widget-chat-input-actions">
+                    <input type="file" id="support-widget-chat-files" multiple accept="image/*,.svg,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv" style="display: none;">
+                    <button type="button" class="support-widget-chat-attach-btn" onclick="document.getElementById('support-widget-chat-files').click()" title="Attach files">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                      </svg>
+                    </button>
+                    <span id="support-widget-chat-char-count" class="support-widget-char-count">0/5000</span>
+                  </div>
+                  <button type="button" id="support-widget-chat-send" onclick="SupportWidget.sendChatMessage()">Send</button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       `;
@@ -215,6 +301,30 @@
       // Initialize character counts
       this.updateCharCount('subject');
       this.updateCharCount('message');
+
+      // Handle chat input (add listeners after a short delay to ensure DOM is ready)
+      setTimeout(() => {
+        const chatInput = document.getElementById('support-widget-chat-input');
+        if (chatInput) {
+          chatInput.addEventListener('input', () => {
+            this.updateCharCount('chat-input');
+          });
+          chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              this.sendChatMessage();
+            }
+          });
+        }
+        
+        // Handle chat file selection
+        const chatFileInput = document.getElementById('support-widget-chat-files');
+        if (chatFileInput) {
+          chatFileInput.addEventListener('change', (e) => {
+            this.handleChatFileSelection(e.target.files);
+          });
+        }
+      }, 100);
 
       // Handle file selection
       const fileInput = document.getElementById('support-files');
@@ -429,13 +539,12 @@
         },
         body: JSON.stringify({ file_path: filePath })
       })
-      .then(response => {
+      .then(async response => {
+        const result = await this.safeParseResponse(response);
         if (!response.ok) {
-          return response.json().then(err => {
-            throw new Error(err.error?.message || 'Failed to delete file');
-          });
+          throw new Error(result.error?.message || result.message || 'Failed to delete file');
         }
-        return response.json();
+        return result;
       })
       .then(result => {
         if (result.success) {
@@ -530,18 +639,31 @@
       const modal = document.getElementById('support-widget-modal');
       modal.classList.remove('support-widget-open');
       document.body.style.overflow = '';
+      
+      // Cleanup chat state
+      this.closeChatPopup();
+      
+      // Reset form state
       this.selectedFiles = [];
       this.uploadedFileUrls = [];
       this.uploadedFilePaths = [];
       this.uploadedFileMetadata = [];
       this.ticketId = null;
       const form = document.getElementById('support-widget-form');
-      form.reset();
-      this.clearFieldErrors();
-      document.getElementById('support-widget-file-list').innerHTML = '';
+      if (form) {
+        form.reset();
+        this.clearFieldErrors();
+      }
+      const fileList = document.getElementById('support-widget-file-list');
+      if (fileList) fileList.innerHTML = '';
       const messageDiv = document.getElementById('support-widget-message');
-      messageDiv.innerHTML = '';
-      messageDiv.className = 'support-widget-message';
+      if (messageDiv) {
+        messageDiv.innerHTML = '';
+        messageDiv.className = 'support-widget-message';
+      }
+      
+      // Reset to form view
+      this.showFormView();
     },
 
     /**
@@ -551,7 +673,109 @@
       this.currentView = 'form';
       document.getElementById('support-widget-form-view').style.display = 'block';
       document.getElementById('support-widget-tickets-view').style.display = 'none';
+      document.getElementById('support-widget-chat-view').style.display = 'none';
       document.getElementById('support-widget-title').textContent = 'Contact Support';
+      
+      // Auto-fill user info if provided in config
+      this.autoFillUserInfo();
+    },
+
+    /**
+     * Auto-fill user information from config
+     */
+    autoFillUserInfo: function() {
+      const nameField = document.getElementById('support-name');
+      const emailField = document.getElementById('support-email');
+      const ticketsEmailField = document.getElementById('support-tickets-email');
+
+      if (this.config.userName && nameField) {
+        nameField.value = this.config.userName;
+        nameField.disabled = true; // Prevent editing if auto-filled from config
+      }
+
+      if (this.config.userEmail && emailField) {
+        emailField.value = this.config.userEmail;
+        emailField.disabled = true; // Prevent editing if auto-filled from config
+      }
+
+      if (this.config.userEmail && ticketsEmailField) {
+        ticketsEmailField.value = this.config.userEmail;
+        // Optionally auto-load tickets if email is provided
+        // Uncomment the next line if you want tickets to load automatically
+        // this.loadTickets();
+      }
+    },
+
+    /**
+     * Get user email from config or input field
+     */
+    getUserEmail: function() {
+      // First try config (provided during init)
+      if (this.config.userEmail) {
+        return this.config.userEmail;
+      }
+      
+      // Try tickets email input
+      const ticketsEmailField = document.getElementById('support-tickets-email');
+      if (ticketsEmailField && ticketsEmailField.value.trim()) {
+        return ticketsEmailField.value.trim();
+      }
+      
+      // Try form email input
+      const formEmailField = document.getElementById('support-email');
+      if (formEmailField && formEmailField.value.trim()) {
+        return formEmailField.value.trim();
+      }
+      
+      return null;
+    },
+
+    /**
+     * Get user name from config or input field
+     */
+    getUserName: function() {
+      // First try config (provided during init)
+      if (this.config.userName) {
+        return this.config.userName;
+      }
+      
+      // Try form name input
+      const nameField = document.getElementById('support-name');
+      if (nameField && nameField.value.trim()) {
+        return nameField.value.trim();
+      }
+      
+      return null;
+    },
+
+    /**
+     * Safely parse response (handles both JSON and plain text)
+     */
+    safeParseResponse: async function(response) {
+      const contentType = response.headers.get('content-type') || '';
+      
+      try {
+        if (contentType.includes('application/json')) {
+          return await response.json();
+        } else {
+          const text = await response.text();
+          // Try to parse as JSON even if content-type is wrong
+          try {
+            return JSON.parse(text);
+          } catch {
+            // Return as plain text error
+            return {
+              success: false,
+              error: { message: text || `HTTP ${response.status}: ${response.statusText}` }
+            };
+          }
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: { message: `Failed to parse response: ${error.message}` }
+        };
+      }
     },
 
     /**
@@ -561,14 +785,30 @@
       this.currentView = 'tickets';
       document.getElementById('support-widget-form-view').style.display = 'none';
       document.getElementById('support-widget-tickets-view').style.display = 'block';
+      document.getElementById('support-widget-chat-view').style.display = 'none';
       document.getElementById('support-widget-title').textContent = 'My Support Tickets';
+      
+      // Auto-fill email if provided in config
+      const ticketsEmailField = document.getElementById('support-tickets-email');
+      if (this.config.userEmail && ticketsEmailField) {
+        ticketsEmailField.value = this.config.userEmail;
+        // Auto-load tickets if email is provided
+        if (this.config.userEmail) {
+          this.loadTickets();
+        }
+      }
     },
 
     /**
      * Load tickets by email
      */
     loadTickets: function() {
-      const email = document.getElementById('support-tickets-email').value.trim();
+      // Try to get email from input field first, then fallback to config
+      let email = document.getElementById('support-tickets-email').value.trim();
+      if (!email) {
+        email = this.config.userEmail || '';
+      }
+      
       if (!email || !this.isValidEmail(email)) {
         this.showError('Please enter a valid email address', 'support-widget-tickets-list');
         return;
@@ -578,16 +818,28 @@
       ticketsList.innerHTML = '<div class="support-widget-loading">Loading tickets...</div>';
 
       fetch(`${this.config.apiUrl}/tickets?email=${encodeURIComponent(email)}`)
-        .then(response => {
+        .then(async response => {
           if (!response.ok) {
-            return response.json().then(err => {
-              throw new Error(err.error?.message || 'Failed to load tickets');
-            });
+            // Try to parse as JSON, fallback to text
+            let errorData;
+            const contentType = response.headers.get('content-type');
+            try {
+              if (contentType && contentType.includes('application/json')) {
+                errorData = await response.json();
+              } else {
+                const text = await response.text();
+                errorData = { error: { message: text || 'Failed to load tickets' } };
+              }
+            } catch (parseError) {
+              errorData = { error: { message: `HTTP ${response.status}: ${response.statusText}` } };
+            }
+            throw new Error(errorData.error?.message || errorData.message || 'Failed to load tickets');
           }
           return response.json();
         })
         .then(result => {
           if (result.success) {
+            this.currentTicketsEmail = email; // Store email for later use
             this.displayTickets(result.data.tickets || []);
           } else {
             throw new Error(result.error?.message || 'Failed to load tickets');
@@ -595,7 +847,7 @@
         })
         .catch(error => {
           console.error('Support Widget Error:', error);
-          ticketsList.innerHTML = `<div class="support-widget-error-message">${error.message || 'Failed to load tickets. Please try again.'}</div>`;
+          ticketsList.innerHTML = `<div class="support-widget-error-message">${this.escapeHtml(error.message || 'Failed to load tickets. Please try again.')}</div>`;
         });
     },
 
@@ -610,8 +862,8 @@
         return;
       }
 
-      ticketsList.innerHTML = tickets.map(ticket => `
-        <div class="support-widget-ticket-item">
+      ticketsList.innerHTML = tickets.map((ticket, index) => `
+        <div class="support-widget-ticket-item" data-ticket-index="${index}">
           <div class="support-widget-ticket-header">
             <span class="support-widget-ticket-number">${ticket.ticket_number}</span>
             <span class="support-widget-ticket-status support-widget-status-${ticket.status}">${ticket.status}</span>
@@ -624,6 +876,582 @@
           </div>
         </div>
       `).join('');
+      
+      // Store tickets and add click handlers
+      this.loadedTickets = tickets;
+      ticketsList.querySelectorAll('.support-widget-ticket-item').forEach((item, index) => {
+        item.addEventListener('click', () => {
+          this.openChatPopup(tickets[index]);
+        });
+      });
+    },
+
+    /**
+     * Open chat popup for a ticket
+     */
+    openChatPopup: function(ticket) {
+      this.currentTicket = ticket;
+      this.currentTicketId = ticket.id;
+      this.currentView = 'chat';
+      this.ticketMessages = [];
+
+      // Hide other views and show chat view
+      document.getElementById('support-widget-form-view').style.display = 'none';
+      document.getElementById('support-widget-tickets-view').style.display = 'none';
+      document.getElementById('support-widget-chat-view').style.display = 'block';
+      document.getElementById('support-widget-title').textContent = `Ticket: ${ticket.ticket_number}`;
+
+      // Render ticket details in chat header
+      this.renderChatHeader();
+
+      // Fetch messages
+      const email = ticket.user_email || this.currentTicketsEmail || this.getUserEmail();
+      this.fetchTicketMessages(ticket.id, email);
+
+      // Setup realtime or polling
+      if (this.supabaseClient) {
+        this.setupRealtimeSubscription(ticket.id);
+      } else {
+        this.setupMessagePolling(ticket.id);
+      }
+
+      // Focus on input
+      setTimeout(() => {
+        const input = document.getElementById('support-widget-chat-input');
+        if (input) input.focus();
+      }, 100);
+    },
+
+    /**
+     * Close chat popup and cleanup
+     */
+    closeChatPopup: function() {
+      // Cleanup realtime subscription
+      if (this.realtimeSubscription && this.supabaseClient) {
+        this.supabaseClient.removeChannel(this.realtimeSubscription).catch(() => {});
+        this.realtimeSubscription = null;
+      }
+
+      // Cleanup polling
+      if (this.messagePollInterval) {
+        clearInterval(this.messagePollInterval);
+        this.messagePollInterval = null;
+      }
+
+      // Reset state
+      this.currentTicketId = null;
+      this.currentTicket = null;
+      this.ticketMessages = [];
+      this.chatSelectedFiles = [];
+      this.chatUploadedAttachments = [];
+
+      // Hide chat view and show tickets view
+      document.getElementById('support-widget-chat-view').style.display = 'none';
+      document.getElementById('support-widget-tickets-view').style.display = 'block';
+      this.currentView = 'tickets';
+      document.getElementById('support-widget-title').textContent = 'My Support Tickets';
+    },
+
+    /**
+     * Handle chat file selection
+     */
+    handleChatFileSelection: function(files) {
+      if (!files || files.length === 0) return;
+
+      // Limit to 5 files total
+      const maxFiles = 5;
+      const currentCount = this.chatSelectedFiles.length;
+      const remainingSlots = maxFiles - currentCount;
+
+      if (remainingSlots <= 0) {
+        this.showChatError('Maximum 5 files allowed');
+        return;
+      }
+
+      // Add files (respecting the limit)
+      const filesToAdd = Array.from(files).slice(0, remainingSlots);
+      
+      filesToAdd.forEach(file => {
+        // Validate file size (10MB max)
+        const maxSize = 10 * 1024 * 1024; // 10MB
+        if (file.size > maxSize) {
+          this.showChatError(`File "${file.name}" exceeds 10MB limit`);
+          return;
+        }
+
+        // Validate file type
+        const allowedTypes = ['image/', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument', 'text/', 'application/vnd.ms-excel'];
+        const allowedExtensions = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.csv', '.svg'];
+        const isValidType = allowedTypes.some(type => file.type.startsWith(type)) || 
+                          allowedExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
+        
+        if (!isValidType) {
+          this.showChatError(`File type not allowed: "${file.name}". Allowed: images, SVG, PDF, Word, Excel,png ,Webp , jpg,jpeg, text files. and other file types.`);
+          return;
+        }
+
+        this.chatSelectedFiles.push(file);
+      });
+
+      this.renderChatFileList();
+      
+      // Reset file input
+      const fileInput = document.getElementById('support-widget-chat-files');
+      if (fileInput) fileInput.value = '';
+    },
+
+    /**
+     * Render chat file list
+     */
+    renderChatFileList: function() {
+      const fileListContainer = document.getElementById('support-widget-chat-file-list');
+      if (!fileListContainer) return;
+
+      if (this.chatSelectedFiles.length === 0 && this.chatUploadedAttachments.length === 0) {
+        fileListContainer.style.display = 'none';
+        return;
+      }
+
+      fileListContainer.style.display = 'block';
+      fileListContainer.innerHTML = '';
+
+      // Show selected files (not yet uploaded)
+      this.chatSelectedFiles.forEach((file, index) => {
+        const fileItem = document.createElement('div');
+        fileItem.className = 'support-widget-chat-file-item';
+        fileItem.innerHTML = `
+          <span class="support-widget-chat-file-name">${this.escapeHtml(file.name)}</span>
+          <span class="support-widget-chat-file-size">${this.formatFileSize(file.size)}</span>
+          <button type="button" class="support-widget-chat-file-remove" onclick="SupportWidget.removeChatFile(${index})" title="Remove">&times;</button>
+        `;
+        fileListContainer.appendChild(fileItem);
+      });
+
+      // Show uploaded attachments
+      this.chatUploadedAttachments.forEach((attachment, index) => {
+        const fileItem = document.createElement('div');
+        fileItem.className = 'support-widget-chat-file-item support-widget-chat-file-uploaded';
+        fileItem.innerHTML = `
+          <span class="support-widget-chat-file-name">${this.escapeHtml(attachment.file_name)}</span>
+          <span class="support-widget-chat-file-size">${this.formatFileSize(attachment.file_size || 0)}</span>
+          <span class="support-widget-chat-file-status">✓</span>
+        `;
+        fileListContainer.appendChild(fileItem);
+      });
+    },
+
+    /**
+     * Remove chat file
+     */
+    removeChatFile: function(index) {
+      if (index >= 0 && index < this.chatSelectedFiles.length) {
+        this.chatSelectedFiles.splice(index, 1);
+        this.renderChatFileList();
+      }
+    },
+
+    /**
+     * Show chat error
+     */
+    showChatError: function(message) {
+      const errorDiv = document.getElementById('support-widget-chat-error');
+      if (errorDiv) {
+        errorDiv.className = 'support-widget-message support-widget-error';
+        errorDiv.innerHTML = `<strong>✗ Error:</strong> ${this.escapeHtml(message)}`;
+        setTimeout(() => {
+          errorDiv.innerHTML = '';
+          errorDiv.className = 'support-widget-message';
+        }, 5000);
+      }
+    },
+
+    /**
+     * Upload chat file
+     */
+    uploadChatFile: function(file, ticketId) {
+      return new Promise((resolve, reject) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        if (ticketId) formData.append('ticket_id', ticketId);
+
+        const xhr = new XMLHttpRequest();
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status === 200) {
+            try {
+              const response = JSON.parse(xhr.responseText);
+              if (response.success && response.data) {
+                resolve({
+                  file_url: response.data.file_url_public || response.data.file_url,
+                  file_path: response.data.file_path,
+                  file_name: response.data.file_name || file.name,
+                  file_size: response.data.file_size || file.size,
+                  file_type: response.data.file_type || file.type
+                });
+              } else {
+                // Extract error message from response
+                const errorMsg = response.error?.message || response.message || 'File upload failed. Please try again.';
+                reject(new Error(errorMsg));
+              }
+            } catch (error) {
+              reject(new Error('Failed to process upload response. Please try again.'));
+            }
+          } else {
+            // Handle error response
+            let errorMessage = 'File upload failed. Please try again.';
+            try {
+              const errorResponse = JSON.parse(xhr.responseText);
+              errorMessage = errorResponse.error?.message || errorResponse.message || errorMessage;
+              
+              // Handle specific error codes
+              if (errorResponse.error?.code === 'FILE_TOO_LARGE') {
+                errorMessage = 'File is too large. Maximum size is 10MB. Please choose a smaller file.';
+              } else if (errorResponse.error?.code === 'INVALID_FILE_TYPE') {
+                errorMessage = errorResponse.error.message || 'This file type is not allowed. Allowed: images (including SVG), PDF, Word, Excel, text files.';
+              } else if (errorResponse.error?.code === 'TOO_MANY_FILES') {
+                errorMessage = 'Maximum 5 files allowed per upload.';
+              }
+            } catch (e) {
+              // If parsing fails, use status-based messages
+              if (xhr.status === 400) {
+                errorMessage = 'Invalid file. Please check the file type and size.';
+              } else if (xhr.status === 413) {
+                errorMessage = 'File is too large. Maximum size is 10MB.';
+              } else if (xhr.status >= 500) {
+                errorMessage = 'Server error. Please try again later.';
+              }
+            }
+            reject(new Error(errorMessage));
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          reject(new Error('Network error during upload'));
+        });
+
+        xhr.open('POST', this.config.apiUrl + '/upload');
+        xhr.send(formData);
+      });
+    },
+
+    /**
+     * Render chat header with ticket info
+     */
+    renderChatHeader: function() {
+      if (!this.currentTicket) return;
+
+      document.getElementById('support-widget-chat-ticket-number').textContent = `Ticket: ${this.currentTicket.ticket_number}`;
+      document.getElementById('support-widget-chat-status').textContent = this.currentTicket.status;
+      document.getElementById('support-widget-chat-status').className = `support-widget-ticket-status support-widget-status-${this.currentTicket.status}`;
+      document.getElementById('support-widget-chat-subject').textContent = this.currentTicket.subject || '';
+    },
+
+    /**
+     * Fetch ticket messages
+     */
+    fetchTicketMessages: function(ticketId, email) {
+      const messagesContainer = document.getElementById('support-widget-chat-messages');
+      messagesContainer.innerHTML = '<div class="support-widget-loading">Loading messages...</div>';
+
+      fetch(`${this.config.apiUrl}/tickets?email=${encodeURIComponent(email)}&ticket_number=${this.currentTicket.ticket_number}`)
+        .then(async response => {
+          const result = await this.safeParseResponse(response);
+          if (!response.ok) {
+            throw new Error(result.error?.message || result.message || 'Failed to load messages');
+          }
+          return result;
+        })
+        .then(result => {
+          if (result.success && result.data.ticket && result.data.ticket.messages) {
+            this.ticketMessages = result.data.ticket.messages || [];
+            this.renderMessages();
+          } else {
+            messagesContainer.innerHTML = '<div class="support-widget-empty">No messages found.</div>';
+          }
+        })
+        .catch(error => {
+          console.error('Support Widget Error:', error);
+          messagesContainer.innerHTML = `<div class="support-widget-error-message">${error.message || 'Failed to load messages. Please try again.'}</div>`;
+        });
+    },
+
+    /**
+     * Render messages in chat
+     */
+    renderMessages: function() {
+      const messagesContainer = document.getElementById('support-widget-chat-messages');
+      
+      if (this.ticketMessages.length === 0) {
+        messagesContainer.innerHTML = '<div class="support-widget-empty">No messages yet. Start the conversation!</div>';
+        return;
+      }
+
+      const email = this.getUserEmail();
+      
+      messagesContainer.innerHTML = this.ticketMessages.map(msg => {
+        const isUser = msg.message_type === 'user' || msg.sender_email === email;
+        const senderName = msg.sender_name || (isUser ? 'You' : 'Support Team');
+        const messageDate = new Date(msg.created_at);
+        const attachments = msg.attachments || [];
+        
+        const attachmentsHtml = attachments.length > 0 ? `
+          <div class="support-widget-chat-attachments">
+            ${attachments.map(att => {
+              const isImage = att.file_type && att.file_type.startsWith('image/');
+              const fileName = this.escapeHtml(att.file_name);
+              const fileSize = this.formatFileSize(att.file_size || 0);
+              
+              if (isImage) {
+                return `
+                  <div class="support-widget-chat-attachment support-widget-chat-attachment-image">
+                    <a href="${this.escapeHtml(att.file_url)}" target="_blank" rel="noopener noreferrer">
+                      <img src="${this.escapeHtml(att.file_url)}" alt="${fileName}" loading="lazy">
+                      <span class="support-widget-chat-attachment-name">${fileName}</span>
+                      <span class="support-widget-chat-attachment-size">${fileSize}</span>
+                    </a>
+                  </div>
+                `;
+              } else {
+                return `
+                  <div class="support-widget-chat-attachment">
+                    <a href="${this.escapeHtml(att.file_url)}" target="_blank" rel="noopener noreferrer" class="support-widget-chat-attachment-link">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                      </svg>
+                      <span class="support-widget-chat-attachment-name">${fileName}</span>
+                      <span class="support-widget-chat-attachment-size">${fileSize}</span>
+                    </a>
+                  </div>
+                `;
+              }
+            }).join('')}
+          </div>
+        ` : '';
+        
+        return `
+          <div class="support-widget-chat-message ${isUser ? 'support-widget-message-user' : 'support-widget-message-admin'}">
+            <div class="support-widget-chat-message-header">
+              <span class="support-widget-chat-message-sender">${this.escapeHtml(senderName)}</span>
+              <span class="support-widget-chat-message-time">${messageDate.toLocaleString()}</span>
+            </div>
+            ${msg.message && msg.message !== '(File attachment)' ? `<div class="support-widget-chat-message-text">${this.escapeHtml(msg.message).replace(/\n/g, '<br>')}</div>` : ''}
+            ${attachmentsHtml}
+          </div>
+        `;
+      }).join('');
+
+      // Scroll to bottom
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    },
+
+    /**
+     * Send chat message
+     */
+    sendChatMessage: function() {
+      const input = document.getElementById('support-widget-chat-input');
+      const message = input.value.trim();
+      const errorDiv = document.getElementById('support-widget-chat-error');
+      const hasAttachments = this.chatSelectedFiles.length > 0 || this.chatUploadedAttachments.length > 0;
+      
+      // Require either message or attachments
+      if (!message && !hasAttachments) {
+        errorDiv.className = 'support-widget-message support-widget-error';
+        errorDiv.innerHTML = '<strong>✗ Error:</strong> Please enter a message or attach a file';
+        return;
+      }
+
+      if (message && message.length < 3) {
+        errorDiv.className = 'support-widget-message support-widget-error';
+        errorDiv.innerHTML = '<strong>✗ Error:</strong> Message must be at least 3 characters';
+        return;
+      }
+
+      if (!this.currentTicketId) {
+        errorDiv.className = 'support-widget-message support-widget-error';
+        errorDiv.innerHTML = '<strong>✗ Error:</strong> No ticket selected';
+        return;
+      }
+
+      const email = this.getUserEmail();
+      if (!email) {
+        errorDiv.className = 'support-widget-message support-widget-error';
+        errorDiv.innerHTML = '<strong>✗ Error:</strong> Email is required';
+        return;
+      }
+
+      // Disable input and show loading
+      const sendBtn = document.getElementById('support-widget-chat-send');
+      sendBtn.disabled = true;
+      sendBtn.textContent = hasAttachments ? 'Uploading & Sending...' : 'Sending...';
+      errorDiv.innerHTML = '';
+      errorDiv.className = 'support-widget-message';
+
+      // Upload files first if any are selected
+      const uploadPromises = this.chatSelectedFiles.map(file => 
+        this.uploadChatFile(file, this.currentTicketId)
+      );
+
+      Promise.all(uploadPromises)
+        .then(uploadedFiles => {
+          // Add uploaded files to attachments array
+          this.chatUploadedAttachments.push(...uploadedFiles);
+          
+          // Prepare message data
+          const messageData = {
+            email: email,
+            message: message || '(File attachment)',
+            attachments: this.chatUploadedAttachments.map(att => ({
+              file_url: att.file_url,
+              file_path: att.file_path,
+              file_name: att.file_name,
+              file_size: att.file_size,
+              file_type: att.file_type
+            }))
+          };
+
+          // Send message with attachments
+          return fetch(`${this.config.apiUrl}/tickets/${this.currentTicketId}/messages`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(messageData)
+          });
+        })
+        .then(async response => {
+          const result = await this.safeParseResponse(response);
+          if (!response.ok) {
+            throw new Error(result.error?.message || result.message || 'Failed to send message');
+          }
+          return result;
+        })
+        .then(result => {
+          if (result.success && result.data.message) {
+            // Add message to local array
+            this.ticketMessages.push(result.data.message);
+            this.renderMessages();
+            input.value = '';
+            this.updateCharCount('chat-input');
+            
+            // Clear attachments
+            this.chatSelectedFiles = [];
+            this.chatUploadedAttachments = [];
+            this.renderChatFileList();
+          } else {
+            throw new Error(result.error?.message || 'Failed to send message');
+          }
+        })
+        .catch(error => {
+          console.error('Support Widget Error:', error);
+          errorDiv.className = 'support-widget-message support-widget-error';
+          
+          // Provide user-friendly error message
+          let errorMessage = error.message || 'Failed to send message. Please try again.';
+          
+          // Clean up error message
+          if (errorMessage.includes('file type') || errorMessage.includes('file size') || errorMessage.includes('FILE_TOO_LARGE') || errorMessage.includes('INVALID_FILE_TYPE')) {
+            errorMessage = errorMessage.replace(/^Error: /, '').replace(/^✗ Error: /, '');
+          }
+          
+          errorDiv.innerHTML = `<strong>✗ Error:</strong> ${this.escapeHtml(errorMessage)}`;
+          
+          // If upload failed, remove failed files from UI
+          if (error.message && (error.message.includes('upload') || error.message.includes('file'))) {
+            this.chatSelectedFiles = [];
+            this.renderChatFileList();
+          }
+        })
+        .finally(() => {
+          sendBtn.disabled = false;
+          sendBtn.textContent = 'Send';
+          input.focus();
+        });
+    },
+
+    /**
+     * Setup Supabase realtime subscription
+     */
+    setupRealtimeSubscription: function(ticketId) {
+      if (!this.supabaseClient) return;
+
+      try {
+        // Remove existing subscription if any
+        if (this.realtimeSubscription) {
+          this.supabaseClient.removeChannel(this.realtimeSubscription).catch(() => {});
+        }
+
+        const channel = this.supabaseClient
+          .channel(`ticket-${ticketId}-${Date.now()}`)
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'support_messages',
+              filter: `ticket_id=eq.${ticketId}`
+            },
+            (payload) => {
+              // Check if message already exists
+              const exists = this.ticketMessages.some(msg => msg.id === payload.new.id);
+              if (!exists) {
+                this.ticketMessages.push(payload.new);
+                this.renderMessages();
+              }
+            }
+          )
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              console.log('✅ Realtime subscription active');
+            } else if (status === 'CHANNEL_ERROR') {
+              console.warn('⚠️ Realtime subscription error, falling back to polling');
+              this.setupMessagePolling(ticketId);
+            }
+          });
+
+        this.realtimeSubscription = channel;
+      } catch (error) {
+        console.warn('⚠️ Failed to setup realtime subscription:', error);
+        this.setupMessagePolling(ticketId);
+      }
+    },
+
+    /**
+     * Setup message polling as fallback
+     */
+    setupMessagePolling: function(ticketId) {
+      // Clear existing polling
+      if (this.messagePollInterval) {
+        clearInterval(this.messagePollInterval);
+      }
+
+      const email = this.getUserEmail();
+      if (!email) return;
+
+      let lastMessageCount = this.ticketMessages.length;
+
+      this.messagePollInterval = setInterval(() => {
+        fetch(`${this.config.apiUrl}/tickets?email=${encodeURIComponent(email)}&ticket_number=${this.currentTicket.ticket_number}`)
+          .then(async response => {
+            if (!response.ok) return null;
+            return await this.safeParseResponse(response);
+          })
+          .then(result => {
+            if (result.success && result.data.ticket && result.data.ticket.messages) {
+              const messages = result.data.ticket.messages || [];
+              
+              // Check if new messages arrived
+              if (messages.length > lastMessageCount) {
+                this.ticketMessages = messages;
+                this.renderMessages();
+                lastMessageCount = messages.length;
+              }
+            }
+          })
+          .catch(error => {
+            // Silently fail polling errors
+            console.warn('Polling error:', error);
+          });
+      }, 3000); // Poll every 3 seconds
     },
 
     /**
@@ -806,16 +1634,24 @@
      * Update character count for field
      */
     updateCharCount: function(fieldName) {
-      const field = document.getElementById(`support-${fieldName}`);
-      const countElement = document.getElementById(`support-${fieldName}-count`);
+      let field, countElement, maxLength;
+      
+      if (fieldName === 'chat-input') {
+        field = document.getElementById('support-widget-chat-input');
+        countElement = document.getElementById('support-widget-chat-char-count');
+        maxLength = 5000;
+      } else {
+        field = document.getElementById(`support-${fieldName}`);
+        countElement = document.getElementById(`support-${fieldName}-count`);
+        maxLength = fieldName === 'subject' ? 255 : 5000;
+      }
       
       if (field && countElement) {
         const length = field.value.length;
-        const maxLength = fieldName === 'subject' ? 255 : 5000;
-        countElement.textContent = length;
+        countElement.textContent = `${length}/${maxLength}`;
         
         // Change color if approaching limit
-        const charCountDiv = countElement.parentElement;
+        const charCountDiv = countElement;
         if (length > maxLength * 0.9) {
           charCountDiv.style.color = '#dc3545';
         } else if (length > maxLength * 0.75) {
@@ -927,13 +1763,12 @@
         },
         body: JSON.stringify(data)
       })
-      .then(response => {
+      .then(async response => {
+        const result = await this.safeParseResponse(response);
         if (!response.ok) {
-          return response.json().then(err => {
-            throw new Error(err.error?.message || 'Failed to submit ticket');
-          });
+          throw new Error(result.error?.message || result.message || 'Failed to submit ticket');
         }
-        return response.json();
+        return result;
       })
       .then(result => {
         if (result.success) {
@@ -985,22 +1820,23 @@
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
           -webkit-font-smoothing: antialiased;
           -moz-osx-font-smoothing: grayscale;
+          text-rendering: optimizeLegibility;
         }
 
-        /* Widget Button */
+        /* Widget Button - Enhanced Professional Design */
         .support-widget-btn {
           position: fixed;
           z-index: ${this.config.zIndex};
           display: flex;
           align-items: center;
           gap: 10px;
-          padding: 14px 22px;
+          padding: 16px 26px;
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           color: white;
           border: none;
           border-radius: 50px;
           cursor: pointer;
-          box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+          box-shadow: 0 6px 20px rgba(102, 126, 234, 0.35), 0 2px 8px rgba(0, 0, 0, 0.15);
           font-size: 15px;
           font-weight: 600;
           letter-spacing: 0.3px;
@@ -1008,11 +1844,12 @@
           font-family: inherit;
         }
         .support-widget-btn:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+          transform: translateY(-3px) scale(1.02);
+          box-shadow: 0 10px 30px rgba(102, 126, 234, 0.5), 0 4px 12px rgba(0, 0, 0, 0.2);
         }
         .support-widget-btn:active {
-          transform: translateY(0);
+          transform: translateY(-1px) scale(0.98);
+          transition: all 0.1s;
         }
         .support-widget-btn svg {
           width: 20px;
@@ -1047,104 +1884,148 @@
           left: 0;
           width: 100%;
           height: 100%;
-          background: rgba(0, 0, 0, 0.6);
-          backdrop-filter: blur(6px);
-          -webkit-backdrop-filter: blur(6px);
+          background: rgba(0, 0, 0, 0.55);
+          backdrop-filter: blur(8px) saturate(180%);
+          -webkit-backdrop-filter: blur(8px) saturate(180%);
+          animation: fadeIn 0.2s ease-out;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
         .support-widget-content {
           position: relative;
           background: white;
-          border-radius: 20px;
+          border-radius: 24px;
           width: 100%;
           max-width: 600px;
           max-height: 90vh;
           overflow: hidden;
-          box-shadow: 0 25px 70px rgba(0, 0, 0, 0.4);
+          box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
           z-index: 1;
           display: flex;
           flex-direction: column;
+          animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        @keyframes slideUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px) scale(0.95);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
         }
         .support-widget-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          padding: 24px 28px;
-          border-bottom: 1px solid #e9ecef;
+          padding: 26px 32px;
+          border-bottom: 1px solid rgba(233, 236, 239, 0.8);
           flex-shrink: 0;
+          background: linear-gradient(to bottom, rgba(255, 255, 255, 1), rgba(248, 249, 250, 0.5));
         }
         .support-widget-header h2 {
           margin: 0;
-          font-size: 26px;
+          font-size: 27px;
           font-weight: 700;
           color: #1a1a1a;
-          letter-spacing: -0.5px;
+          letter-spacing: -0.6px;
           font-family: inherit;
+          line-height: 1.2;
         }
         .support-widget-close {
           background: none;
           border: none;
-          font-size: 32px;
+          font-size: 28px;
           color: #6c757d;
           cursor: pointer;
           padding: 0;
-          width: 36px;
-          height: 36px;
+          width: 38px;
+          height: 38px;
           line-height: 1;
           display: flex;
           align-items: center;
           justify-content: center;
-          border-radius: 8px;
-          transition: all 0.2s;
+          border-radius: 10px;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
           font-family: inherit;
         }
         .support-widget-close:hover {
           color: #1a1a1a;
-          background: #f8f9fa;
+          background: rgba(248, 249, 250, 0.9);
+          transform: rotate(90deg);
         }
         .support-widget-body {
           overflow-y: auto;
           flex: 1;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(108, 117, 125, 0.3) transparent;
+        }
+        .support-widget-body::-webkit-scrollbar {
+          width: 8px;
+        }
+        .support-widget-body::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .support-widget-body::-webkit-scrollbar-thumb {
+          background: rgba(108, 117, 125, 0.3);
+          border-radius: 4px;
+        }
+        .support-widget-body::-webkit-scrollbar-thumb:hover {
+          background: rgba(108, 117, 125, 0.5);
         }
         .support-widget-view {
-          padding: 28px;
+          padding: 32px;
         }
         .support-widget-form {
           display: flex;
           flex-direction: column;
-          gap: 20px;
+          gap: 22px;
         }
         .support-widget-field {
           display: flex;
           flex-direction: column;
-          gap: 8px;
+          gap: 10px;
         }
         .support-widget-field label {
           font-weight: 600;
           color: #495057;
           font-size: 14px;
-          letter-spacing: 0.2px;
+          letter-spacing: 0.1px;
           font-family: inherit;
+          margin-bottom: 2px;
         }
         .support-widget-field input,
         .support-widget-field select,
         .support-widget-field textarea {
           width: 100%;
-          padding: 14px 16px;
-          border: 2px solid #e9ecef;
-          border-radius: 10px;
+          padding: 15px 18px;
+          border: 1.5px solid #e9ecef;
+          border-radius: 12px;
           font-size: 15px;
           font-family: inherit;
-          transition: all 0.2s;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
           box-sizing: border-box;
           background: white;
           color: #1a1a1a;
+        }
+        .support-widget-field select {
+          cursor: pointer;
+          appearance: none;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23495057' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+          background-repeat: no-repeat;
+          background-position: right 16px center;
+          padding-right: 42px;
         }
         .support-widget-field input:focus,
         .support-widget-field select:focus,
         .support-widget-field textarea:focus {
           outline: none;
           border-color: #667eea;
-          box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+          box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.12), 0 2px 8px rgba(102, 126, 234, 0.08);
+          transform: translateY(-1px);
         }
         .support-widget-field input.support-widget-field-error,
         .support-widget-field textarea.support-widget-field-error {
@@ -1179,21 +2060,25 @@
           display: inline-flex;
           align-items: center;
           gap: 8px;
-          padding: 12px 20px;
-          background: #f8f9fa;
+          padding: 14px 22px;
+          background: linear-gradient(to bottom, #ffffff, #f8f9fa);
           border: 2px dashed #dee2e6;
-          border-radius: 10px;
+          border-radius: 12px;
           cursor: pointer;
           font-size: 14px;
           font-weight: 600;
           color: #495057;
-          transition: all 0.2s;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
           font-family: inherit;
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
         }
         .support-widget-file-btn:hover {
-          background: #e9ecef;
+          background: linear-gradient(to bottom, #f8f9fa, #ffffff);
           border-color: #667eea;
+          border-style: solid;
           color: #667eea;
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+          transform: translateY(-2px);
         }
         .support-widget-file-list {
           display: flex;
@@ -1204,12 +2089,14 @@
           display: flex;
           align-items: center;
           gap: 12px;
-          padding: 10px 14px;
-          background: #f8f9fa;
-          border-radius: 8px;
+          padding: 12px 16px;
+          background: linear-gradient(to bottom, #ffffff, #f8f9fa);
+          border-radius: 10px;
           font-size: 14px;
           font-family: inherit;
           position: relative;
+          border: 1px solid rgba(233, 236, 239, 0.6);
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
         }
         .support-widget-file-info {
           display: flex;
@@ -1284,30 +2171,37 @@
           flex-wrap: wrap;
         }
         .support-widget-actions button {
-          padding: 14px 28px;
+          padding: 15px 32px;
           border: none;
-          border-radius: 10px;
+          border-radius: 12px;
           font-size: 15px;
           font-weight: 600;
           cursor: pointer;
-          transition: all 0.2s;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
           font-family: inherit;
           letter-spacing: 0.2px;
+          position: relative;
+          overflow: hidden;
         }
         .support-widget-actions button[type="button"] {
           background: #f8f9fa;
           color: #495057;
+          border: 1.5px solid transparent;
         }
         .support-widget-actions button[type="button"]:hover {
           background: #e9ecef;
+          border-color: #dee2e6;
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
         }
         .support-widget-actions button[type="submit"] {
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           color: white;
+          box-shadow: 0 4px 14px rgba(102, 126, 234, 0.35);
         }
         .support-widget-actions button[type="submit"]:hover:not(:disabled) {
           transform: translateY(-2px);
-          box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+          box-shadow: 0 8px 24px rgba(102, 126, 234, 0.45);
         }
         .support-widget-actions button:disabled {
           opacity: 0.6;
@@ -1338,24 +2232,31 @@
         }
         .support-widget-tickets-header h3 {
           margin: 0;
-          font-size: 22px;
+          font-size: 23px;
           font-weight: 700;
           color: #1a1a1a;
           font-family: inherit;
+          letter-spacing: -0.3px;
+          line-height: 1.3;
         }
         .support-widget-back-btn {
-          padding: 10px 18px;
-          background: #f8f9fa;
-          border: none;
-          border-radius: 8px;
+          padding: 11px 20px;
+          background: linear-gradient(to bottom, #ffffff, #f8f9fa);
+          border: 1.5px solid rgba(233, 236, 239, 0.8);
+          border-radius: 10px;
           cursor: pointer;
           font-size: 14px;
           font-weight: 600;
           color: #495057;
           font-family: inherit;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
         }
         .support-widget-back-btn:hover {
-          background: #e9ecef;
+          background: linear-gradient(to bottom, #f8f9fa, #ffffff);
+          border-color: #dee2e6;
+          transform: translateX(-2px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
         }
         .support-widget-tickets-search {
           display: flex;
@@ -1364,22 +2265,35 @@
         }
         .support-widget-tickets-search input {
           flex: 1;
-          padding: 14px 16px;
-          border: 2px solid #e9ecef;
-          border-radius: 10px;
+          padding: 15px 18px;
+          border: 1.5px solid #e9ecef;
+          border-radius: 12px;
           font-size: 15px;
           font-family: inherit;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+        }
+        .support-widget-tickets-search input:focus {
+          outline: none;
+          border-color: #667eea;
+          box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.12), 0 2px 8px rgba(102, 126, 234, 0.08);
         }
         .support-widget-tickets-search button {
-          padding: 14px 24px;
+          padding: 15px 28px;
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           color: white;
           border: none;
-          border-radius: 10px;
+          border-radius: 12px;
           cursor: pointer;
           font-size: 15px;
           font-weight: 600;
           font-family: inherit;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 4px 14px rgba(102, 126, 234, 0.35);
+        }
+        .support-widget-tickets-search button:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 24px rgba(102, 126, 234, 0.45);
         }
         .support-widget-tickets-list {
           display: flex;
@@ -1387,14 +2301,18 @@
           gap: 12px;
         }
         .support-widget-ticket-item {
-          padding: 18px;
-          background: #f8f9fa;
-          border-radius: 12px;
-          border: 1px solid #e9ecef;
-          transition: all 0.2s;
+          padding: 20px;
+          background: linear-gradient(to bottom, #ffffff, #f8f9fa);
+          border-radius: 14px;
+          border: 1px solid rgba(233, 236, 239, 0.8);
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
         }
         .support-widget-ticket-item:hover {
-          background: #e9ecef;
+          background: linear-gradient(to bottom, #f8f9fa, #ffffff);
+          border-color: #667eea;
+          box-shadow: 0 6px 20px rgba(102, 126, 234, 0.15), 0 2px 8px rgba(0, 0, 0, 0.08);
+          transform: translateX(4px) translateY(-2px);
         }
         .support-widget-ticket-header {
           display: flex;
@@ -1437,16 +2355,372 @@
         .support-widget-loading,
         .support-widget-empty,
         .support-widget-error-message {
-          padding: 40px;
+          padding: 48px 40px;
           text-align: center;
           color: #6c757d;
           font-size: 15px;
           font-family: inherit;
+          line-height: 1.6;
+        }
+        .support-widget-empty {
+          color: #6c757d;
+          opacity: 0.8;
+          font-style: italic;
         }
         .support-widget-error-message {
           color: #721c24;
+          background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+          border-radius: 12px;
+          border: 1px solid rgba(114, 28, 36, 0.2);
+          box-shadow: 0 2px 8px rgba(114, 28, 36, 0.12);
+        }
+
+        /* Chat Popup Styles */
+        .support-widget-chat-header {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 16px;
+        }
+        .support-widget-chat-title {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          flex: 1;
+        }
+        .support-widget-chat-title h3 {
+          margin: 0;
+          font-size: 19px;
+          font-weight: 700;
+          color: #1a1a1a;
+          font-family: inherit;
+          letter-spacing: -0.2px;
+          line-height: 1.3;
+        }
+        .support-widget-chat-subject {
+          font-size: 15px;
+          font-weight: 600;
+          color: #495057;
+          margin-bottom: 16px;
+          padding-bottom: 16px;
+          border-bottom: 1px solid #e9ecef;
+          font-family: inherit;
+        }
+        .support-widget-chat-messages {
+          flex: 1;
+          overflow-y: auto;
+          max-height: 400px;
+          min-height: 300px;
+          padding: 20px 0;
+          margin-bottom: 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(108, 117, 125, 0.3) transparent;
+        }
+        .support-widget-chat-messages::-webkit-scrollbar {
+          width: 8px;
+        }
+        .support-widget-chat-messages::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .support-widget-chat-messages::-webkit-scrollbar-thumb {
+          background: rgba(108, 117, 125, 0.3);
+          border-radius: 4px;
+        }
+        .support-widget-chat-messages::-webkit-scrollbar-thumb:hover {
+          background: rgba(108, 117, 125, 0.5);
+        }
+        .support-widget-chat-message {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          padding: 14px 18px;
+          border-radius: 16px;
+          max-width: 80%;
+          animation: messageSlideIn 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+          position: relative;
+        }
+        @keyframes messageSlideIn {
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .support-widget-message-user {
+          align-self: flex-end;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          margin-left: auto;
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.25);
+          border: none;
+        }
+        .support-widget-message-admin {
+          align-self: flex-start;
+          background: linear-gradient(to bottom, #ffffff, #f8f9fa);
+          color: #232347;
+          border: 1px solid rgba(233, 236, 239, 0.8);
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }
+        .support-widget-chat-message-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          font-size: 12px;
+          font-family: inherit;
+        }
+        .support-widget-chat-message-sender {
+          font-weight: 600;
+          opacity: 0.9;
+        }
+        .support-widget-message-user .support-widget-chat-message-sender {
+          color: rgba(255, 255, 255, 0.9);
+        }
+        .support-widget-message-admin .support-widget-chat-message-sender {
+          color: #8a3b9a;
+        }
+        .support-widget-chat-message-time {
+          opacity: 0.7;
+          font-size: 11px;
+        }
+        .support-widget-chat-message-text {
+          font-size: 14px;
+          line-height: 1.5;
+          word-wrap: break-word;
+          font-family: inherit;
+        }
+        .support-widget-message-user .support-widget-chat-message-text {
+          color: white;
+        }
+        .support-widget-message-admin .support-widget-chat-message-text {
+          color: #232347;
+        }
+        .support-widget-chat-input-area {
+          border-top: 1px solid rgba(233, 236, 239, 0.8);
+          padding-top: 18px;
+          flex-shrink: 0;
+          background: linear-gradient(to top, rgba(248, 249, 250, 0.5), transparent);
+        }
+        .support-widget-chat-input-area textarea {
+          width: 100%;
+          padding: 14px 18px;
+          border: 1.5px solid #e9ecef;
+          border-radius: 12px;
+          font-size: 14px;
+          font-family: inherit;
+          resize: vertical;
+          min-height: 85px;
+          max-height: 150px;
+          box-sizing: border-box;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+        }
+        .support-widget-chat-input-area textarea:focus {
+          outline: none;
+          border-color: #667eea;
+          box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.12), 0 2px 8px rgba(102, 126, 234, 0.08);
+          transform: translateY(-1px);
+        }
+        .support-widget-chat-file-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          margin-bottom: 14px;
+          padding: 14px;
+          background: linear-gradient(to bottom, #ffffff, #f8f9fa);
+          border-radius: 12px;
+          max-height: 150px;
+          overflow-y: auto;
+          border: 1px solid rgba(233, 236, 239, 0.6);
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        }
+        .support-widget-chat-file-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          padding: 10px 14px;
+          background: linear-gradient(to bottom, #ffffff, #f8f9fa);
+          border-radius: 8px;
+          font-size: 13px;
+          font-family: inherit;
+          border: 1px solid rgba(233, 236, 239, 0.5);
+          box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+        }
+        .support-widget-chat-file-name {
+          flex: 1;
+          color: #495057;
+          font-weight: 500;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .support-widget-chat-file-size {
+          color: #6c757d;
+          font-size: 12px;
+        }
+        .support-widget-chat-file-remove {
+          background: none;
+          border: none;
+          color: #dc3545;
+          font-size: 20px;
+          cursor: pointer;
+          padding: 0;
+          width: 24px;
+          height: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 4px;
+          transition: background 0.2s;
+          font-family: inherit;
+        }
+        .support-widget-chat-file-remove:hover {
           background: #f8d7da;
+        }
+        .support-widget-chat-file-uploaded {
+          background: #d4edda;
+        }
+        .support-widget-chat-file-uploaded .support-widget-chat-file-name {
+          color: #155724;
+        }
+        .support-widget-chat-file-status {
+          color: #28a745;
+          font-weight: 600;
+        }
+        .support-widget-chat-input-actions {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .support-widget-chat-attach-btn {
+          background: none;
+          border: none;
+          color: #6c757d;
+          cursor: pointer;
+          padding: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
           border-radius: 10px;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+          font-family: inherit;
+        }
+        .support-widget-chat-attach-btn:hover {
+          background: linear-gradient(to bottom, #f8f9fa, #ffffff);
+          color: #667eea;
+          transform: scale(1.1);
+          box-shadow: 0 2px 8px rgba(102, 126, 234, 0.15);
+        }
+        .support-widget-chat-attachments {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          margin-top: 8px;
+        }
+        .support-widget-chat-attachment {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 12px;
+          background: rgba(255, 255, 255, 0.2);
+          border-radius: 8px;
+          font-size: 13px;
+          font-family: inherit;
+        }
+        .support-widget-message-user .support-widget-chat-attachment {
+          background: rgba(255, 255, 255, 0.25);
+        }
+        .support-widget-message-admin .support-widget-chat-attachment {
+          background: #f8f9fa;
+        }
+        .support-widget-chat-attachment-link {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          color: inherit;
+          text-decoration: none;
+          flex: 1;
+          font-family: inherit;
+        }
+        .support-widget-chat-attachment-link:hover {
+          text-decoration: underline;
+        }
+        .support-widget-chat-attachment-name {
+          flex: 1;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-weight: 500;
+        }
+        .support-widget-chat-attachment-size {
+          color: rgba(255, 255, 255, 0.7);
+          font-size: 12px;
+        }
+        .support-widget-message-admin .support-widget-chat-attachment-size {
+          color: #6c757d;
+        }
+        .support-widget-chat-attachment-image {
+          padding: 0;
+          background: transparent;
+        }
+        .support-widget-chat-attachment-image a {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          text-decoration: none;
+          color: inherit;
+        }
+        .support-widget-chat-attachment-image img {
+          max-width: 200px;
+          max-height: 200px;
+          border-radius: 8px;
+          object-fit: cover;
+          border: 1px solid rgba(0, 0, 0, 0.1);
+        }
+        .support-widget-message-user .support-widget-chat-attachment-image img {
+          border-color: rgba(255, 255, 255, 0.3);
+        }
+        .support-widget-chat-input-footer {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-top: 8px;
+        }
+        .support-widget-chat-input-footer button {
+          padding: 12px 28px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          border: none;
+          border-radius: 10px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          font-family: inherit;
+          box-shadow: 0 4px 14px rgba(102, 126, 234, 0.35);
+        }
+        .support-widget-chat-input-footer button:hover:not(:disabled) {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 24px rgba(102, 126, 234, 0.45);
+        }
+        .support-widget-chat-input-footer button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        .support-widget-ticket-item {
+          cursor: pointer;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .support-widget-ticket-item:hover {
+          transform: translateX(6px) translateY(-2px);
+          box-shadow: 0 8px 24px rgba(102, 126, 234, 0.18), 0 4px 12px rgba(0, 0, 0, 0.1);
         }
 
         /* Responsive */
@@ -1467,6 +2741,13 @@
           }
           .support-widget-actions button {
             width: 100%;
+          }
+          .support-widget-chat-messages {
+            max-height: 300px;
+            min-height: 200px;
+          }
+          .support-widget-chat-message {
+            max-width: 85%;
           }
         }
       `;

@@ -1,4 +1,4 @@
-import { supabase } from '../config/database.js';
+import { supabase, supabaseAdmin } from "../config/database.js";
 
 /**
  * Permission Middleware
@@ -17,8 +17,8 @@ export const requirePermission = (permissionName) => {
       if (!req.user) {
         return res.status(401).json({
           success: false,
-          error: 'Unauthorized',
-          message: 'User not authenticated'
+          error: "Unauthorized",
+          message: "User not authenticated",
         });
       }
 
@@ -26,38 +26,40 @@ export const requirePermission = (permissionName) => {
       if (!req.userProfile) {
         try {
           const profilePromise = supabase
-            .from('auth_role_with_profiles')
-            .select('user_id, email, full_name, role, account_status, is_systemadmin')
-            .eq('user_id', req.user.id)
+            .from("auth_role_with_profiles")
+            .select(
+              "user_id, email, full_name, role, account_status, is_systemadmin"
+            )
+            .eq("user_id", req.user.id)
             .single();
-          
+
           const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Query timeout')), 25000)
+            setTimeout(() => reject(new Error("Query timeout")), 25000)
           );
 
           const result = await Promise.race([profilePromise, timeoutPromise]);
-          
+
           if (result.error || !result.data) {
             req.userProfile = {
               user_id: req.user.id,
               email: req.user.email,
               full_name: req.user.email,
-              role: 'admin',
-              account_status: 'active',
-              is_systemadmin: false
+              role: "admin",
+              account_status: "active",
+              is_systemadmin: false,
             };
           } else {
             req.userProfile = result.data;
           }
         } catch (timeoutError) {
-          console.error('❌ Profile fetch timeout:', timeoutError);
+          console.error("❌ Profile fetch timeout:", timeoutError);
           req.userProfile = {
             user_id: req.user.id,
             email: req.user.email,
             full_name: req.user.email,
-            role: 'admin',
-            account_status: 'active',
-            is_systemadmin: false
+            role: "admin",
+            account_status: "active",
+            is_systemadmin: false,
           };
         }
       }
@@ -68,17 +70,17 @@ export const requirePermission = (permissionName) => {
       }
 
       // Call the has_permission SQL function
-      const { data, error } = await supabase.rpc('has_permission', {
+      const { data, error } = await supabase.rpc("has_permission", {
         p_user_id: req.user.id,
-        p_permission_name: permissionName
+        p_permission_name: permissionName,
       });
 
       if (error) {
-        console.error('❌ Permission check error:', error);
+        console.error("❌ Permission check error:", error);
         return res.status(500).json({
           success: false,
-          error: 'Internal Server Error',
-          message: 'Failed to check permission'
+          error: "Internal Server Error",
+          message: "Failed to check permission",
         });
       }
 
@@ -88,15 +90,15 @@ export const requirePermission = (permissionName) => {
 
       return res.status(403).json({
         success: false,
-        error: 'Forbidden',
-        message: `Permission required: ${permissionName}`
+        error: "Forbidden",
+        message: `Permission required: ${permissionName}`,
       });
     } catch (err) {
-      console.error('Permission middleware error:', err);
+      console.error("Permission middleware error:", err);
       return res.status(500).json({
         success: false,
-        error: 'Internal Server Error',
-        message: 'Permission check failed'
+        error: "Internal Server Error",
+        message: "Permission check failed",
       });
     }
   };
@@ -113,46 +115,48 @@ export const requireAnyPermission = (permissionNames = []) => {
       if (!req.user) {
         return res.status(401).json({
           success: false,
-          error: 'Unauthorized',
-          message: 'User not authenticated'
+          error: "Unauthorized",
+          message: "User not authenticated",
         });
       }
 
       if (!req.userProfile) {
         try {
           const profilePromise = supabase
-            .from('auth_role_with_profiles')
-            .select('user_id, email, full_name, role, account_status, is_systemadmin')
-            .eq('user_id', req.user.id)
+            .from("auth_role_with_profiles")
+            .select(
+              "user_id, email, full_name, role, account_status, is_systemadmin"
+            )
+            .eq("user_id", req.user.id)
             .single();
-          
+
           const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Query timeout')), 25000)
+            setTimeout(() => reject(new Error("Query timeout")), 25000)
           );
 
           const result = await Promise.race([profilePromise, timeoutPromise]);
-          
+
           if (result.error || !result.data) {
             req.userProfile = {
               user_id: req.user.id,
               email: req.user.email,
               full_name: req.user.email,
-              role: 'admin',
-              account_status: 'active',
-              is_systemadmin: false
+              role: "admin",
+              account_status: "active",
+              is_systemadmin: false,
             };
           } else {
             req.userProfile = result.data;
           }
         } catch (timeoutError) {
-          console.error('❌ Profile fetch timeout:', timeoutError);
+          console.error("❌ Profile fetch timeout:", timeoutError);
           req.userProfile = {
             user_id: req.user.id,
             email: req.user.email,
             full_name: req.user.email,
-            role: 'admin',
-            account_status: 'active',
-            is_systemadmin: false
+            role: "admin",
+            account_status: "active",
+            is_systemadmin: false,
           };
         }
       }
@@ -164,13 +168,16 @@ export const requireAnyPermission = (permissionNames = []) => {
 
       // Check each permission
       for (const permissionName of permissionNames) {
-        const { data, error } = await supabase.rpc('has_permission', {
+        const { data, error } = await supabase.rpc("has_permission", {
           p_user_id: req.user.id,
-          p_permission_name: permissionName
+          p_permission_name: permissionName,
         });
 
         if (error) {
-          console.error(`❌ Permission check error for ${permissionName}:`, error);
+          console.error(
+            `❌ Permission check error for ${permissionName}:`,
+            error
+          );
           continue;
         }
 
@@ -181,15 +188,17 @@ export const requireAnyPermission = (permissionNames = []) => {
 
       return res.status(403).json({
         success: false,
-        error: 'Forbidden',
-        message: `One of the following permissions required: ${permissionNames.join(', ')}`
+        error: "Forbidden",
+        message: `One of the following permissions required: ${permissionNames.join(
+          ", "
+        )}`,
       });
     } catch (err) {
-      console.error('Permission middleware error:', err);
+      console.error("Permission middleware error:", err);
       return res.status(500).json({
         success: false,
-        error: 'Internal Server Error',
-        message: 'Permission check failed'
+        error: "Internal Server Error",
+        message: "Permission check failed",
       });
     }
   };
@@ -206,46 +215,48 @@ export const requireAllPermissions = (permissionNames = []) => {
       if (!req.user) {
         return res.status(401).json({
           success: false,
-          error: 'Unauthorized',
-          message: 'User not authenticated'
+          error: "Unauthorized",
+          message: "User not authenticated",
         });
       }
 
       if (!req.userProfile) {
         try {
           const profilePromise = supabase
-            .from('auth_role_with_profiles')
-            .select('user_id, email, full_name, role, account_status, is_systemadmin')
-            .eq('user_id', req.user.id)
+            .from("auth_role_with_profiles")
+            .select(
+              "user_id, email, full_name, role, account_status, is_systemadmin"
+            )
+            .eq("user_id", req.user.id)
             .single();
-          
+
           const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Query timeout')), 25000)
+            setTimeout(() => reject(new Error("Query timeout")), 25000)
           );
 
           const result = await Promise.race([profilePromise, timeoutPromise]);
-          
+
           if (result.error || !result.data) {
             req.userProfile = {
               user_id: req.user.id,
               email: req.user.email,
               full_name: req.user.email,
-              role: 'admin',
-              account_status: 'active',
-              is_systemadmin: false
+              role: "admin",
+              account_status: "active",
+              is_systemadmin: false,
             };
           } else {
             req.userProfile = result.data;
           }
         } catch (timeoutError) {
-          console.error('❌ Profile fetch timeout:', timeoutError);
+          console.error("❌ Profile fetch timeout:", timeoutError);
           req.userProfile = {
             user_id: req.user.id,
             email: req.user.email,
             full_name: req.user.email,
-            role: 'admin',
-            account_status: 'active',
-            is_systemadmin: false
+            role: "admin",
+            account_status: "active",
+            is_systemadmin: false,
           };
         }
       }
@@ -256,17 +267,17 @@ export const requireAllPermissions = (permissionNames = []) => {
       }
 
       // Check all permissions
-      const permissionChecks = permissionNames.map(permissionName =>
-        supabase.rpc('has_permission', {
+      const permissionChecks = permissionNames.map((permissionName) =>
+        supabase.rpc("has_permission", {
           p_user_id: req.user.id,
-          p_permission_name: permissionName
+          p_permission_name: permissionName,
         })
       );
 
       const results = await Promise.all(permissionChecks);
-      const hasAll = results.every(result => {
+      const hasAll = results.every((result) => {
         if (result.error) {
-          console.error('❌ Permission check error:', result.error);
+          console.error("❌ Permission check error:", result.error);
           return false;
         }
         return result.data === true;
@@ -278,15 +289,17 @@ export const requireAllPermissions = (permissionNames = []) => {
 
       return res.status(403).json({
         success: false,
-        error: 'Forbidden',
-        message: `All of the following permissions required: ${permissionNames.join(', ')}`
+        error: "Forbidden",
+        message: `All of the following permissions required: ${permissionNames.join(
+          ", "
+        )}`,
       });
     } catch (err) {
-      console.error('Permission middleware error:', err);
+      console.error("Permission middleware error:", err);
       return res.status(500).json({
         success: false,
-        error: 'Internal Server Error',
-        message: 'Permission check failed'
+        error: "Internal Server Error",
+        message: "Permission check failed",
       });
     }
   };
@@ -301,64 +314,92 @@ export const requireSystemAdmin = async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
         success: false,
-        error: 'Unauthorized',
-        message: 'User not authenticated'
+        error: "Unauthorized",
+        message: "User not authenticated",
       });
     }
-    if (req.user.id || req.user.id === null || req.user.id === undefined) {
-      try {
-        const profilePromise = supabase
-          .from('auth_role_with_profiles')
-          .select('user_id, email, full_name, role, account_status, is_systemadmin')
-          .eq('user_id', req.user.id)
-          .single();
-        
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Query timeout')), 25000)
-        );
+    
+    if (!req.user.id) {
+      return res.status(401).json({
+        success: false,
+        error: "Unauthorized",
+        message: "User ID not found",
+      });
+    }
 
-        const result = await Promise.race([profilePromise, timeoutPromise]);
-        
-        if (result.error || !result.data) {
-          req.userProfile = {
-            user_id: req.user.id,
-            email: req.user.email,
-            full_name: req.user.email,
-            role: 'admin',
-            account_status: 'active',
-            is_systemadmin: false
-          };
-        } else {
-          req.userProfile = result.data;
-        }
-      } catch (timeoutError) {
-        console.error('❌ Profile fetch timeout:', timeoutError);
-        req.userProfile = {
+    // CRITICAL: Always fetch fresh data directly from profiles table using admin client
+    // This bypasses any view caching, HTTP caching, or connection pooling issues
+    // Querying directly from profiles table (not the view) ensures we get the latest data
+    try {
+      console.log(`🔍 [requireSystemAdmin] Fetching fresh profile for user ${req.user.id}`);
+      
+      // Use admin client if available (bypasses some caching layers), otherwise use regular client
+      // Query directly from profiles table instead of auth_role_with_profiles view to avoid view caching
+      const clientToUse = supabaseAdmin || supabase;
+      
+      const profilePromise = clientToUse
+        .from("auth_role_with_profiles")
+        .select(
+          "user_id, email, full_name, role, account_status, is_systemadmin"
+        )
+        .eq("user_id", req.user.id)
+        .single();
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Query timeout")), 25000)
+      );
+
+      const result = await Promise.race([profilePromise, timeoutPromise]);
+
+      // Always use fresh data from database, completely ignore any existing req.userProfile
+      let freshProfile;
+      if (result.error || !result.data) {
+        console.log(`⚠️ [requireSystemAdmin] Profile not found for user ${req.user.id}, defaulting to non-admin`);
+        console.log(`⚠️ [requireSystemAdmin] Error:`, result.error);
+        freshProfile = {
           user_id: req.user.id,
           email: req.user.email,
           full_name: req.user.email,
-          role: 'admin',
-          account_status: 'active',
-          is_systemadmin: false
+          role: "admin",
+          account_status: "active",
+          is_systemadmin: false,
         };
+      } else {
+        freshProfile = result.data;
+        console.log(`✅ [requireSystemAdmin] Fresh profile fetched from profiles table - is_systemadmin: ${freshProfile.is_systemadmin}`);
       }
-    }
+      
+      // Update req.userProfile with fresh data for downstream middleware
+      req.userProfile = freshProfile;
 
-    if (req.userProfile.is_systemadmin !== true) {
-      return res.status(403).json({
+      // Check is_systemadmin from fresh data only
+      if (freshProfile.is_systemadmin !== true) {
+        console.log(`❌ [requireSystemAdmin] Access denied - user ${req.user.id} is not system admin (is_systemadmin: ${freshProfile.is_systemadmin})`);
+        return res.status(403).json({
+          success: false,
+          error: "Forbidden",
+          message: "System administrator access required",
+        });
+      }
+
+      console.log(`✅ [requireSystemAdmin] Access granted - user ${req.user.id} is system admin`);
+    } catch (timeoutError) {
+      console.error("❌ [requireSystemAdmin] Profile fetch timeout:", timeoutError);
+      // On timeout, deny access for security (fail-secure)
+      return res.status(503).json({
         success: false,
-        error: 'Forbidden',
-        message: 'System administrator access required'
+        error: "Service Unavailable",
+        message: "Unable to verify system administrator status. Please try again later.",
       });
     }
 
     next();
   } catch (err) {
-    console.error('SystemAdmin check error:', err);
+    console.error("❌ [requireSystemAdmin] SystemAdmin check error:", err);
     return res.status(500).json({
       success: false,
-      error: 'Internal Server Error',
-      message: 'Authorization check failed'
+      error: "Internal Server Error",
+      message: "Authorization check failed",
     });
   }
 };
@@ -367,6 +408,5 @@ export default {
   requirePermission,
   requireAnyPermission,
   requireAllPermissions,
-  requireSystemAdmin
+  requireSystemAdmin,
 };
-

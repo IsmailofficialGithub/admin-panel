@@ -4,23 +4,70 @@ import { useParams, useHistory } from 'react-router-dom';
 import { Activity, ArrowLeft, User, Calendar, Globe, Monitor, FileText, Trash2, Edit2, Plus } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { getActivityLogById } from '../api/backend';
+import { checkUserPermission } from '../api/backend/permissions';
 import toast from 'react-hot-toast';
 
 const ActivityLogDetail = () => {
   const { id } = useParams();
   const history = useHistory();
-  const { user, profile } = useAuth();
+  const { user, profile, isReseller } = useAuth();
   const location = history.location;
   const layout = location.pathname.split('/')[1] || 'admin'; // Extract layout from path
   const [log, setLog] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [checkingPermission, setCheckingPermission] = useState(true);
+  const [hasPermission, setHasPermission] = useState(false); // Default to false
+
+  // Check permission for activity_logs.read
+  useEffect(() => {
+    const checkReadPermission = async () => {
+      if (!user || !profile) {
+        setHasPermission(false);
+        setCheckingPermission(false);
+        return;
+      }
+
+      // Resellers have their own access control, bypass this check
+      if (isReseller) {
+        setHasPermission(true);
+        setCheckingPermission(false);
+        return;
+      }
+
+      // Systemadmins have all permissions
+      if (profile.is_systemadmin === true) {
+        setHasPermission(true);
+        setCheckingPermission(false);
+        return;
+      }
+
+      try {
+        const hasPerm = await checkUserPermission(user.id, 'activity_logs.read');
+        setHasPermission(hasPerm);
+        if (!hasPerm) {
+          toast.error('Access denied. You do not have permission to view activity log details.');
+          history.push('/admin/activity-logs');
+        }
+      } catch (error) {
+        console.error('Error checking activity_logs.read permission:', error);
+        toast.error('Error checking permissions. Access denied.');
+        setHasPermission(false);
+        history.push('/admin/activity-logs');
+      } finally {
+        setCheckingPermission(false);
+      }
+    };
+
+    checkReadPermission();
+  }, [user, profile, history, isReseller]);
 
   useEffect(() => {
-    if (user && profile) {
+    // Only fetch if permission is granted
+    if (!checkingPermission && hasPermission && user && profile) {
       fetchLogDetail();
     }
-  }, [id, user, profile]);
+  }, [id, user, profile, checkingPermission, hasPermission]);
 
   const fetchLogDetail = async () => {
     setLoading(true);
@@ -198,6 +245,61 @@ const ActivityLogDetail = () => {
 
   const actionStyle = getActionColor(log.action_type);
   const ActionIcon = getActionIcon(log.action_type);
+
+  // Show loading while checking permission
+  if (checkingPermission) {
+    return (
+      <Container fluid style={{ padding: '24px' }}>
+        <div style={{ 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '85vh',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <div className="spinner-border text-primary" role="status">
+            <span className="sr-only">Loading...</span>
+          </div>
+          <p>Checking permissions...</p>
+        </div>
+      </Container>
+    );
+  }
+
+  // Show access denied if no permission
+  if (!hasPermission) {
+    return (
+      <Container fluid style={{ padding: '24px' }}>
+        <div style={{ 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '85vh',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <h3>Access Denied</h3>
+          <p>You do not have permission to view activity log details.</p>
+          <button
+            onClick={() => history.push('/admin/activity-logs')}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#74317e',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}
+          >
+            Back to Activity Logs
+          </button>
+        </div>
+      </Container>
+    );
+  }
 
   return (
     <Container fluid style={{ padding: '24px' }}>

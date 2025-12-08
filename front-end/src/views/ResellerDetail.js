@@ -5,12 +5,19 @@ import { toast } from 'react-hot-toast';
 import { Edit2, Save, X, DollarSign, FileText, TrendingUp, Users, Tag, Percent, ArrowRight } from 'lucide-react';
 import { getResellerById } from '../api/backend/resellers';
 import { getResellerCommission, setResellerCommission, resetResellerCommission } from '../api/backend';
+import { checkUserPermission } from '../api/backend/permissions';
+import { useAuth } from '../hooks/useAuth';
 import apiClient from '../services/apiClient';
 
 function ResellerDetail() {
   const { id } = useParams();
   const history = useHistory();
+  const { user, profile, isAdmin, isReseller } = useAuth();
   const [reseller, setReseller] = useState(null);
+  
+  // Permission checking states
+  const [checkingPermission, setCheckingPermission] = useState(true);
+  const [hasPermission, setHasPermission] = useState(false); // Default to false
   
   // This component is only for admin view
   const [consumers, setConsumers] = useState([]);
@@ -138,11 +145,57 @@ function ResellerDetail() {
     }
   }, [consumers, id]);
 
+  // Check permission for resellers.read (admin only)
   useEffect(() => {
+    const checkReadPermission = async () => {
+      if (!user || !profile) {
+        setHasPermission(false);
+        setCheckingPermission(false);
+        return;
+      }
+
+      // Resellers have their own access control, bypass this check
+      if (isReseller) {
+        setHasPermission(true);
+        setCheckingPermission(false);
+        return;
+      }
+
+      // Systemadmins have all permissions
+      if (profile.is_systemadmin === true) {
+        setHasPermission(true);
+        setCheckingPermission(false);
+        return;
+      }
+
+      try {
+        const hasPerm = await checkUserPermission(user.id, 'resellers.read');
+        setHasPermission(hasPerm);
+        if (!hasPerm) {
+          toast.error('Access denied. You do not have permission to view reseller details.');
+          history.push('/admin/resellers');
+        }
+      } catch (error) {
+        console.error('Error checking resellers.read permission:', error);
+        toast.error('Error checking permissions. Access denied.');
+        setHasPermission(false);
+        history.push('/admin/resellers');
+      } finally {
+        setCheckingPermission(false);
+      }
+    };
+
+    checkReadPermission();
+  }, [user, profile, history, isReseller]);
+
+  useEffect(() => {
+    // Only fetch if permission is granted
+    if (!checkingPermission && hasPermission) {
     fetchResellerData();
     fetchReferredConsumers();
     fetchCommissionData();
-  }, [id]);
+    }
+  }, [id, checkingPermission, hasPermission]);
 
   useEffect(() => {
     if (consumers.length > 0 && id) {
@@ -424,6 +477,35 @@ function ResellerDetail() {
       currency: 'USD'
     }).format(amount || 0);
   };
+
+  // Show loading while checking permission
+  if (checkingPermission) {
+    return (
+      <Container fluid>
+        <div className="text-center mt-5">
+          <div className="spinner-border text-primary" role="status">
+            <span className="sr-only">Loading...</span>
+          </div>
+          <p className="mt-3">Checking permissions...</p>
+        </div>
+      </Container>
+    );
+  }
+
+  // Show access denied if no permission
+  if (!hasPermission) {
+    return (
+      <Container fluid>
+        <div className="text-center mt-5">
+          <h3>Access Denied</h3>
+          <p className="mt-3">You do not have permission to view reseller details.</p>
+          <Button variant="primary" onClick={() => history.push('/admin/resellers')}>
+            Back to Resellers
+          </Button>
+        </div>
+      </Container>
+    );
+  }
 
   if (loading) {
     return (

@@ -4,9 +4,12 @@ import { Plus, Edit2, Trash2, Search, Tag, Calendar, DollarSign, Filter, X } fro
 import { toast } from 'react-hot-toast';
 import apiClient from '../services/apiClient';
 import { useAuth } from '../hooks/useAuth';
+import { checkUserPermissionsBulk, checkUserPermission } from '../api/backend/permissions';
+import { useHistory } from 'react-router-dom';
 
 const Offers = () => {
-  const { isAdmin } = useAuth();
+  const history = useHistory();
+  const { isAdmin, user, profile } = useAuth();
   const [offers, setOffers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -22,6 +25,15 @@ const Offers = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const offersPerPage = 10;
+  const [permissions, setPermissions] = useState({
+    create: false, // Start as false, update after checking
+    delete: false,
+    update: false,
+    read: false,
+  });
+  const [hasViewPermission, setHasViewPermission] = useState(false); // Start as false
+  const [checkingViewPermission, setCheckingViewPermission] = useState(true);
+  const [checkingPermissions, setCheckingPermissions] = useState(true); // Track permission checking state
 
   // Fetch offers
   const fetchOffers = async () => {
@@ -57,12 +69,116 @@ const Offers = () => {
     }
   };
 
+  // Check offers.view permission first (required to access the page)
   useEffect(() => {
+    const checkViewPermission = async () => {
+      if (!user || !profile) {
+        setHasViewPermission(false);
+        setCheckingViewPermission(false);
+        return;
+      }
+
+      try {
+        // Systemadmins have all permissions
+        if (profile.is_systemadmin === true) {
+          setHasViewPermission(true);
+          setCheckingViewPermission(false);
+          return;
+        }
+
+        // Check if user has offers.view permission
+        const hasPermission = await checkUserPermission(user.id, 'offers.view');
+        setHasViewPermission(hasPermission === true);
+        
+        // Redirect if no permission
+        if (!hasPermission) {
+          toast.error('You do not have permission to view offers.');
+          setTimeout(() => {
+            history.push('/admin/users');
+          }, 500);
+        }
+      } catch (error) {
+        console.error('Error checking offers.view permission:', error);
+        setHasViewPermission(false);
+        toast.error('Error checking permissions. Access denied.');
+        setTimeout(() => {
+          history.push('/admin/users');
+        }, 500);
+      } finally {
+        setCheckingViewPermission(false);
+      }
+    };
+
+    checkViewPermission();
+  }, [user, profile, history]);
+
+  // Check multiple permissions at once (optimized bulk check)
+  useEffect(() => {
+    // Only check other permissions if user has view permission
+    if (checkingViewPermission || !hasViewPermission) {
+      return;
+    }
+
+    const checkPermissions = async () => {
+      setCheckingPermissions(true); // Start checking
+      if (!user || !profile) {
+        setPermissions({ create: false, delete: false, update: false, read: false });
+        setCheckingPermissions(false);
+        return;
+      }
+
+      try {
+        // Systemadmins have all permissions
+        if (profile.is_systemadmin === true) {
+          setPermissions({ create: true, delete: true, update: true, read: true });
+          setCheckingPermissions(false);
+          return;
+        }
+
+        // Check multiple permissions in a single optimized API call
+        const permissionResults = await checkUserPermissionsBulk(user.id, [
+          'offers.create',
+          'offers.delete',
+          'offers.update',
+          'offers.read'
+        ]);
+
+        setPermissions({
+          create: permissionResults['offers.create'] === true,
+          delete: permissionResults['offers.delete'] === true,
+          update: permissionResults['offers.update'] === true,
+          read: permissionResults['offers.read'] === true
+        });
+      } catch (error) {
+        console.error('Error checking offer permissions:', error);
+        setPermissions({ create: false, delete: false, update: false, read: false });
+      } finally {
+        setCheckingPermissions(false); // Done checking
+      }
+    };
+
+    checkPermissions();
+  }, [user, profile, checkingViewPermission, hasViewPermission]);
+
+  // Fetch offers (only if user has view permission)
+  useEffect(() => {
+    // Don't fetch if still checking permission or if user doesn't have permission
+    if (checkingViewPermission || !hasViewPermission || !isAdmin) {
+      return;
+    }
+
     fetchOffers();
-  }, [isAdmin, currentPage, statusFilter]);
+  }, [isAdmin, currentPage, statusFilter, checkingViewPermission, hasViewPermission]);
 
   // Handle create offer
   const handleCreateOffer = async (offerData) => {
+    // Check permission before creating
+    if (!permissions.create) {
+      toast.error('You do not have permission to create offers.');
+      setShowCreateModal(false);
+      return;
+    }
+
     try {
       const response = await apiClient.offers.create(offerData);
       if (response && response.success) {
@@ -80,6 +196,14 @@ const Offers = () => {
 
   // Handle update offer
   const handleUpdateOffer = async (offerData) => {
+    // Check permission before updating
+    if (!permissions.update) {
+      toast.error('You do not have permission to update offers.');
+      setShowUpdateModal(false);
+      setSelectedOffer(null);
+      return;
+    }
+
     try {
       const response = await apiClient.offers.update(selectedOffer.id, offerData);
       if (response && response.success) {
@@ -98,12 +222,26 @@ const Offers = () => {
 
   // Handle delete offer
   const handleDeleteClick = (offer) => {
+    // Check permission before showing delete confirmation
+    if (!permissions.delete) {
+      toast.error('You do not have permission to delete offers.');
+      return;
+    }
+
     setDeleteOfferData(offer);
     setShowDeleteConfirm(true);
   };
 
   const handleConfirmDelete = async () => {
     if (!deleteOfferData) return;
+
+    // Check permission before deletion
+    if (!permissions.delete) {
+      toast.error('You do not have permission to delete offers.');
+      setShowDeleteConfirm(false);
+      setDeleteOfferData(null);
+      return;
+    }
 
     setIsDeleting(true);
     try {
@@ -126,6 +264,12 @@ const Offers = () => {
 
   // Handle edit click
   const handleEditClick = (offer) => {
+    // Check permission before editing
+    if (!permissions.update) {
+      toast.error('You do not have permission to update offers.');
+      return;
+    }
+
     setSelectedOffer(offer);
     setShowUpdateModal(true);
   };
@@ -161,6 +305,61 @@ const Offers = () => {
     offer.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     offer.description?.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Show loading while checking permission
+  if (checkingViewPermission) {
+    return (
+      <Container fluid>
+        <div style={{ 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '85vh',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <div className="spinner-border text-primary" role="status">
+            <span className="sr-only">Loading...</span>
+          </div>
+          <p>Checking permissions...</p>
+        </div>
+      </Container>
+    );
+  }
+
+  // Show access denied if no permission
+  if (!hasViewPermission) {
+    return (
+      <Container fluid>
+        <div style={{ 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '85vh',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <h3>Access Denied</h3>
+          <p>You do not have permission to view offers.</p>
+          <button
+            onClick={() => history.push('/admin/users')}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#74317e',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}
+          >
+            Back to Users
+          </button>
+        </div>
+      </Container>
+    );
+  }
 
   // Create Offer Modal Component
   const CreateOfferModal = ({ isOpen, onClose, onCreate }) => {
@@ -723,6 +922,61 @@ const Offers = () => {
     );
   };
 
+  // Show loading while checking permission
+  if (checkingViewPermission) {
+    return (
+      <Container fluid>
+        <div style={{ 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '85vh',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <div className="spinner-border text-primary" role="status">
+            <span className="sr-only">Loading...</span>
+          </div>
+          <p>Checking permissions...</p>
+        </div>
+      </Container>
+    );
+  }
+
+  // Show access denied if no permission
+  if (!hasViewPermission) {
+    return (
+      <Container fluid>
+        <div style={{ 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '85vh',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <h3>Access Denied</h3>
+          <p>You do not have permission to view offers.</p>
+          <button
+            onClick={() => history.push('/admin/users')}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#74317e',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}
+          >
+            Back to Users
+          </button>
+        </div>
+      </Container>
+    );
+  }
+
   if (!isAdmin) {
     return (
       <Container fluid>
@@ -777,39 +1031,41 @@ const Offers = () => {
                     Manage commission offers and promotions
                   </p>
                 </div>
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  title="Create New Offer"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px',
-                    padding: '12px 20px',
-                    backgroundColor: '#74317e',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    boxShadow: '0 2px 4px rgba(116,49,126,0.2)',
-                    fontSize: '14px',
-                    fontWeight: '500'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#5a2460';
-                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(116,49,126,0.3)';
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#74317e';
-                    e.currentTarget.style.boxShadow = '0 2px 4px rgba(116,49,126,0.2)';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                  }}
-                >
-                  <Plus size={20} />
-                  Create Offer
-                </button>
+                {!checkingPermissions && permissions.create && (
+                  <button
+                    onClick={() => setShowCreateModal(true)}
+                    title="Create New Offer"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      padding: '12px 20px',
+                      backgroundColor: '#74317e',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      boxShadow: '0 2px 4px rgba(116,49,126,0.2)',
+                      fontSize: '14px',
+                      fontWeight: '500'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#5a2460';
+                      e.currentTarget.style.boxShadow = '0 4px 8px rgba(116,49,126,0.3)';
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#74317e';
+                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(116,49,126,0.2)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                    }}
+                  >
+                    <Plus size={20} />
+                    Create Offer
+                  </button>
+                )}
               </div>
             </Card.Header>
 
@@ -907,7 +1163,7 @@ const Offers = () => {
                   <p style={{ fontSize: '16px', margin: 0 }}>
                     {searchQuery ? 'No offers found' : 'No offers yet'}
                   </p>
-                  {!searchQuery && (
+                  {!searchQuery && !checkingPermissions && permissions.create && (
                     <button
                       onClick={() => setShowCreateModal(true)}
                       style={{
@@ -940,7 +1196,9 @@ const Offers = () => {
                           <th>Start Date</th>
                           <th>End Date</th>
                           <th>Status</th>
-                          <th>Actions</th>
+                          {(permissions.update || permissions.delete) && (
+                            <th>Actions</th>
+                          )}
                         </tr>
                       </thead>
                       <tbody>
@@ -978,62 +1236,68 @@ const Offers = () => {
                                   {status}
                                 </Badge>
                               </td>
-                              <td>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                  <button
-                                    onClick={() => handleEditClick(offer)}
-                                    style={{
-                                      padding: '6px 12px',
-                                      backgroundColor: '#f3f4f6',
-                                      color: '#374151',
-                                      border: 'none',
-                                      borderRadius: '4px',
-                                      cursor: 'pointer',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '4px',
-                                      fontSize: '12px',
-                                      transition: 'all 0.2s'
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.backgroundColor = '#e5e7eb';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.backgroundColor = '#f3f4f6';
-                                    }}
-                                    title="Edit Offer"
-                                  >
-                                    <Edit2 size={14} />
-                                    Edit
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteClick(offer)}
-                                    style={{
-                                      padding: '6px 12px',
-                                      backgroundColor: '#fee2e2',
-                                      color: '#dc2626',
-                                      border: 'none',
-                                      borderRadius: '4px',
-                                      cursor: 'pointer',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '4px',
-                                      fontSize: '12px',
-                                      transition: 'all 0.2s'
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.backgroundColor = '#fecaca';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.backgroundColor = '#fee2e2';
-                                    }}
-                                    title="Delete Offer"
-                                  >
-                                    <Trash2 size={14} />
-                                    Delete
-                                  </button>
-                                </div>
-                              </td>
+                              {(permissions.update || permissions.delete) && (
+                                <td>
+                                  <div style={{ display: 'flex', gap: '8px' }}>
+                                    {permissions.update && (
+                                      <button
+                                        onClick={() => handleEditClick(offer)}
+                                        style={{
+                                          padding: '6px 12px',
+                                          backgroundColor: '#f3f4f6',
+                                          color: '#374151',
+                                          border: 'none',
+                                          borderRadius: '4px',
+                                          cursor: 'pointer',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '4px',
+                                          fontSize: '12px',
+                                          transition: 'all 0.2s'
+                                        }}
+                                        onMouseEnter={(e) => {
+                                          e.currentTarget.style.backgroundColor = '#e5e7eb';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                          e.currentTarget.style.backgroundColor = '#f3f4f6';
+                                        }}
+                                        title="Edit Offer"
+                                      >
+                                        <Edit2 size={14} />
+                                        Edit
+                                      </button>
+                                    )}
+                                    {permissions.delete && (
+                                      <button
+                                        onClick={() => handleDeleteClick(offer)}
+                                        style={{
+                                          padding: '6px 12px',
+                                          backgroundColor: '#fee2e2',
+                                          color: '#dc2626',
+                                          border: 'none',
+                                          borderRadius: '4px',
+                                          cursor: 'pointer',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '4px',
+                                          fontSize: '12px',
+                                          transition: 'all 0.2s'
+                                        }}
+                                        onMouseEnter={(e) => {
+                                          e.currentTarget.style.backgroundColor = '#fecaca';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                          e.currentTarget.style.backgroundColor = '#fee2e2';
+                                        }}
+                                        title="Delete Offer"
+                                      >
+                                        <Trash2 size={14} />
+                                        Delete
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              )}
                             </tr>
                           );
                         })}

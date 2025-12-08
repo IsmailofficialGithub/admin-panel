@@ -12,6 +12,8 @@ import {
   updateConsumerAccountStatus,
   grantLifetimeAccess
 } from '../api/backend';
+import { checkUserPermissionsBulk, checkUserPermission } from '../api/backend/permissions';
+import { useAuth } from '../hooks/useAuth';
 import CreateConsumerModal from '../components/ui/createConsumerModel';
 import UpdateConsumerModal from '../components/ui/updateConsumerModel';
 import DeleteModal from '../components/ui/deleteModel';
@@ -20,6 +22,7 @@ import CreateInvoiceModal from '../components/ui/createInvoiceModal';
 const Consumers = () => {
   const location = useLocation();
   const history = useHistory();
+  const { user, profile } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -47,6 +50,16 @@ const Consumers = () => {
   const [extendTrialData, setExtendTrialData] = useState(null);
   const [extendTrialDays, setExtendTrialDays] = useState('');
   const [isExtendingTrial, setIsExtendingTrial] = useState(false);
+  const [permissions, setPermissions] = useState({
+    create: false, // Start as false, update after checking
+    delete: false,
+    update: false,
+    read: false,
+    invoiceCreate: false,
+  });
+  const [hasViewPermission, setHasViewPermission] = useState(false); // Start as false
+  const [checkingViewPermission, setCheckingViewPermission] = useState(true);
+  const [checkingPermissions, setCheckingPermissions] = useState(true); // Track permission checking state
   const usersPerPage = 20;
 
   // Read status from URL parameters on mount and when location changes
@@ -69,8 +82,105 @@ const Consumers = () => {
     return () => clearTimeout(debounceTimer);
   }, [searchInput]);
 
-  // Fetch consumers from backend API with filters
+  // Check consumers.view permission first (required to access the page)
   useEffect(() => {
+    const checkViewPermission = async () => {
+      if (!user || !profile) {
+        setHasViewPermission(false);
+        setCheckingViewPermission(false);
+        return;
+      }
+
+      try {
+        // Systemadmins have all permissions
+        if (profile.is_systemadmin === true) {
+          setHasViewPermission(true);
+          setCheckingViewPermission(false);
+          return;
+        }
+
+        // Check if user has consumers.view permission
+        const hasPermission = await checkUserPermission(user.id, 'consumers.view');
+        setHasViewPermission(hasPermission === true);
+        
+        // Redirect if no permission
+        if (!hasPermission) {
+          toast.error('You do not have permission to view consumers.');
+          setTimeout(() => {
+            history.push('/admin/users');
+          }, 500);
+        }
+      } catch (error) {
+        console.error('Error checking consumers.view permission:', error);
+        setHasViewPermission(false);
+        toast.error('Error checking permissions. Access denied.');
+        setTimeout(() => {
+          history.push('/admin/users');
+        }, 500);
+      } finally {
+        setCheckingViewPermission(false);
+      }
+    };
+
+    checkViewPermission();
+  }, [user, profile, history]);
+
+  // Check multiple permissions at once (optimized bulk check)
+  useEffect(() => {
+    // Only check other permissions if user has view permission
+    if (checkingViewPermission || !hasViewPermission) {
+      return;
+    }
+
+    const checkPermissions = async () => {
+      setCheckingPermissions(true); // Start checking
+      if (!user || !profile) {
+        setPermissions({ create: false, delete: false, update: false, read: false, invoiceCreate: false });
+        setCheckingPermissions(false);
+        return;
+      }
+
+      try {
+        // Systemadmins have all permissions
+        if (profile.is_systemadmin === true) {
+          setPermissions({ create: true, delete: true, update: true, read: true, invoiceCreate: true });
+          setCheckingPermissions(false);
+          return;
+        }
+
+        // Check multiple permissions in a single optimized API call
+        const permissionResults = await checkUserPermissionsBulk(user.id, [
+          'consumers.create',
+          'consumers.delete',
+          'consumers.update',
+          'consumers.read',
+          'invoices.create'
+        ]);
+        setPermissions({
+          create: permissionResults['consumers.create'] === true,
+          delete: permissionResults['consumers.delete'] === true,
+          update: permissionResults['consumers.update'] === true,
+          read: permissionResults['consumers.read'] === true,
+          invoiceCreate: permissionResults['invoices.create'] === true
+        });
+      } catch (error) {
+        console.error('Error checking consumer permissions:', error);
+        setPermissions({ create: false, delete: false, update: false, read: false, invoiceCreate: false });
+      } finally {
+        setCheckingPermissions(false); // Done checking
+      }
+    };
+
+    checkPermissions();
+  }, [user, profile, checkingViewPermission, hasViewPermission]);
+
+  // Fetch consumers from backend API with filters (only if user has view permission)
+  useEffect(() => {
+    // Don't fetch if still checking permission or if user doesn't have permission
+    if (checkingViewPermission || !hasViewPermission) {
+      return;
+    }
+
     const fetchConsumers = async () => {
       try {
         setLoading(true);
@@ -95,7 +205,7 @@ const Consumers = () => {
     };
 
     fetchConsumers();
-  }, [accountStatusFilter, searchQuery]);
+  }, [accountStatusFilter, searchQuery, checkingViewPermission, hasViewPermission]);
 
   const indexOfLastUser = currentPage * usersPerPage;
   const indexOfFirstUser = indexOfLastUser - usersPerPage;
@@ -104,6 +214,30 @@ const Consumers = () => {
 
   const handleAction = async (action, userId, userName) => {
     setOpenDropdown(null);
+    
+    // Check permission for delete action
+    if (action === 'Delete' && !permissions.delete) {
+      toast.error('You do not have permission to delete consumers.');
+      return;
+    }
+
+    // Check permission for read-related actions
+    if (action === 'View Details' && !permissions.read) {
+      toast.error('You do not have permission to view consumer details.');
+      return;
+    }
+
+    // Check permission for invoice creation
+    if (action === 'Create Invoice' && !permissions.invoiceCreate) {
+      toast.error('You do not have permission to create invoices.');
+      return;
+    }
+
+    // Check permission for update-related actions
+    if ((action === 'Update' || action === 'Update Status' || action === 'Reset Password') && !permissions.update) {
+      toast.error('You do not have permission to update consumers.');
+      return;
+    }
     
     if (action === 'View Details') {
       history.push(`/admin/consumers/${userId}`);
@@ -123,7 +257,6 @@ const Consumers = () => {
           created_at: consumer.created_at,
           subscribed_products: consumer.subscribed_products || []
         });
-        console.log('Setting consumer for update with subscribed_products:', consumer.subscribed_products);
         setIsUpdateModalOpen(true);
       }
     } else if (action === 'Delete') {
@@ -253,6 +386,14 @@ const Consumers = () => {
 
   const handleUpdateConsumer = async (updatedConsumer) => {
     try {
+      // Check permission before updating
+      if (!permissions.update) {
+        toast.error('You do not have permission to update consumers.');
+        setIsUpdateModalOpen(false);
+        setSelectedConsumer(null);
+        return;
+      }
+
       const loadingToast = toast.loading(`Updating consumer ${updatedConsumer.full_name || updatedConsumer.email}...`);
       
       // Call API to update consumer using user_id
@@ -303,6 +444,14 @@ const Consumers = () => {
     try {
       if (!deleteUserData) return;
 
+      // Check permission before deletion
+      if (!permissions.delete) {
+        toast.error('You do not have permission to delete consumers.');
+        setShowDeleteModal(false);
+        setDeleteUserData(null);
+        return;
+      }
+
       setIsDeleting(true);
       const loadingToast = toast.loading(`Deleting consumer "${deleteUserData.name || deleteUserData.id}"...`);
 
@@ -344,6 +493,15 @@ const Consumers = () => {
   const handleConfirmStatusUpdate = async () => {
     try {
       if (!statusUpdateData || !selectedStatus) return;
+
+      // Check permission before updating status
+      if (!permissions.update) {
+        toast.error('You do not have permission to update consumers.');
+        setShowStatusConfirmModal(false);
+        setStatusUpdateData(null);
+        setSelectedStatus('');
+        return;
+      }
 
       setIsUpdatingStatus(true);
       const loadingToast = toast.loading(`Updating account status for "${statusUpdateData.name || statusUpdateData.id}"...`);
@@ -710,35 +868,37 @@ const Consumers = () => {
                   Manage your consumers and their permissions
                 </p>
               </div>
-              <button
-                onClick={() => setIsCreateModalOpen(true)}
-                title="Create New Consumer"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '12px',
-                  backgroundColor: '#74317e',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  boxShadow: '0 2px 4px rgba(0,123,255,0.2)'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#5a2460';
-                  e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,123,255,0.3)';
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#74317e';
-                  e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,123,255,0.2)';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }}
-              >
-                <UserPlus size={20} />
-              </button>
+              {!checkingPermissions && permissions.create && (
+                <button
+                  onClick={() => setIsCreateModalOpen(true)}
+                  title="Create New Consumer"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '12px',
+                    backgroundColor: '#74317e',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    boxShadow: '0 2px 4px rgba(0,123,255,0.2)'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#5a2460';
+                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,123,255,0.3)';
+                    e.currentTarget.style.transform = 'translateY(-1px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#74317e';
+                    e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,123,255,0.2)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                >
+                  <UserPlus size={20} />
+                </button>
+              )}
             </div>
 
             {/* Filters and Search Row */}
@@ -1040,15 +1200,18 @@ const Consumers = () => {
                     textTransform: 'uppercase',
                     letterSpacing: '0.5px'
                   }}>CREATED AT</th>
-                  <th style={{ 
-                    padding: '15px 24px', 
-                    textAlign: 'center',
-                    color: '#555', 
-                    fontWeight: '600', 
-                    fontSize: '13px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px'
-                  }}>ACTIONS</th>
+                  {/* Only show ACTIONS header if user has at least one permission */}
+                  {!checkingPermissions && (permissions.read || permissions.update || permissions.delete || permissions.invoiceCreate) && (
+                    <th style={{ 
+                      padding: '15px 24px', 
+                      textAlign: 'center',
+                      color: '#555', 
+                      fontWeight: '600', 
+                      fontSize: '13px',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px'
+                    }}>ACTIONS</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -1132,34 +1295,40 @@ const Consumers = () => {
                         day: 'numeric' 
                       }) : '-'}
                     </td>
-                    <td style={{ padding: '15px 24px', textAlign: 'center', position: 'relative' }}>
-                      <button
-                        ref={(el) => {
-                          if (el) actionButtonRefs.current[userId] = el;
-                        }}
-                        onClick={() => toggleDropdown(userId)}
-                        style={{
-                          backgroundColor: 'white',
-                          border: '1px solid #e0e0e0',
-                          borderRadius: '6px',
-                          padding: '6px 10px',
-                          cursor: 'pointer',
-                          color: '#666',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          transition: 'all 0.2s'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = '#f8f9fa';
-                          e.currentTarget.style.borderColor = '#ccc';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = 'white';
-                          e.currentTarget.style.borderColor = '#e0e0e0';
-                        }}
-                      >
-                        <MoreVertical size={18} />
-                      </button>
+                      {/* Only show actions column if user has at least one permission */}
+                      {!checkingPermissions && (permissions.read || permissions.update || permissions.delete || permissions.invoiceCreate) && (
+                        <td style={{ padding: '15px 24px', textAlign: 'center', position: 'relative' }}>
+                          {/* Only show action dots if user has at least one permission */}
+                          {!checkingPermissions && (permissions.read || permissions.create || permissions.update || permissions.delete || permissions.invoiceCreate) && (
+                        <button
+                          ref={(el) => {
+                            if (el) actionButtonRefs.current[userId] = el;
+                          }}
+                          onClick={() => toggleDropdown(userId)}
+                          style={{
+                            backgroundColor: 'white',
+                            border: '1px solid #e0e0e0',
+                            borderRadius: '6px',
+                            padding: '6px 10px',
+                            cursor: 'pointer',
+                            color: '#666',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            transition: 'all 0.2s'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#f8f9fa';
+                            e.currentTarget.style.borderColor = '#ccc';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'white';
+                            e.currentTarget.style.borderColor = '#e0e0e0';
+                          }}
+                        >
+                          <MoreVertical size={18} />
+                          
+                        </button>
+                      )}
                       
                       {openDropdown === userId && (
                         <div style={{
@@ -1176,125 +1345,147 @@ const Consumers = () => {
                           zIndex: 1000,
                           minWidth: '180px'
                         }}>
-                          <button
-                            onClick={() => handleAction('View Details', userId, user.full_name)}
-                            style={{
-                              width: '100%',
-                              padding: '10px 16px',
-                              border: 'none',
-                              backgroundColor: 'transparent',
-                              textAlign: 'left',
-                              cursor: 'pointer',
-                              fontSize: '14px',
-                              color: '#74317e',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                              transition: 'background-color 0.2s'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                          >
-                            <Eye size={16} />
-                            View Details
-                          </button>
-                          <div style={{ 
-                            height: '1px', 
-                            backgroundColor: '#e0e0e0', 
-                            margin: '4px 0' 
-                          }} />
-                          <button
-                            onClick={() => handleAction('Update', userId, user.full_name)}
-                            style={{
-                              width: '100%',
-                              padding: '10px 16px',
-                              border: 'none',
-                              backgroundColor: 'transparent',
-                              textAlign: 'left',
-                              cursor: 'pointer',
-                              fontSize: '14px',
-                              color: '#333',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                              transition: 'background-color 0.2s'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                          >
-                            <Edit size={16} />
-                            Update
-                          </button>
-                          <button
-                            onClick={() => handleAction('Update Status', userId, user.full_name)}
-                            style={{
-                              width: '100%',
-                              padding: '10px 16px',
-                              border: 'none',
-                              backgroundColor: 'transparent',
-                              textAlign: 'left',
-                              cursor: 'pointer',
-                              fontSize: '14px',
-                              color: '#333',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                              transition: 'background-color 0.2s'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                          >
-                            <CheckCircle size={16} />
-                            Update Status
-                          </button>
-                          <button
-                            onClick={() => handleAction('Reset Password', userId, user.full_name)}
-                            style={{
-                              width: '100%',
-                              padding: '10px 16px',
-                              border: 'none',
-                              backgroundColor: 'transparent',
-                              textAlign: 'left',
-                              cursor: 'pointer',
-                              fontSize: '14px',
-                              color: '#333',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                              transition: 'background-color 0.2s'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                          >
-                            <Key size={16} />
-                            Reset Password
-                          </button>
-                          <button
-                            onClick={() => handleAction('Create Invoice', userId, user.full_name)}
-                            style={{
-                              width: '100%',
-                              padding: '10px 16px',
-                              border: 'none',
-                              backgroundColor: 'transparent',
-                              textAlign: 'left',
-                              cursor: 'pointer',
-                              fontSize: '14px',
-                              color: '#74317e',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                              transition: 'background-color 0.2s'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                          >
-                            <FileText size={16} />
-                            Create Invoice
-                          </button>
-                          <button
-                            onClick={() => handleAction('Extend Trial', userId, user.full_name)}
-                            disabled={user.lifetime_access === true}
-                            style={{
+                          {permissions.read && (
+                            <button
+                              onClick={() => handleAction('View Details', userId, user.full_name)}
+                              style={{
+                                width: '100%',
+                                padding: '10px 16px',
+                                border: 'none',
+                                backgroundColor: 'transparent',
+                                textAlign: 'left',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                color: '#74317e',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                transition: 'background-color 0.2s'
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                            >
+                              <Eye size={16} />
+                              View Details
+                            </button>
+                          )}
+                          {permissions.update && (
+                            <>
+                              <div style={{ 
+                                height: '1px', 
+                                backgroundColor: '#e0e0e0', 
+                                margin: '4px 0' 
+                              }} />
+                              <button
+                                onClick={() => handleAction('Update', userId, user.full_name)}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px 16px',
+                                  border: 'none',
+                                  backgroundColor: 'transparent',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  color: '#333',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  transition: 'background-color 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                              >
+                                <Edit size={16} />
+                                Update
+                              </button>
+                              <button
+                                onClick={() => handleAction('Update Status', userId, user.full_name)}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px 16px',
+                                  border: 'none',
+                                  backgroundColor: 'transparent',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  color: '#333',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  transition: 'background-color 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                              >
+                                <CheckCircle size={16} />
+                                Update Status
+                              </button>
+                              <button
+                                onClick={() => handleAction('Reset Password', userId, user.full_name)}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px 16px',
+                                  border: 'none',
+                                  backgroundColor: 'transparent',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  color: '#333',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  transition: 'background-color 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                              >
+                                <Key size={16} />
+                                Reset Password
+                              </button>
+                            </>
+                          )}
+                          {permissions.invoiceCreate && (
+                            <>
+                              <div style={{ 
+                                height: '1px', 
+                                backgroundColor: '#e0e0e0', 
+                                margin: '4px 0' 
+                              }} />
+                              <button
+                                onClick={() => handleAction('Create Invoice', userId, user.full_name)}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px 16px',
+                                  border: 'none',
+                                  backgroundColor: 'transparent',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  color: '#74317e',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  transition: 'background-color 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                              >
+                                <FileText size={16} />
+                                Create Invoice
+                              </button>
+                            </>
+                          )}
+                          {permissions.update && (
+                            <>
+                              <div style={{ 
+                                height: '1px', 
+                                backgroundColor: '#e0e0e0', 
+                                margin: '4px 0' 
+                              }} />
+                              <button
+                                onClick={() => handleAction('Extend Trial', userId, user.full_name)}
+                                disabled={user.lifetime_access === true}
+                                style={{
                               width: '100%',
                               padding: '10px 16px',
                               border: 'none',
@@ -1348,36 +1539,43 @@ const Consumers = () => {
                             <CheckCircle size={16} />
                             Grant Lifetime Access
                           </button>
-                          <div style={{ 
-                            height: '1px', 
-                            backgroundColor: '#e0e0e0', 
-                            margin: '4px 0' 
-                          }} />
-                          <button
-                            onClick={() => handleAction('Delete', userId, user.full_name)}
-                            style={{
-                              width: '100%',
-                              padding: '10px 16px',
-                              border: 'none',
-                              backgroundColor: 'transparent',
-                              textAlign: 'left',
-                              cursor: 'pointer',
-                              fontSize: '14px',
-                              color: '#dc3545',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                              transition: 'background-color 0.2s'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fff5f5'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                          >
-                            <Trash2 size={16} />
-                            Delete
-                          </button>
+                            </>
+                          )}
+                          {permissions.delete && (
+                            <>
+                              <div style={{ 
+                                height: '1px', 
+                                backgroundColor: '#e0e0e0', 
+                                margin: '4px 0' 
+                              }} />
+                              <button
+                                onClick={() => handleAction('Delete', userId, user.full_name)}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px 16px',
+                                  border: 'none',
+                                  backgroundColor: 'transparent',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  color: '#dc3545',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  transition: 'background-color 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fff5f5'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                              >
+                                <Trash2 size={16} />
+                                Delete
+                              </button>
+                            </>
+                          )}
                         </div>
                       )}
-                    </td>
+                      </td>
+                    )}
                   </tr>
                   );
                 })}

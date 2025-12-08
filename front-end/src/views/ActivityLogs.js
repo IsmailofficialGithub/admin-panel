@@ -3,8 +3,13 @@ import { Container, Row, Col, Card } from 'react-bootstrap';
 import { Activity, Search, Filter, ChevronLeft, ChevronRight, User, Calendar, Globe, Trash2, Edit2, Plus, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getActivityLogs } from '../api/backend';
+import { checkUserPermission } from '../api/backend/permissions';
+import { useAuth } from '../hooks/useAuth';
+import { useHistory } from 'react-router-dom';
 
 const ActivityLogs = () => {
+  const history = useHistory();
+  const { user, profile } = useAuth();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -17,11 +22,61 @@ const ActivityLogs = () => {
   });
   const [totalPages, setTotalPages] = useState(1);
   const [totalLogs, setTotalLogs] = useState(0);
+  const [hasViewPermission, setHasViewPermission] = useState(true); // Optimistic: show while checking
+  const [checkingViewPermission, setCheckingViewPermission] = useState(true);
+
+  // Check activity_logs.view permission first (required to access the page)
+  useEffect(() => {
+    const checkViewPermission = async () => {
+      if (!user || !profile) {
+        setHasViewPermission(false);
+        setCheckingViewPermission(false);
+        return;
+      }
+
+      try {
+        // Systemadmins have all permissions
+        if (profile.is_systemadmin === true) {
+          setHasViewPermission(true);
+          setCheckingViewPermission(false);
+          return;
+        }
+
+        // Check if user has activity_logs.view permission
+        const hasPermission = await checkUserPermission(user.id, 'activity_logs.view');
+        setHasViewPermission(hasPermission === true);
+        
+        // Redirect if no permission
+        if (!hasPermission) {
+          toast.error('You do not have permission to view activity logs.');
+          setTimeout(() => {
+            history.push('/admin/users');
+          }, 500);
+        }
+      } catch (error) {
+        console.error('Error checking activity_logs.view permission:', error);
+        setHasViewPermission(false);
+        toast.error('Error checking permissions. Access denied.');
+        setTimeout(() => {
+          history.push('/admin/users');
+        }, 500);
+      } finally {
+        setCheckingViewPermission(false);
+      }
+    };
+
+    checkViewPermission();
+  }, [user, profile, history]);
 
   useEffect(() => {
+    // Only fetch if user has view permission
+    if (checkingViewPermission || !hasViewPermission) {
+      return;
+    }
+
     setExpandedLogs(new Set()); // Reset expanded logs when filters change
     fetchActivityLogs();
-  }, [filters]);
+  }, [filters, checkingViewPermission, hasViewPermission]);
 
   const fetchActivityLogs = async () => {
     setLoading(true);
@@ -160,6 +215,61 @@ const ActivityLogs = () => {
       </div>
     );
   };
+
+  // Show loading while checking permission
+  if (checkingViewPermission) {
+    return (
+      <Container fluid>
+        <div style={{ 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '85vh',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <div className="spinner-border text-primary" role="status">
+            <span className="sr-only">Loading...</span>
+          </div>
+          <p>Checking permissions...</p>
+        </div>
+      </Container>
+    );
+  }
+
+  // Show access denied if no permission
+  if (!hasViewPermission) {
+    return (
+      <Container fluid>
+        <div style={{ 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '85vh',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <h3>Access Denied</h3>
+          <p>You do not have permission to view activity logs.</p>
+          <button
+            onClick={() => history.push('/admin/users')}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#74317e',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}
+          >
+            Back to Users
+          </button>
+        </div>
+      </Container>
+    );
+  }
 
   return (
     <Container fluid>

@@ -65,12 +65,20 @@ const Permissions = () => {
   const [selectedRole, setSelectedRole] = useState("admin");
   const [rolePermissions, setRolePermissions] = useState({});
   const [selectedRolePermissions, setSelectedRolePermissions] = useState([]);
+  const [rolePermissionsPage, setRolePermissionsPage] = useState(1);
+  const [rolePermissionsPerPage] = useState(20);
+  const [allPermissionsForRoles, setAllPermissionsForRoles] = useState([]); // All permissions for role permissions tab
+  const [rolePermissionsSearchQuery, setRolePermissionsSearchQuery] = useState(""); // Search filter for role permissions
+  const [allPermissionsForUsers, setAllPermissionsForUsers] = useState([]); // All permissions for user permissions tab
+  const [userPermissionsSearchQuery, setUserPermissionsSearchQuery] = useState(""); // Search filter for user permissions
 
   // User permissions state
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [userPermissions, setUserPermissions] = useState([]);
   const [searchUserQuery, setSearchUserQuery] = useState("");
+  const [userPermissionsPage, setUserPermissionsPage] = useState(1);
+  const [userPermissionsPerPage] = useState(20);
 
   // System admin state
   const [systemAdminUsers, setSystemAdminUsers] = useState([]);
@@ -95,19 +103,58 @@ const Permissions = () => {
     }
   }, [resourceFilter, actionFilter, activeTab]);
 
+  // Fetch all permissions for role permissions tab when roles tab is active
+  useEffect(() => {
+    if (isSystemAdmin && activeTab === "roles") {
+      fetchAllPermissionsForRoles();
+    }
+  }, [isSystemAdmin, activeTab]);
+
   // Fetch role permissions when role changes AND roles tab is active
   useEffect(() => {
     if (isSystemAdmin && selectedRole && activeTab === "roles") {
       fetchRolePermissions(selectedRole);
+      setRolePermissionsPage(1); // Reset to page 1 when role changes
     }
   }, [isSystemAdmin, selectedRole, activeTab]);
+
+  // Reset role permissions search and page when tab changes
+  useEffect(() => {
+    if (activeTab === "roles") {
+      setRolePermissionsSearchQuery("");
+      setRolePermissionsPage(1);
+    }
+  }, [activeTab]);
+
+  // Reset role permissions page when search query changes
+  useEffect(() => {
+    if (activeTab === "roles") {
+      setRolePermissionsPage(1);
+    }
+  }, [rolePermissionsSearchQuery, activeTab]);
 
   // Fetch users for user permissions tab
   useEffect(() => {
     if (isSystemAdmin && activeTab === "users") {
       fetchUsers();
+      fetchAllPermissionsForUsers();
     }
   }, [isSystemAdmin, activeTab]);
+
+  // Reset user permissions page and search when tab or user changes
+  useEffect(() => {
+    if (activeTab === "users") {
+      setUserPermissionsPage(1);
+      setUserPermissionsSearchQuery("");
+    }
+  }, [activeTab, selectedUser]);
+
+  // Reset user permissions page when search query changes
+  useEffect(() => {
+    if (activeTab === "users") {
+      setUserPermissionsPage(1);
+    }
+  }, [userPermissionsSearchQuery, activeTab]);
 
   // Fetch users for system admin tab
   useEffect(() => {
@@ -229,6 +276,62 @@ const Permissions = () => {
     actionFilter,
     fetchPermissions,
   ]);
+
+  // Fetch all permissions for role permissions tab (unfiltered)
+  const fetchAllPermissionsForRoles = async () => {
+    try {
+      setLoading(true);
+      // Fetch all permissions without pagination or filters
+      const result = await getAllPermissions({
+        page: 1,
+        limit: 1000, // Large limit to get all permissions
+        resource: undefined,
+        action: undefined,
+      });
+
+      if (result.error) {
+        toast.error(result.error);
+        setAllPermissionsForRoles([]);
+      } else {
+        const permissionsList = Array.isArray(result.data) ? result.data : [];
+        setAllPermissionsForRoles(permissionsList);
+      }
+    } catch (error) {
+      toast.error("Failed to fetch permissions");
+      console.error(error);
+      setAllPermissionsForRoles([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch all permissions for user permissions tab (unfiltered)
+  const fetchAllPermissionsForUsers = async () => {
+    try {
+      setLoading(true);
+      // Fetch all permissions without pagination or filters
+      const result = await getAllPermissions({
+        page: 1,
+        limit: 1000, // Large limit to get all permissions
+        resource: undefined,
+        action: undefined,
+      });
+
+      if (result.error) {
+        toast.error(result.error);
+        setAllPermissionsForUsers([]);
+      } else {
+        const permissionsList = Array.isArray(result.data) ? result.data : [];
+        setAllPermissionsForUsers(permissionsList);
+      }
+    } catch (error) {
+      toast.error("Failed to fetch permissions");
+      console.error(error);
+      setAllPermissionsForUsers([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchRolePermissions = async (role) => {
     try {
@@ -357,7 +460,7 @@ const Permissions = () => {
         const result = await removePermissionsFromRole(selectedRole, toRemove);
         if (result.error) {
           toast.error(result.error);
-          return;
+            return;
         }
       }
 
@@ -396,15 +499,51 @@ const Permissions = () => {
 
     try {
       setLoading(true);
+      
+      // Convert permission names/identifiers to permission IDs (UUIDs)
+      // The userPermissions array may contain permission names or IDs
+      const permissionIds = userPermissions
+        .map(permIdentifier => {
+          // If it's already a UUID (matches UUID pattern), return it
+          const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          if (typeof permIdentifier === 'string' && uuidPattern.test(permIdentifier)) {
+            return permIdentifier;
+          }
+          
+          // Otherwise, find the permission by name, id, or resource.action format
+          const permission = permissions.find(p => 
+            p.id === permIdentifier || 
+            p.name === permIdentifier ||
+            `${p.resource}.${p.action}` === permIdentifier
+          );
+          
+          if (permission && permission.id) {
+            return permission.id;
+          }
+          
+          // If we can't find it, log a warning and return null (will be filtered out)
+          console.warn(`Could not find permission ID for: ${permIdentifier}`);
+          return null;
+        })
+        .filter(Boolean); // Remove null values
+      
+      if (permissionIds.length === 0) {
+        toast.error("No valid permission IDs found. Please select at least one permission.");
+        return;
+      }
+      
+      
       const result = await assignPermissionsToUser(
         selectedUser.user_id || selectedUser.id,
-        userPermissions,
+        permissionIds,
         true
       );
       if (result.error) {
         toast.error(result.error);
       } else {
         toast.success("User permissions updated successfully");
+        // Refresh user permissions to get the updated list
+        await fetchUserPermissions(selectedUser.user_id || selectedUser.id);
       }
     } catch (error) {
       toast.error("Failed to save user permissions");
@@ -890,9 +1029,17 @@ const Permissions = () => {
               <div
                 style={{
                   display: "flex",
-                  gap: "12px",
+                  flexDirection: "column",
+                  gap: "16px",
                   marginBottom: "24px",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "12px",
                   alignItems: "center",
+                    flexWrap: "wrap",
                 }}
               >
                 <label style={{ fontWeight: "600", minWidth: "80px" }}>
@@ -937,6 +1084,68 @@ const Permissions = () => {
                 </button>
               </div>
 
+                {/* Search Filter for Role Permissions */}
+                <div style={{ position: "relative", maxWidth: "400px" }}>
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: "12px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      color: "#9ca3af",
+                    }}
+                  >
+                    <Search size={18} />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search permissions by name, resource, or action..."
+                    value={rolePermissionsSearchQuery}
+                    onChange={(e) => setRolePermissionsSearchQuery(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px 10px 40px",
+                      border: "1px solid #ddd",
+                      borderRadius: "6px",
+                      fontSize: "14px",
+                      outline: "none",
+                      transition: "all 0.2s",
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = "#74317e";
+                      e.target.style.boxShadow = "0 0 0 3px rgba(116, 49, 126, 0.1)";
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = "#ddd";
+                      e.target.style.boxShadow = "none";
+                    }}
+                  />
+                </div>
+              </div>
+
+              {(() => {
+                // Filter permissions based on search query
+                let filteredRolePermissions = allPermissionsForRoles;
+                if (rolePermissionsSearchQuery) {
+                  const query = rolePermissionsSearchQuery.toLowerCase();
+                  filteredRolePermissions = allPermissionsForRoles.filter(
+                    (p) =>
+                      p.name?.toLowerCase().includes(query) ||
+                      p.resource?.toLowerCase().includes(query) ||
+                      p.action?.toLowerCase().includes(query) ||
+                      p.description?.toLowerCase().includes(query)
+                  );
+                }
+
+                // Calculate pagination for role permissions
+                const rolePermissionsTotal = filteredRolePermissions.length;
+                const rolePermissionsStartIndex = (rolePermissionsPage - 1) * rolePermissionsPerPage;
+                const rolePermissionsEndIndex = rolePermissionsStartIndex + rolePermissionsPerPage;
+                const paginatedRolePermissions = filteredRolePermissions.slice(rolePermissionsStartIndex, rolePermissionsEndIndex);
+                const rolePermissionsTotalPages = Math.ceil(rolePermissionsTotal / rolePermissionsPerPage);
+
+                return (
+                  <>
               <div
                 style={{
                   display: "grid",
@@ -947,7 +1156,8 @@ const Permissions = () => {
                   padding: "8px",
                 }}
               >
-                {permissions.map((permission) => {
+                      {paginatedRolePermissions.length > 0 ? (
+                        paginatedRolePermissions.map((permission) => {
                   const isSelected = selectedRolePermissions.includes(
                     permission.id
                   );
@@ -995,8 +1205,100 @@ const Permissions = () => {
                       </div>
                     </div>
                   );
-                })}
+                        })
+                      ) : (
+                        <div
+                          style={{
+                            gridColumn: "1 / -1",
+                            textAlign: "center",
+                            padding: "40px",
+                            color: "#666",
+                          }}
+                        >
+                          {rolePermissionsSearchQuery
+                            ? `No permissions found matching "${rolePermissionsSearchQuery}"`
+                            : "No permissions available"}
               </div>
+                      )}
+              </div>
+
+                    {/* Pagination Controls for Role Permissions */}
+                    {rolePermissionsTotal > 0 && (
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          marginTop: "24px",
+                          padding: "16px",
+                          borderTop: "1px solid #e0e0e0",
+                        }}
+                      >
+                        <div style={{ fontSize: "14px", color: "#666" }}>
+                          Showing {rolePermissionsStartIndex + 1} to{" "}
+                          {Math.min(rolePermissionsEndIndex, rolePermissionsTotal)} of{" "}
+                          {rolePermissionsTotal} permission{rolePermissionsTotal !== 1 ? 's' : ''}
+                        </div>
+                        {rolePermissionsTotalPages > 1 && (
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: "8px",
+                              alignItems: "center",
+                            }}
+                          >
+                            <button
+                              onClick={() =>
+                                setRolePermissionsPage((prev) => Math.max(1, prev - 1))
+                              }
+                              disabled={rolePermissionsPage === 1}
+                              style={{
+                                padding: "8px 12px",
+                                backgroundColor:
+                                  rolePermissionsPage === 1 ? "#f0f0f0" : "white",
+                                color: rolePermissionsPage === 1 ? "#999" : "#333",
+                                border: "1px solid #ddd",
+                                borderRadius: "6px",
+                                cursor: rolePermissionsPage === 1 ? "not-allowed" : "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                            >
+                              <ChevronLeft size={16} />
+                              Previous
+                            </button>
+                            <div style={{ fontSize: "14px", color: "#666" }}>
+                              Page {rolePermissionsPage} of {rolePermissionsTotalPages}
+                            </div>
+                            <button
+                              onClick={() =>
+                                setRolePermissionsPage((prev) => Math.min(rolePermissionsTotalPages, prev + 1))
+                              }
+                              disabled={rolePermissionsPage === rolePermissionsTotalPages}
+                              style={{
+                                padding: "8px 12px",
+                                backgroundColor:
+                                  rolePermissionsPage === rolePermissionsTotalPages ? "#f0f0f0" : "white",
+                                color: rolePermissionsPage === rolePermissionsTotalPages ? "#999" : "#333",
+                                border: "1px solid #ddd",
+                                borderRadius: "6px",
+                                cursor: rolePermissionsPage === rolePermissionsTotalPages ? "not-allowed" : "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                            >
+                              Next
+                              <ChevronRight size={16} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
 
@@ -1133,7 +1435,91 @@ const Permissions = () => {
                       Save User Permissions
                     </button>
 
+                    {/* Search Input for User Permissions */}
+                    <div style={{ marginBottom: "20px" }}>
+                      <div style={{ position: "relative" }}>
+                        <Search
+                          size={18}
+                          style={{
+                            position: "absolute",
+                            left: "12px",
+                            top: "50%",
+                            transform: "translateY(-50%)",
+                            color: "#999",
+                          }}
+                        />
+                        <input
+                          type="text"
+                          placeholder="Search permissions by name, resource, action, or description..."
+                          value={userPermissionsSearchQuery}
+                          onChange={(e) => setUserPermissionsSearchQuery(e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "10px 12px 10px 40px",
+                            border: "1px solid #ddd",
+                            borderRadius: "6px",
+                            fontSize: "14px",
+                            outline: "none",
+                          }}
+                        />
+                      </div>
+                    </div>
+
                     {/* Permissions List */}
+                    {(() => {
+                      // Filter permissions based on search query
+                      let filteredUserPermissions = allPermissionsForUsers;
+                      
+                      if (userPermissionsSearchQuery) {
+                        const query = userPermissionsSearchQuery.toLowerCase();
+                        filteredUserPermissions = allPermissionsForUsers.filter(
+                          (p) =>
+                            p.name?.toLowerCase().includes(query) ||
+                            p.resource?.toLowerCase().includes(query) ||
+                            p.action?.toLowerCase().includes(query) ||
+                            p.description?.toLowerCase().includes(query)
+                        );
+                      }
+
+                      // Calculate pagination for user permissions
+                      const userPermissionsTotal = filteredUserPermissions.length;
+                      const userPermissionsStartIndex = (userPermissionsPage - 1) * userPermissionsPerPage;
+                      const userPermissionsEndIndex = userPermissionsStartIndex + userPermissionsPerPage;
+                      const paginatedUserPermissions = filteredUserPermissions.slice(userPermissionsStartIndex, userPermissionsEndIndex);
+                      const userPermissionsTotalPages = Math.ceil(userPermissionsTotal / userPermissionsPerPage);
+
+                      // Show empty state if no permissions
+                      if (allPermissionsForUsers.length === 0 && !loading) {
+                        return (
+                          <div
+                            style={{
+                              textAlign: "center",
+                              padding: "40px",
+                              color: "#999",
+                            }}
+                          >
+                            No permissions available
+                          </div>
+                        );
+                      }
+
+                      // Show no results message if search returns nothing
+                      if (allPermissionsForUsers.length > 0 && filteredUserPermissions.length === 0) {
+                        return (
+                          <div
+                            style={{
+                              textAlign: "center",
+                              padding: "40px",
+                              color: "#999",
+                            }}
+                          >
+                            No permissions found matching "{userPermissionsSearchQuery}"
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <>
                     <div
                       style={{
                         display: "grid",
@@ -1144,7 +1530,7 @@ const Permissions = () => {
                         padding: "8px",
                       }}
                     >
-                      {permissions.map((permission) => {
+                            {paginatedUserPermissions.map((permission) => {
                         // Check if user has this permission by matching name or id
                         const isSelected = userPermissions.includes(permission.name) || 
                                          userPermissions.includes(permission.id);
@@ -1194,17 +1580,82 @@ const Permissions = () => {
                         );
                       })}
                     </div>
-                    {permissions.length === 0 && (
-                      <div
-                        style={{
-                          textAlign: "center",
-                          padding: "40px",
-                          color: "#999",
-                        }}
-                      >
-                        No permissions available
-                      </div>
-                    )}
+
+                          {/* Pagination Controls for User Permissions */}
+                          {userPermissionsTotalPages > 1 && (
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                marginTop: "16px",
+                                padding: "12px",
+                                borderTop: "1px solid #e0e0e0",
+                              }}
+                            >
+                              <div style={{ fontSize: "14px", color: "#666" }}>
+                                Showing {userPermissionsStartIndex + 1} to{" "}
+                                {Math.min(userPermissionsEndIndex, userPermissionsTotal)} of{" "}
+                                {userPermissionsTotal} permissions
+                              </div>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: "8px",
+                                  alignItems: "center",
+                                }}
+                              >
+                                <button
+                                  onClick={() =>
+                                    setUserPermissionsPage((prev) => Math.max(1, prev - 1))
+                                  }
+                                  disabled={userPermissionsPage === 1}
+                                  style={{
+                                    padding: "8px 12px",
+                                    backgroundColor:
+                                      userPermissionsPage === 1 ? "#f0f0f0" : "white",
+                                    color: userPermissionsPage === 1 ? "#999" : "#333",
+                                    border: "1px solid #ddd",
+                                    borderRadius: "6px",
+                                    cursor: userPermissionsPage === 1 ? "not-allowed" : "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "4px",
+                                  }}
+                                >
+                                  <ChevronLeft size={16} />
+                                  Previous
+                                </button>
+                                <div style={{ fontSize: "14px", color: "#666" }}>
+                                  Page {userPermissionsPage} of {userPermissionsTotalPages}
+                                </div>
+                                <button
+                                  onClick={() =>
+                                    setUserPermissionsPage((prev) => Math.min(userPermissionsTotalPages, prev + 1))
+                                  }
+                                  disabled={userPermissionsPage === userPermissionsTotalPages}
+                                  style={{
+                                    padding: "8px 12px",
+                                    backgroundColor:
+                                      userPermissionsPage === userPermissionsTotalPages ? "#f0f0f0" : "white",
+                                    color: userPermissionsPage === userPermissionsTotalPages ? "#999" : "#333",
+                                    border: "1px solid #ddd",
+                                    borderRadius: "6px",
+                                    cursor: userPermissionsPage === userPermissionsTotalPages ? "not-allowed" : "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "4px",
+                                  }}
+                                >
+                                  Next
+                                  <ChevronRight size={16} />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </>
                 ) : (
                   <div

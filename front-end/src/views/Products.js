@@ -6,9 +6,12 @@ import toast from 'react-hot-toast';
 import CreateProductModal from '../components/ui/createProductModal';
 import UpdateProductModal from '../components/ui/updateProductModal';
 import { getAllProducts, deleteProduct } from '../api/backend/products';
+import { checkUserPermissionsBulk, checkUserPermission } from '../api/backend/permissions';
+import { useAuth } from '../hooks/useAuth';
 
 const Products = () => {
   const history = useHistory();
+  const { user, profile } = useAuth();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -20,6 +23,15 @@ const Products = () => {
   const [deleteProductData, setDeleteProductData] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [openDropdownId, setOpenDropdownId] = useState(null);
+  const [permissions, setPermissions] = useState({
+    create: false, // Start as false, update after checking
+    delete: false,
+    update: false,
+    read: false,
+  });
+  const [hasViewPermission, setHasViewPermission] = useState(false); // Start as false
+  const [checkingViewPermission, setCheckingViewPermission] = useState(true);
+  const [checkingPermissions, setCheckingPermissions] = useState(true); // Track permission checking state
 
   // Fetch products
   const fetchProducts = async () => {
@@ -42,18 +54,130 @@ const Products = () => {
     }
   };
 
+  // Check products.view permission first (required to access the page)
   useEffect(() => {
+    const checkViewPermission = async () => {
+      if (!user || !profile) {
+        setHasViewPermission(false);
+        setCheckingViewPermission(false);
+        return;
+      }
+
+      try {
+        // Systemadmins have all permissions
+        if (profile.is_systemadmin === true) {
+          setHasViewPermission(true);
+          setCheckingViewPermission(false);
+          return;
+        }
+
+        // Check if user has products.view permission
+        const hasPermission = await checkUserPermission(user.id, 'products.view');
+        setHasViewPermission(hasPermission === true);
+        
+        // Redirect if no permission
+        if (!hasPermission) {
+          toast.error('You do not have permission to view products.');
+          setTimeout(() => {
+            history.push('/admin/users');
+          }, 500);
+        }
+      } catch (error) {
+        console.error('Error checking products.view permission:', error);
+        setHasViewPermission(false);
+        toast.error('Error checking permissions. Access denied.');
+        setTimeout(() => {
+          history.push('/admin/users');
+        }, 500);
+      } finally {
+        setCheckingViewPermission(false);
+      }
+    };
+
+    checkViewPermission();
+  }, [user, profile, history]);
+
+  // Check multiple permissions at once (optimized bulk check)
+  useEffect(() => {
+    // Only check other permissions if user has view permission
+    if (checkingViewPermission || !hasViewPermission) {
+      return;
+    }
+
+    const checkPermissions = async () => {
+      setCheckingPermissions(true); // Start checking
+      if (!user || !profile) {
+        setPermissions({ create: false, delete: false, update: false, read: false });
+        setCheckingPermissions(false);
+        return;
+      }
+
+      try {
+        // Systemadmins have all permissions
+        if (profile.is_systemadmin === true) {
+          setPermissions({ create: true, delete: true, update: true, read: true });
+          setCheckingPermissions(false);
+          return;
+        }
+
+        // Check multiple permissions in a single optimized API call
+        const permissionResults = await checkUserPermissionsBulk(user.id, [
+          'products.create',
+          'products.delete',
+          'products.update',
+          'products.read'
+        ]);
+
+        setPermissions({
+          create: permissionResults['products.create'] === true,
+          delete: permissionResults['products.delete'] === true,
+          update: permissionResults['products.update'] === true,
+          read: permissionResults['products.read'] === true
+        });
+      } catch (error) {
+        console.error('Error checking product permissions:', error);
+        setPermissions({ create: false, delete: false, update: false, read: false });
+      } finally {
+        setCheckingPermissions(false); // Done checking
+      }
+    };
+
+    checkPermissions();
+  }, [user, profile, checkingViewPermission, hasViewPermission]);
+
+  // Fetch products (only if user has view permission)
+  useEffect(() => {
+    // Don't fetch if still checking permission or if user doesn't have permission
+    if (checkingViewPermission || !hasViewPermission) {
+      return;
+    }
+
     fetchProducts();
-  }, []);
+  }, [checkingViewPermission, hasViewPermission]);
 
   // Handle create product
   const handleCreateProduct = async (productData) => {
+    // Check permission before creating
+    if (!permissions.create) {
+      toast.error('You do not have permission to create products.');
+      setShowCreateModal(false);
+      return;
+    }
+
     await fetchProducts();
     setShowCreateModal(false);
   };
 
   // Handle update product
   const handleUpdateProduct = async (productData) => {
+    // Check permission before updating
+    if (!permissions.update) {
+      toast.error('You do not have permission to update products.');
+      setShowUpdateModal(false);
+      setSelectedProduct(null);
+      return;
+    }
+
     await fetchProducts();
     setShowUpdateModal(false);
     setSelectedProduct(null);
@@ -61,6 +185,13 @@ const Products = () => {
 
   // Handle delete product
   const handleDeleteClick = (product) => {
+    // Check permission before showing delete confirmation
+    if (!permissions.delete) {
+      toast.error('You do not have permission to delete products.');
+      setOpenDropdownId(null);
+      return;
+    }
+
     setDeleteProductData(product);
     setShowDeleteConfirm(true);
     setOpenDropdownId(null);
@@ -68,6 +199,14 @@ const Products = () => {
 
   const handleConfirmDelete = async () => {
     if (!deleteProductData) return;
+
+    // Check permission before deletion
+    if (!permissions.delete) {
+      toast.error('You do not have permission to delete products.');
+      setShowDeleteConfirm(false);
+      setDeleteProductData(null);
+      return;
+    }
 
     setIsDeleting(true);
     try {
@@ -90,6 +229,13 @@ const Products = () => {
 
   // Handle edit click
   const handleEditClick = (product) => {
+    // Check permission before editing
+    if (!permissions.update) {
+      toast.error('You do not have permission to update products.');
+      setOpenDropdownId(null);
+      return;
+    }
+
     setSelectedProduct(product);
     setShowUpdateModal(true);
     setOpenDropdownId(null);
@@ -97,6 +243,13 @@ const Products = () => {
 
   // Handle switch to product
   const handleSwitchToProduct = (product) => {
+    // Check permission before viewing details
+    if (!permissions.read) {
+      toast.error('You do not have permission to view product details.');
+      setOpenDropdownId(null);
+      return;
+    }
+
     setOpenDropdownId(null);
     history.push(`/admin/product/${product.id}`);
   };
@@ -106,6 +259,61 @@ const Products = () => {
     product.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     product.description?.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Show loading while checking permission
+  if (checkingViewPermission) {
+    return (
+      <Container fluid>
+        <div style={{ 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '85vh',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <div className="spinner-border text-primary" role="status">
+            <span className="sr-only">Loading...</span>
+          </div>
+          <p>Checking permissions...</p>
+        </div>
+      </Container>
+    );
+  }
+
+  // Show access denied if no permission
+  if (!hasViewPermission) {
+    return (
+      <Container fluid>
+        <div style={{ 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '85vh',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <h3>Access Denied</h3>
+          <p>You do not have permission to view products.</p>
+          <button
+            onClick={() => history.push('/admin/users')}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#74317e',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}
+          >
+            Back to Users
+          </button>
+        </div>
+      </Container>
+    );
+  }
 
   return (
     <Container fluid>
@@ -145,35 +353,37 @@ const Products = () => {
                     Manage your products
                   </p>
                 </div>
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  title="Create New Product"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '12px',
-                    backgroundColor: '#74317e',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    boxShadow: '0 2px 4px rgba(116,49,126,0.2)'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#5a2460';
-                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(116,49,126,0.3)';
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#74317e';
-                    e.currentTarget.style.boxShadow = '0 2px 4px rgba(116,49,126,0.2)';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                  }}
-                >
-                  <Plus size={20} />
-                </button>
+                {!checkingPermissions && permissions.create && (
+                  <button
+                    onClick={() => setShowCreateModal(true)}
+                    title="Create New Product"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '12px',
+                      backgroundColor: '#74317e',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      boxShadow: '0 2px 4px rgba(116,49,126,0.2)'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#5a2460';
+                      e.currentTarget.style.boxShadow = '0 4px 8px rgba(116,49,126,0.3)';
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#74317e';
+                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(116,49,126,0.2)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                    }}
+                  >
+                    <Plus size={20} />
+                  </button>
+                )}
               </div>
             </Card.Header>
 
@@ -247,7 +457,7 @@ const Products = () => {
                   <p style={{ fontSize: '16px', margin: 0 }}>
                     {searchQuery ? 'No products found' : 'No products yet'}
                   </p>
-                  {!searchQuery && (
+                  {!searchQuery && !checkingPermissions && permissions.create && (
                     <button
                       onClick={() => setShowCreateModal(true)}
                       style={{
@@ -296,142 +506,163 @@ const Products = () => {
                         e.currentTarget.style.transform = 'translateY(0)';
                       }}
                     >
-                      {/* Actions Dropdown */}
-                      <div style={{ position: 'absolute', top: '16px', right: '16px' }}>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenDropdownId(openDropdownId === product.id ? null : product.id);
-                          }}
-                          style={{
-                            padding: '6px',
-                            border: 'none',
-                            background: 'transparent',
-                            cursor: 'pointer',
-                            borderRadius: '6px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
-                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                        >
-                          <MoreVertical size={18} color="#666" />
-                        </button>
+                      {/* Actions Dropdown - Only show if user has at least one permission */}
+                      {(permissions.read || permissions.update || permissions.delete) && (
+                        <div style={{ position: 'absolute', top: '16px', right: '16px' }}>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenDropdownId(openDropdownId === product.id ? null : product.id);
+                            }}
+                            style={{
+                              padding: '6px',
+                              border: 'none',
+                              background: 'transparent',
+                              cursor: 'pointer',
+                              borderRadius: '6px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                          >
+                            <MoreVertical size={18} color="#666" />
+                          </button>
 
-                        {openDropdownId === product.id && (
-                          <>
-                            <div
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenDropdownId(null);
-                              }}
-                              style={{
-                                position: 'fixed',
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                zIndex: 999
-                              }}
-                            />
-                            <div
-                              style={{
-                                position: 'absolute',
-                                top: '100%',
-                                right: 0,
-                                marginTop: '4px',
-                                backgroundColor: 'white',
-                                border: '1px solid #e5e7eb',
-                                borderRadius: '8px',
-                                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                                zIndex: 1000,
-                                minWidth: '150px',
-                                overflow: 'hidden'
-                              }}
-                            >
-                              <button
+                          {openDropdownId === product.id && (
+                            <>
+                              <div
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleSwitchToProduct(product);
+                                  setOpenDropdownId(null);
                                 }}
                                 style={{
-                                  width: '100%',
-                                  padding: '10px 16px',
-                                  border: 'none',
-                                  backgroundColor: 'transparent',
-                                  textAlign: 'left',
-                                  cursor: 'pointer',
-                                  fontSize: '14px',
-                                  color: '#74317e',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '8px',
-                                  fontWeight: '500'
+                                  position: 'fixed',
+                                  top: 0,
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  zIndex: 999
                                 }}
-                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
-                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                              >
-                                <ExternalLink size={16} />
-                                Switch to Product
-                              </button>
-                              <div style={{
-                                height: '1px',
-                                backgroundColor: '#e5e7eb',
-                                margin: '4px 0'
-                              }} />
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleEditClick(product);
-                                }}
+                              />
+                              <div
                                 style={{
-                                  width: '100%',
-                                  padding: '10px 16px',
-                                  border: 'none',
-                                  backgroundColor: 'transparent',
-                                  textAlign: 'left',
-                                  cursor: 'pointer',
-                                  fontSize: '14px',
-                                  color: '#374151',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '8px'
+                                  position: 'absolute',
+                                  top: '100%',
+                                  right: 0,
+                                  marginTop: '4px',
+                                  backgroundColor: 'white',
+                                  border: '1px solid #e5e7eb',
+                                  borderRadius: '8px',
+                                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                  zIndex: 1000,
+                                  minWidth: '150px',
+                                  overflow: 'hidden'
                                 }}
-                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
-                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                               >
-                                <Edit2 size={16} />
-                                Edit
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteClick(product);
-                                }}
-                                style={{
-                                  width: '100%',
-                                  padding: '10px 16px',
-                                  border: 'none',
-                                  backgroundColor: 'transparent',
-                                  textAlign: 'left',
-                                  cursor: 'pointer',
-                                  fontSize: '14px',
-                                  color: '#dc3545',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '8px'
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fff5f5'}
-                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                              >
-                                <Trash2 size={16} />
-                                Delete
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
+                                {permissions.read && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleSwitchToProduct(product);
+                                    }}
+                                    style={{
+                                      width: '100%',
+                                      padding: '10px 16px',
+                                      border: 'none',
+                                      backgroundColor: 'transparent',
+                                      textAlign: 'left',
+                                      cursor: 'pointer',
+                                      fontSize: '14px',
+                                      color: '#74317e',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '8px',
+                                      fontWeight: '500'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
+                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                                  >
+                                    <ExternalLink size={16} />
+                                    View Details
+                                  </button>
+                                )}
+                                {permissions.update && (
+                                  <>
+                                    {permissions.read && (
+                                      <div style={{
+                                        height: '1px',
+                                        backgroundColor: '#e5e7eb',
+                                        margin: '4px 0'
+                                      }} />
+                                    )}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleEditClick(product);
+                                      }}
+                                      style={{
+                                        width: '100%',
+                                        padding: '10px 16px',
+                                        border: 'none',
+                                        backgroundColor: 'transparent',
+                                        textAlign: 'left',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        color: '#374151',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px'
+                                      }}
+                                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
+                                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                                    >
+                                      <Edit2 size={16} />
+                                      Edit
+                                    </button>
+                                  </>
+                                )}
+                                {permissions.delete && (
+                                  <>
+                                    {(permissions.read || permissions.update) && (
+                                      <div style={{
+                                        height: '1px',
+                                        backgroundColor: '#e5e7eb',
+                                        margin: '4px 0'
+                                      }} />
+                                    )}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteClick(product);
+                                      }}
+                                      style={{
+                                        width: '100%',
+                                        padding: '10px 16px',
+                                        border: 'none',
+                                        backgroundColor: 'transparent',
+                                        textAlign: 'left',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        color: '#dc3545',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px'
+                                      }}
+                                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fff5f5'}
+                                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                                    >
+                                      <Trash2 size={16} />
+                                      Delete
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
 
                       {/* Product Icon */}
                       <div style={{

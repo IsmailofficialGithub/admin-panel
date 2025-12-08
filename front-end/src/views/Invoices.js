@@ -5,15 +5,24 @@ import { FileText, Download, Eye, Search, DollarSign, Calendar, User, Building, 
 import toast from 'react-hot-toast';
 import { getAllInvoices, getMyInvoices } from '../api/backend';
 import { useAuth } from '../hooks/useAuth';
+import { checkUserPermissionsBulk, checkUserPermission } from '../api/backend/permissions';
 import apiClient from '../services/apiClient';
 import { getConsumers } from '../api/backend/consumers';
 import { getResellers } from '../api/backend/resellers';
 import { encryptPaymentData } from '../utils/encryption';
 
 const Invoices = () => {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const userRole = profile?.role || 'admin';
   const history = useHistory();
+  const [permissions, setPermissions] = useState({
+    create: true, // Optimistic: show while checking
+    update: true,
+    delete: true,
+    read: true,
+  });
+  const [hasViewPermission, setHasViewPermission] = useState(true); // Optimistic: show while checking
+  const [checkingViewPermission, setCheckingViewPermission] = useState(true);
   
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -221,10 +230,101 @@ const Invoices = () => {
     }
   };
 
-  // Fetch invoices on mount and when filters change
+  // Check invoices.view permission first (required to access the page)
   useEffect(() => {
+    const checkViewPermission = async () => {
+      if (!user || !profile) {
+        setHasViewPermission(false);
+        setCheckingViewPermission(false);
+        return;
+      }
+
+      try {
+        // Systemadmins have all permissions
+        if (profile.is_systemadmin === true) {
+          setHasViewPermission(true);
+          setCheckingViewPermission(false);
+          return;
+        }
+
+        // Check if user has invoices.view permission
+        const hasPermission = await checkUserPermission(user.id, 'invoices.view');
+        setHasViewPermission(hasPermission === true);
+        
+        // Redirect if no permission
+        if (!hasPermission) {
+          toast.error('You do not have permission to view invoices.');
+          setTimeout(() => {
+            history.push('/admin/users');
+          }, 500);
+        }
+      } catch (error) {
+        console.error('Error checking invoices.view permission:', error);
+        setHasViewPermission(false);
+        toast.error('Error checking permissions. Access denied.');
+        setTimeout(() => {
+          history.push('/admin/users');
+        }, 500);
+      } finally {
+        setCheckingViewPermission(false);
+      }
+    };
+
+    checkViewPermission();
+  }, [user, profile, history]);
+
+  // Check multiple permissions at once (optimized bulk check)
+  useEffect(() => {
+    // Only check other permissions if user has view permission
+    if (checkingViewPermission || !hasViewPermission) {
+      return;
+    }
+
+    const checkPermissions = async () => {
+      if (!user || !profile) {
+        setPermissions({ create: false, update: false, delete: false, read: false });
+        return;
+      }
+
+      try {
+        // Systemadmins have all permissions
+        if (profile.is_systemadmin === true) {
+          setPermissions({ create: true, update: true, delete: true, read: true });
+          return;
+        }
+
+        // Check multiple permissions in a single optimized API call
+        const permissionResults = await checkUserPermissionsBulk(user.id, [
+          'invoices.create',
+          'invoices.update',
+          'invoices.delete',
+          'invoices.read'
+        ]);
+
+        setPermissions({
+          create: permissionResults['invoices.create'] === true,
+          update: permissionResults['invoices.update'] === true,
+          delete: permissionResults['invoices.delete'] === true,
+          read: permissionResults['invoices.read'] === true
+        });
+      } catch (error) {
+        console.error('Error checking invoice permissions:', error);
+        setPermissions({ create: false, update: false, delete: false, read: false });
+      }
+    };
+
+    checkPermissions();
+  }, [user, profile, checkingViewPermission, hasViewPermission]);
+
+  // Fetch invoices on mount and when filters change (only if user has view permission)
+  useEffect(() => {
+    // Don't fetch if still checking permission or if user doesn't have permission
+    if (checkingViewPermission || !hasViewPermission) {
+      return;
+    }
+
     fetchInvoices();
-  }, [userRole, filterStatus]);
+  }, [userRole, filterStatus, checkingViewPermission, hasViewPermission]);
 
   // Debounce search input
   useEffect(() => {
@@ -421,6 +521,12 @@ const Invoices = () => {
   };
 
   const handleViewInvoice = (invoice) => {
+    // Check permission before viewing
+    if (!permissions.read) {
+      toast.error('You do not have permission to view invoice details.');
+      return;
+    }
+
     setSelectedInvoice(invoice);
     setShowInvoiceModal(true);
   };
@@ -431,6 +537,12 @@ const Invoices = () => {
   };
 
   const handleResendInvoice = async (invoice) => {
+    // Check permission before resending
+    if (!permissions.update) {
+      toast.error('You do not have permission to resend invoices.');
+      return;
+    }
+
     setResendInvoiceLoading(true);
     setResendInvoiceStatus(null);
     
@@ -718,6 +830,61 @@ const Invoices = () => {
       toast.error('Failed to copy link. Please copy manually.');
     }
   };
+
+  // Show loading while checking permission
+  if (checkingViewPermission) {
+    return (
+      <Container fluid style={{ padding: '24px' }}>
+        <div style={{ 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '85vh',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <div className="spinner-border text-primary" role="status">
+            <span className="sr-only">Loading...</span>
+          </div>
+          <p>Checking permissions...</p>
+        </div>
+      </Container>
+    );
+  }
+
+  // Show access denied if no permission
+  if (!hasViewPermission) {
+    return (
+      <Container fluid style={{ padding: '24px' }}>
+        <div style={{ 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '85vh',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <h3>Access Denied</h3>
+          <p>You do not have permission to view invoices.</p>
+          <button
+            onClick={() => history.push('/admin/users')}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#74317e',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}
+          >
+            Back to Users
+          </button>
+        </div>
+      </Container>
+    );
+  }
 
   return (
     <Container fluid>
@@ -1243,75 +1410,81 @@ const Invoices = () => {
                           </div>
 
                           {/* Actions - Always at bottom */}
-                          <div style={{
-                            display: 'flex',
-                            gap: '8px',
-                            marginTop: 'auto',
-                            paddingTop: '12px'
-                          }}>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleViewInvoice(invoice);
-                              }}
-                              style={{
-                                flex: 1,
-                                padding: '8px 12px',
-                                backgroundColor: '#74317e',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '6px',
-                                fontSize: '12px',
-                                fontWeight: '500',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '6px',
-                                transition: 'all 0.2s'
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = '#5a2460';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = '#74317e';
-                              }}
-                            >
-                              <Eye size={14} />
-                              View
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDownloadInvoice(invoice);
-                              }}
-                              style={{
-                                flex: 1,
-                                padding: '8px 12px',
-                                backgroundColor: 'white',
-                                color: '#74317e',
-                                border: '1px solid #74317e',
-                                borderRadius: '6px',
-                                fontSize: '12px',
-                                fontWeight: '500',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '6px',
-                                transition: 'all 0.2s'
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = '#f3f4f6';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = 'white';
-                              }}
-                            >
-                              <Download size={14} />
-                              Download
-                            </button>
-                          </div>
+                          {(permissions.read || permissions.update) && (
+                            <div style={{
+                              display: 'flex',
+                              gap: '8px',
+                              marginTop: 'auto',
+                              paddingTop: '12px'
+                            }}>
+                              {permissions.read && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleViewInvoice(invoice);
+                                  }}
+                                  style={{
+                                    flex: 1,
+                                    padding: '8px 12px',
+                                    backgroundColor: '#74317e',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    fontSize: '12px',
+                                    fontWeight: '500',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '6px',
+                                    transition: 'all 0.2s'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.backgroundColor = '#5a2460';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.backgroundColor = '#74317e';
+                                  }}
+                                >
+                                  <Eye size={14} />
+                                  View
+                                </button>
+                              )}
+                              {permissions.read && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDownloadInvoice(invoice);
+                                  }}
+                                  style={{
+                                    flex: 1,
+                                    padding: '8px 12px',
+                                    backgroundColor: 'white',
+                                    color: '#74317e',
+                                    border: '1px solid #74317e',
+                                    borderRadius: '6px',
+                                    fontSize: '12px',
+                                    fontWeight: '500',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '6px',
+                                    transition: 'all 0.2s'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.backgroundColor = '#f3f4f6';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.backgroundColor = 'white';
+                                  }}
+                                >
+                                  <Download size={14} />
+                                  Download
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}

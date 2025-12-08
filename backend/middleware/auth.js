@@ -157,7 +157,6 @@ export const requireAdmin = async (req, res, next) => {
         }
         profile = profileData;
         req.userProfile = profile;
-        console.log('======--=-=-=passed here=-=-=--======');
       } catch (timeoutError) {
         console.error('❌ Profile fetch timeout:', timeoutError);
         return res.status(503).json({
@@ -229,7 +228,6 @@ export const loadUserProfile = async (req, res, next) => {
       error = { message: 'Profile fetch timeout' };
     }
     
-    console.log("profile====", profile);
 
     if (error || !profile) {
       // If profile doesn't exist, create a fallback profile from auth user

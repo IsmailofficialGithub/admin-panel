@@ -301,7 +301,7 @@ export const AdminEmailTemplateUserCreated = ({
 };
 
 /**
- * Password Reset Email Template.
+ * Password Reset Email Template
  */
 export const PasswordResetTemplate = ({
   full_name = "User",
@@ -681,13 +681,225 @@ export const InvoiceCreatedTemplate = ({
   });
 };
 
+/**
+ * Ticket Created Email Template
+ */
+export const TicketCreatedTemplate = ({
+  full_name = 'Customer',
+  ticket_number = 'TICKET-0001',
+  subject = 'Support Request',
+  message = 'Initial message',
+  ticket_id = '',
+  website_url = '#',
+} = {}) => {
+  const formatDate = (dateStr) => {
+    try {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (e) {
+      return dateStr;
+    }
+  };
+
+  const normalizedWebsiteUrl = website_url.replace(/\/+$/, '');
+  const viewTicketUrl = ticket_id 
+    ? `${normalizedWebsiteUrl}/support-widget?ticket_id=${ticket_id}`
+    : normalizedWebsiteUrl;
+
+  // Truncate message if too long for email preview
+  const messagePreview = message.length > 200 
+    ? message.substring(0, 200) + '...'
+    : message;
+
+  const content = `
+    <p style="margin: 0 0 12px 0; color: #232347;">
+      Hello <strong style="color: #8a3b9a;">${full_name}</strong>,
+    </p>
+    
+    <p style="margin: 0 0 20px 0; color: #232347;">
+      Thank you for contacting our support team! We've received your support ticket and will get back to you soon.
+    </p>
+
+    <!-- Ticket Details - Outlook compatible -->
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #8a3b9a;">
+      <tr>
+        <td style="padding: 20px; color: #232347; font-size: 15px; line-height: 1.6; font-family: Verdana, Geneva, sans-serif;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+            <tr>
+              <td style="padding: 0 0 10px 0; font-size: 16px; font-weight: bold; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+                Your Support Ticket Details
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+                <strong>Ticket Number:</strong> <span class="mono-num" style="color: #8a3b9a; font-weight: bold; font-family: 'Courier New', Courier, monospace;">${ticket_number}</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+                <strong>Subject:</strong> ${subject}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+                <strong>Created:</strong> ${formatDate(new Date().toISOString())}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 12px 0 0 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+                <strong>Your Message:</strong>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0 0 0; color: #66698c; font-family: Verdana, Geneva, sans-serif; font-style: italic; border-left: 3px solid #8a3b9a; padding-left: 12px;">
+                ${messagePreview}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 12px 0 0 0; font-size: 13px; color: #66698c; font-family: Verdana, Geneva, sans-serif;">
+                Our support team will review your ticket and respond as soon as possible. You can view and reply to your ticket using the button below.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  return BaseEmailTemplate({
+    title: `Support Ticket Created: ${ticket_number}`,
+    subtitle: `We've received your request`,
+    content,
+    buttonText: 'View Your Ticket',
+    buttonUrl: viewTicketUrl,
+    footerText: `Need immediate assistance? Reply to this email or contact us at info@duhanashrah.ai`
+  });
+};
+
+/**
+ * Ticket Status Changed Email Template
+ */
+export const TicketStatusChangedTemplate = ({
+  full_name = 'Customer',
+  ticket_number = 'TICKET-0001',
+  old_status = 'open',
+  new_status = 'in_progress',
+  ticket_id = '',
+  website_url = '#',
+} = {}) => {
+  const formatDate = (dateStr) => {
+    try {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (e) {
+      return dateStr;
+    }
+  };
+
+  const statusLabels = {
+    open: 'Open',
+    in_progress: 'In Progress',
+    resolved: 'Resolved',
+    closed: 'Closed',
+    pending: 'Pending'
+  };
+
+  const statusMessages = {
+    open: 'Your ticket is now open and waiting for our team to review it.',
+    in_progress: 'Our support team is now working on your ticket and will update you soon.',
+    resolved: 'Your ticket has been resolved! Please let us know if you need any further assistance.',
+    closed: 'Your ticket has been closed. If you need to reopen it, please create a new ticket.',
+    pending: 'Your ticket is pending additional information. Please check for any updates from our team.'
+  };
+
+  const normalizedWebsiteUrl = website_url.replace(/\/+$/, '');
+  const viewTicketUrl = ticket_id 
+    ? `${normalizedWebsiteUrl}/support-widget?ticket_id=${ticket_id}`
+    : normalizedWebsiteUrl;
+
+  const statusMessage = statusMessages[new_status] || 'Your ticket status has been updated.';
+
+  const content = `
+    <p style="margin: 0 0 12px 0; color: #232347;">
+      Hello <strong style="color: #8a3b9a;">${full_name}</strong>,
+    </p>
+    
+    <p style="margin: 0 0 20px 0; color: #232347;">
+      We wanted to let you know that your support ticket status has been updated!
+    </p>
+
+    <!-- Status Change Details - Outlook compatible -->
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #8a3b9a;">
+      <tr>
+        <td style="padding: 20px; color: #232347; font-size: 15px; line-height: 1.6; font-family: Verdana, Geneva, sans-serif;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+            <tr>
+              <td style="padding: 0 0 10px 0; font-size: 16px; font-weight: bold; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+                Ticket Status Update
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+                <strong>Ticket Number:</strong> <span class="mono-num" style="color: #8a3b9a; font-weight: bold; font-family: 'Courier New', Courier, monospace;">${ticket_number}</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+                <strong>Previous Status:</strong> <span style="text-transform: capitalize;">${statusLabels[old_status] || old_status}</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+                <strong>New Status:</strong> <span style="color: #8a3b9a; font-weight: bold; text-transform: capitalize;">${statusLabels[new_status] || new_status}</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+                <strong>Updated:</strong> ${formatDate(new Date().toISOString())}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 12px 0 0 0; font-size: 13px; color: #66698c; font-family: Verdana, Geneva, sans-serif;">
+                ${statusMessage}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  return BaseEmailTemplate({
+    title: `Ticket Status Updated: ${ticket_number}`,
+    subtitle: `Status changed to ${statusLabels[new_status] || new_status}`,
+    content,
+    buttonText: 'View Your Ticket',
+    buttonUrl: viewTicketUrl,
+    footerText: `Have questions about this update? Reply to this email or contact us at info@duhanashrah.ai`
+  });
+};
+
 export default { 
   AdminEmailTemplateUserCreated, 
   PasswordResetTemplate, 
   TrialPeriodChangeTemplate, 
   TrialExtensionTemplate, 
   InviteEmailTemplate,
-  InvoiceCreatedTemplate
+  InvoiceCreatedTemplate,
+  TicketCreatedTemplate,
+  TicketStatusChangedTemplate
 };
 
 export { AdminEmailTemplateUserCreated as _Admin, PasswordResetTemplate as _Reset };

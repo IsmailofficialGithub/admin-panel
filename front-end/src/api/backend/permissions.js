@@ -129,6 +129,35 @@ export const checkUserPermission = async (userId, permissionName) => {
 };
 
 /**
+ * Check if user has multiple permissions (optimized bulk check)
+ * @param {string} userId - User ID
+ * @param {string[]} permissionNames - Array of permission names to check
+ * @returns {Promise<Object>} Object with permission names as keys and boolean values
+ * @example
+ * const permissions = await checkUserPermissionsBulk(userId, ['consumers.create', 'consumers.delete']);
+ * // Returns: { 'consumers.create': true, 'consumers.delete': false }
+ */
+export const checkUserPermissionsBulk = async (userId, permissionNames) => {
+  try {
+    if (!Array.isArray(permissionNames) || permissionNames.length === 0) {
+      console.error('checkUserPermissionsBulk: permissionNames must be a non-empty array');
+      return {};
+    }
+
+    const response = await apiClient.permissions.checkBulk(userId, permissionNames);
+    return response.data?.permissions || {};
+  } catch (error) {
+    console.error('checkUserPermissionsBulk Error:', error);
+    // Return all false on error
+    const result = {};
+    permissionNames.forEach(name => {
+      result[name] = false;
+    });
+    return result;
+  }
+};
+
+/**
  * Assign permissions to role
  * @param {string} role - Role name
  * @param {Array<string>} permissionIds - Array of permission IDs
@@ -263,6 +292,7 @@ export default {
   getUserPermissions,
   getRolePermissions,
   checkUserPermission,
+  checkUserPermissionsBulk,
   assignPermissionsToRole,
   removePermissionsFromRole,
   assignPermissionsToUser,

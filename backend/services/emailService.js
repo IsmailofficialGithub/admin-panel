@@ -7,6 +7,8 @@ import {
   TrialExtensionTemplate,
   InvoiceCreatedTemplate,
   InviteEmailTemplate,
+  TicketCreatedTemplate,
+  TicketStatusChangedTemplate,
 } from "../utils/emailTemplates.js";
 import { encryptPaymentData } from "../utils/encryption.js";
 
@@ -317,7 +319,7 @@ export const sendInviteEmail = async ({
  * @param {string} params.full_name
  * @param {string} params.invoice_number
  * @param {string|number} params.total
- * @param {string} params.due_date.
+ * @param {string} params.due_date
  */
 export const sendInvoiceCreatedEmail = async ({ 
   email, 
@@ -393,6 +395,108 @@ export const sendInvoiceCreatedEmail = async ({
   }
 };
 
+/**
+ * Send ticket created email
+ * @param {Object} params
+ * @param {string} params.email - Recipient email
+ * @param {string} params.full_name - User's full name
+ * @param {string} params.ticket_number - Ticket number
+ * @param {string} params.subject - Ticket subject
+ * @param {string} params.message - Initial ticket message
+ * @param {string} params.ticket_id - Ticket ID (optional, for link generation)
+ */
+export const sendTicketCreatedEmail = async ({
+  email,
+  full_name,
+  ticket_number,
+  subject,
+  message,
+  ticket_id = '',
+}) => {
+  try {
+    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+
+    const htmlContent = TicketCreatedTemplate({
+      full_name: full_name || email.split('@')[0],
+      ticket_number,
+      subject,
+      message,
+      ticket_id,
+      website_url,
+    });
+
+    const msg = {
+      to: email,
+      from: {
+        email: SENDER_EMAIL,
+        name: "Duha Nashrah"
+      },
+      subject: `Support Ticket Created: ${ticket_number}`,
+      html: htmlContent,
+    };
+
+    console.log("📧 Sending ticket created email to:", email);
+    await sgMail.send(msg);
+    console.log("✅ Ticket created email sent successfully");
+    
+    return { success: true };
+  } catch (error) {
+    console.error("❌ Error sending ticket created email:", error.response?.body || error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Send ticket status changed email
+ * @param {Object} params
+ * @param {string} params.email - Recipient email
+ * @param {string} params.full_name - User's full name
+ * @param {string} params.ticket_number - Ticket number
+ * @param {string} params.old_status - Previous ticket status
+ * @param {string} params.new_status - New ticket status
+ * @param {string} params.ticket_id - Ticket ID (optional, for link generation)
+ */
+export const sendTicketStatusChangedEmail = async ({
+  email,
+  full_name,
+  ticket_number,
+  old_status,
+  new_status,
+  ticket_id = '',
+}) => {
+  try {
+    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+
+    const htmlContent = TicketStatusChangedTemplate({
+      full_name: full_name || email.split('@')[0],
+      ticket_number,
+      old_status,
+      new_status,
+      ticket_id,
+      website_url,
+    });
+
+    const msg = {
+      to: email,
+      from: {
+        email: SENDER_EMAIL,
+        name: "Duha Nashrah"
+      },
+      subject: `Ticket Status Updated: ${ticket_number}`,
+      html: htmlContent,
+    };
+
+    console.log("📧 Sending ticket status changed email to:", email);
+    await sgMail.send(msg);
+    console.log("✅ Ticket status changed email sent successfully");
+    
+    return { success: true };
+  } catch (error) {
+    console.error("❌ Error sending ticket status changed email:", error.response?.body || error);
+    return { success: false, error: error.message };
+  }
+};
+
 export default {
   sendWelcomeEmail,
   sendPasswordResetEmail,
@@ -400,5 +504,7 @@ export default {
   sendTrialExtensionEmail,
   sendInviteEmail,
   sendInvoiceCreatedEmail,
+  sendTicketCreatedEmail,
+  sendTicketStatusChangedEmail,
   testEmailConfiguration,
 };

@@ -1,6 +1,7 @@
 import { supabase, supabaseAdmin } from "../../config/database.js";
 import multer from "multer";
 import { cacheService } from '../../config/redis.js';
+import { sendTicketStatusChangedEmail } from '../../services/emailService.js';
 import {
   isValidUUID,
   validatePagination,
@@ -969,7 +970,25 @@ export const updateTicketStatus = async (req, res) => {
     }
 
     // ========================================
-    // 2. UPDATE TICKET (with timeout)
+    // 2. GET OLD TICKET DATA (for email notification)
+    // ========================================
+    let oldTicket = null;
+    if (status) {
+      const oldTicketPromise = supabase
+        .from("support_tickets")
+        .select("status, user_email, user_name, ticket_number")
+        .eq("id", ticketId)
+        .single();
+
+      const { data: oldTicketData, error: oldTicketError } = await executeWithTimeout(oldTicketPromise);
+      
+      if (!oldTicketError && oldTicketData) {
+        oldTicket = oldTicketData;
+      }
+    }
+
+    // ========================================
+    // 3. UPDATE TICKET (with timeout)
     // ========================================
     const updatePromise = supabase
       .from("support_tickets")
@@ -990,7 +1009,7 @@ export const updateTicketStatus = async (req, res) => {
     }
 
     // ========================================
-    // 3. CACHE INVALIDATION
+    // 4. CACHE INVALIDATION
     // ========================================
     await cacheService.del(CACHE_KEYS.TICKET_BY_ID(ticketId));
     await cacheService.delByPattern('tickets:*');
@@ -998,7 +1017,24 @@ export const updateTicketStatus = async (req, res) => {
     console.log('✅ Cache invalidated for ticket status update');
 
     // ========================================
-    // 4. DATA SANITIZATION
+    // 5. SEND EMAIL NOTIFICATION (if status changed)
+    // ========================================
+    if (status && oldTicket && updatedTicket.user_email && oldTicket.status !== updatedTicket.status) {
+      console.log('✅ Sending ticket status changed email to:', updatedTicket.user_email);
+      sendTicketStatusChangedEmail({
+        email: updatedTicket.user_email,
+        full_name: updatedTicket.user_name || updatedTicket.user_email.split('@')[0],
+        ticket_number: updatedTicket.ticket_number,
+        old_status: oldTicket.status,
+        new_status: updatedTicket.status,
+        ticket_id: ticketId,
+      }).catch(emailError => {
+        console.warn('⚠️ Failed to send ticket status changed email:', emailError?.message);
+      });
+    }
+
+    // ========================================
+    // 6. DATA SANITIZATION
     // ========================================
     const sanitizedTicket = sanitizeObject(updatedTicket);
 
@@ -1020,7 +1056,7 @@ export const updateTicketStatus = async (req, res) => {
  * OPTIMIZATIONS:
  * 1. Query timeout (Performance)
  * 2. Redis caching (Performance)
- * 3. Optimized queries (Performance).
+ * 3. Optimized queries (Performance)
  * 4. Secure error handling (Security)
  */
 export const getTicketStats = async (req, res) => {

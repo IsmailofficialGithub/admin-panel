@@ -41,7 +41,15 @@ const PORT = process.env.PORT || 5000;
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // limit each IP to 100 requests per windowMs
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).json({
+      success: false,
+      error: 'Too Many Requests',
   message: 'Too many requests from this IP, please try again later.'
+    });
+  }
 });
 
 // Middleware
@@ -84,7 +92,7 @@ app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 app.use(morgan('dev')); // Logging
 app.use('/api/', limiter); // Apply rate limiting to all API routes
 
-// Routes.
+// Routes
 app.get('/', (req, res) => {
   res.json({
     message: 'Admin Panel Backend API',

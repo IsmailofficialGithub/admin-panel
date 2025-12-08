@@ -16,10 +16,13 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getProductDetail, getProductDashboard, getProductUsers, getProductTables, getTableDetails } from '../api/backend/products';
+import { checkUserPermission } from '../api/backend/permissions';
+import { useAuth } from '../hooks/useAuth';
 
 const ProductDetail = () => {
   const { id } = useParams();
   const history = useHistory();
+  const { user, profile, isReseller } = useAuth();
   const [product, setProduct] = useState(null);
   const [dashboardData, setDashboardData] = useState(null);
   const [users, setUsers] = useState([]);
@@ -30,10 +33,58 @@ const ProductDetail = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [checkingPermission, setCheckingPermission] = useState(true);
+  const [hasPermission, setHasPermission] = useState(false); // Default to false
+
+  // Check permission for products.read
+  useEffect(() => {
+    const checkReadPermission = async () => {
+      if (!user || !profile) {
+        setHasPermission(false);
+        setCheckingPermission(false);
+        return;
+      }
+
+      // Resellers have their own access control, bypass this check
+      if (isReseller) {
+        setHasPermission(true);
+        setCheckingPermission(false);
+        return;
+      }
+
+      // Systemadmins have all permissions
+      if (profile.is_systemadmin === true) {
+        setHasPermission(true);
+        setCheckingPermission(false);
+        return;
+      }
+
+      try {
+        const hasPerm = await checkUserPermission(user.id, 'products.read');
+        setHasPermission(hasPerm);
+        if (!hasPerm) {
+          toast.error('Access denied. You do not have permission to view product details.');
+          history.push('/admin/products');
+        }
+      } catch (error) {
+        console.error('Error checking products.read permission:', error);
+        toast.error('Error checking permissions. Access denied.');
+        setHasPermission(false);
+        history.push('/admin/products');
+      } finally {
+        setCheckingPermission(false);
+      }
+    };
+
+    checkReadPermission();
+  }, [user, profile, history, isReseller]);
 
   useEffect(() => {
-    loadProductData();
-  }, [id]);
+    // Only fetch if permission is granted
+    if (!checkingPermission && hasPermission) {
+      loadProductData();
+    }
+  }, [id, checkingPermission, hasPermission]);
 
   const loadProductData = async () => {
     try {

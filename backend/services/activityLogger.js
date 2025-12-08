@@ -30,7 +30,7 @@ export const logActivity = async ({
   try {
     const activityLog = {
       actor_id: actorId || null,
-      actor_role: actorRole || null,
+      actor_role: actorRole || 'Unknown',
       target_id: targetId || null,
       action_type: actionType,
       table_name: tableName,

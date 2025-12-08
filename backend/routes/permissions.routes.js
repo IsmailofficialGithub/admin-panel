@@ -8,6 +8,7 @@ import {
   getMyPermissions,
   getRolePermissions,
   checkUserPermission,
+  checkUserPermissionsBulk,
   assignPermissionsToRole,
   removePermissionsFromRole,
   assignPermissionsToUser,
@@ -65,6 +66,24 @@ router.get(
 );
 
 /**
+ * @route   POST /api/permissions/check-bulk/:userId
+ * @desc    Check if user has multiple permissions (optimized bulk check)
+ * @access  Private (permissions.view)
+ * 
+ * Request body: { permissionNames: string[] }
+ * Response: { success: true, data: { userId, permissions: { [permissionName]: boolean } } }
+ */
+router.post(
+  '/check-bulk/:userId',
+  authenticate,
+  loadUserProfile,
+  requirePermission('permissions.view'),
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
+  checkUserPermissionsBulk
+);
+
+/**
  * @route   GET /api/permissions/user/:userId
  * @desc    Get user permissions
  * @access  Private (permissions.view)
@@ -103,8 +122,8 @@ router.get(
 router.get(
   '/users',
   authenticate,
-  loadUserProfile,
   requireSystemAdmin,
+  loadUserProfile,
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   getAllUsersForPermissions
@@ -133,8 +152,8 @@ router.get(
 router.post(
   '/role/:role/assign',
   authenticate,
-  loadUserProfile,
   requireSystemAdmin,
+  loadUserProfile,
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   assignPermissionsToRole
@@ -148,8 +167,8 @@ router.post(
 router.delete(
   '/role/:role/remove',
   authenticate,
-  loadUserProfile,
   requireSystemAdmin,
+  loadUserProfile,
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   removePermissionsFromRole
@@ -163,8 +182,8 @@ router.delete(
 router.post(
   '/user/:userId/assign',
   authenticate,
-  loadUserProfile,
   requireSystemAdmin,
+  loadUserProfile,
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   assignPermissionsToUser
@@ -178,8 +197,8 @@ router.post(
 router.delete(
   '/user/:userId/remove',
   authenticate,
-  loadUserProfile,
   requireSystemAdmin,
+  loadUserProfile,
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   removePermissionsFromUser
@@ -193,8 +212,8 @@ router.delete(
 router.patch(
   '/user/:userId/systemadmin',
   authenticate,
-  loadUserProfile,
   requireSystemAdmin,
+  loadUserProfile,
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   setSystemAdmin

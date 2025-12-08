@@ -1,5 +1,6 @@
 import express from 'express';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
+import { requirePermission } from '../middleware/permissions.js';
 import {
   getAllConsumers,
   getConsumerById,
@@ -36,10 +37,10 @@ router.put('/:id', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInpu
 
 /**
  * @route   DELETE /api/consumers/:id
- * @desc    Delete consumer (admin only)
- * @access  Private (Admin)
+ * @desc    Delete consumer (admin only, requires consumers.delete permission)
+ * @access  Private (Admin with consumers.delete permission)
  */
-router.delete('/:id', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, deleteConsumer);
+router.delete('/:id', authenticate, requireAdmin, requirePermission('consumers.delete'), rateLimitMiddleware, sanitizeInputMiddleware, deleteConsumer);
 
 /**
  * @route   POST /api/consumers/:id/reset-password

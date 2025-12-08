@@ -16,6 +16,7 @@ import {
   getTicketStats
 } from '../api/backend';
 import { useAuth } from '../contexts/AuthContext';
+import { checkUserPermissionsBulk, checkUserPermission } from '../api/backend/permissions';
 import apiClient from '../services/apiClient';
 import { supabase } from '../lib/supabase/Production/client';
 
@@ -23,6 +24,14 @@ const Customers = () => {
   const history = useHistory();
   const { profile, user } = useAuth();
   const isAdmin = profile?.role === 'admin';
+  const [permissions, setPermissions] = useState({
+    create: false, // Start as false, update after checking
+    update: false,
+    read: false,
+  });
+  const [hasViewPermission, setHasViewPermission] = useState(false); // Start as false
+  const [checkingViewPermission, setCheckingViewPermission] = useState(true);
+  const [checkingPermissions, setCheckingPermissions] = useState(true); // Track permission checking state
   
   // State
   const [tickets, setTickets] = useState([]);
@@ -78,13 +87,107 @@ const Customers = () => {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // Fetch tickets
+  // Check customer_support.view permission first (required to access the page)
   useEffect(() => {
+    const checkViewPermission = async () => {
+      if (!user || !profile) {
+        setHasViewPermission(false);
+        setCheckingViewPermission(false);
+        return;
+      }
+
+      try {
+        // Systemadmins have all permissions
+        if (profile.is_systemadmin === true) {
+          setHasViewPermission(true);
+          setCheckingViewPermission(false);
+          return;
+        }
+
+        // Check if user has customer_support.view permission
+        const hasPermission = await checkUserPermission(user.id, 'customer_support.view');
+        setHasViewPermission(hasPermission === true);
+        
+        // Redirect if no permission
+        if (!hasPermission) {
+          toast.error('You do not have permission to view customer support.');
+          setTimeout(() => {
+            history.push('/admin/users');
+          }, 500);
+        }
+      } catch (error) {
+        console.error('Error checking customer_support.view permission:', error);
+        setHasViewPermission(false);
+        toast.error('Error checking permissions. Access denied.');
+        setTimeout(() => {
+          history.push('/admin/users');
+        }, 500);
+      } finally {
+        setCheckingViewPermission(false);
+      }
+    };
+
+    checkViewPermission();
+  }, [user, profile, history]);
+
+  // Check multiple permissions at once (optimized bulk check)
+  useEffect(() => {
+    // Only check other permissions if user has view permission
+    if (checkingViewPermission || !hasViewPermission) {
+      return;
+    }
+
+    const checkPermissions = async () => {
+      setCheckingPermissions(true); // Start checking
+      if (!user || !profile) {
+        setPermissions({ create: false, update: false, read: false });
+        setCheckingPermissions(false);
+        return;
+      }
+
+      try {
+        // Systemadmins have all permissions
+        if (profile.is_systemadmin === true) {
+          setPermissions({ create: true, update: true, read: true });
+          setCheckingPermissions(false);
+          return;
+        }
+
+        // Check multiple permissions in a single optimized API call
+        const permissionResults = await checkUserPermissionsBulk(user.id, [
+          'customer_support.create',
+          'customer_support.update',
+          'customer_support.read'
+        ]);
+
+        setPermissions({
+          create: permissionResults['customer_support.create'] === true,
+          update: permissionResults['customer_support.update'] === true,
+          read: permissionResults['customer_support.read'] === true
+        });
+      } catch (error) {
+        console.error('Error checking customer support permissions:', error);
+        setPermissions({ create: false, update: false, read: false });
+      } finally {
+        setCheckingPermissions(false); // Done checking
+      }
+    };
+
+    checkPermissions();
+  }, [user, profile, checkingViewPermission, hasViewPermission]);
+
+  // Fetch tickets (only if user has view permission)
+  useEffect(() => {
+    // Don't fetch if still checking permission or if user doesn't have permission
+    if (checkingViewPermission || !hasViewPermission) {
+      return;
+    }
+
     fetchTickets();
     if (isAdmin) {
       fetchStats();
     }
-  }, [currentPage, searchQuery, statusFilter, priorityFilter]);
+  }, [currentPage, searchQuery, statusFilter, priorityFilter, checkingViewPermission, hasViewPermission, isAdmin]);
 
   const fetchTickets = async () => {
     try {
@@ -269,6 +372,12 @@ const Customers = () => {
   };
 
   const handleSendMessage = async () => {
+    // Check permission before sending message
+    if (!permissions.read) {
+      toast.error('You do not have permission to send messages.');
+      return;
+    }
+
     // Validate: must have either message or files
     if (!newMessage.trim() && selectedFiles.length === 0) {
       toast.error('Please add a message or attach a file');
@@ -308,6 +417,13 @@ const Customers = () => {
   };
 
   const handleCreateTicket = async () => {
+    // Check permission before creating
+    if (!permissions.create) {
+      toast.error('You do not have permission to create tickets.');
+      setShowCreateModal(false);
+      return;
+    }
+
     if (!createFormData.subject.trim() || !createFormData.message.trim()) {
       toast.error('Subject and message are required');
       return;
@@ -345,6 +461,12 @@ const Customers = () => {
 
   const handleUpdateStatus = async () => {
     if (!selectedTicket) return;
+
+    // Check permission before updating status
+    if (!permissions.update) {
+      toast.error('You do not have permission to update ticket status.');
+      return;
+    }
 
     setUpdatingStatus(true);
     try {
@@ -393,6 +515,61 @@ const Customers = () => {
     });
   };
 
+  // Show loading while checking permission
+  if (checkingViewPermission) {
+    return (
+      <div style={{ padding: '24px' }}>
+        <div style={{ 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '85vh',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <div className="spinner-border text-primary" role="status">
+            <span className="sr-only">Loading...</span>
+          </div>
+          <p>Checking permissions...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show access denied if no permission
+  if (!hasViewPermission) {
+    return (
+      <div style={{ padding: '24px' }}>
+        <div style={{ 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '85vh',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <h3>Access Denied</h3>
+          <p>You do not have permission to view customer support.</p>
+          <button
+            onClick={() => history.push('/admin/users')}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#74317e',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}
+          >
+            Back to Users
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ padding: '24px' }}>
       {/* Header */}
@@ -415,25 +592,27 @@ const Customers = () => {
             </div>
           )}
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          style={{
-            backgroundColor: '#8a3b9a',
-            color: 'white',
-            border: 'none',
-            padding: '10px 20px',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            fontWeight: '600',
-            fontSize: '14px'
-          }}
-        >
-          <Plus size={18} />
-          New Ticket
-        </button>
+        {!checkingPermissions && permissions.create && (
+          <button
+            onClick={() => setShowCreateModal(true)}
+            style={{
+              backgroundColor: '#8a3b9a',
+              color: 'white',
+              border: 'none',
+              padding: '10px 20px',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontWeight: '600',
+              fontSize: '14px'
+            }}
+          >
+            <Plus size={18} />
+            New Ticket
+          </button>
+        )}
       </div>
 
       {/* Filters */}

@@ -1,5 +1,6 @@
 import express from 'express';
-import { createPublicTicket, getPublicTickets, uploadPublicFile, deletePublicFile, getPublicFileUrl, upload } from './controllers/publicSupport.controller.js';
+import multer from 'multer';
+import { createPublicTicket, getPublicTickets, uploadPublicFile, deletePublicFile, getPublicFileUrl, addPublicMessage, upload } from './controllers/publicSupport.controller.js';
 import {
   createRateLimitMiddleware,
   sanitizeInputMiddleware
@@ -7,7 +8,7 @@ import {
 
 const router = express.Router();
 
-// More lenient rate limiting for public endpoint (handled in controller by IP).
+// More lenient rate limiting for public endpoint (handled in controller by IP)
 const publicRateLimitMiddleware = createRateLimitMiddleware('public-support', 20); // 20 requests per minute
 
 /**
@@ -95,7 +96,65 @@ router.get(
 router.post(
   '/upload',
   publicRateLimitMiddleware,
-  upload.single('file'),
+  (req, res, next) => {
+    upload.single('file')(req, res, (err) => {
+      if (err) {
+        // Handle multer errors
+        if (err instanceof multer.MulterError) {
+          if (err.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({
+              success: false,
+              error: {
+                code: 'FILE_TOO_LARGE',
+                message: 'File size exceeds the 10MB limit. Please choose a smaller file.',
+                timestamp: new Date().toISOString()
+              }
+            });
+          }
+          if (err.code === 'LIMIT_FILE_COUNT') {
+            return res.status(400).json({
+              success: false,
+              error: {
+                code: 'TOO_MANY_FILES',
+                message: 'Maximum 5 files allowed per upload.',
+                timestamp: new Date().toISOString()
+              }
+            });
+          }
+          return res.status(400).json({
+            success: false,
+            error: {
+              code: 'UPLOAD_ERROR',
+              message: err.message || 'File upload failed. Please try again.',
+              timestamp: new Date().toISOString()
+            }
+          });
+        }
+        
+        // Handle file filter errors (invalid file type)
+        if (err.message && err.message.includes('Invalid file type')) {
+          return res.status(400).json({
+            success: false,
+            error: {
+              code: 'INVALID_FILE_TYPE',
+              message: err.message.replace('Invalid file type: ', '').split('.')[0] + '. Allowed: images (including SVG), PDF, Word, Excel, text files.',
+              timestamp: new Date().toISOString()
+            }
+          });
+        }
+        
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'UPLOAD_ERROR',
+            message: err.message || 'File upload failed. Please try again.',
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+      next();
+    });
+  },
   sanitizeInputMiddleware,
   uploadPublicFile
 );
@@ -148,6 +207,42 @@ router.delete(
   publicRateLimitMiddleware,
   sanitizeInputMiddleware,
   deletePublicFile
+);
+
+/**
+ * @route   POST /api/public/customer-support/tickets/:ticketId/messages
+ * @desc    Add message to ticket (PUBLIC - no authentication required)
+ * @access  Public
+ * 
+ * Request Body (JSON):
+ * {
+ *   "email": "user@example.com" (required - must match ticket owner),
+ *   "message": "Message text" (required, 3-5000 characters),
+ *   "attachments": [] (optional)
+ * }
+ * 
+ * Response:
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "message": {
+ *       "id": "...",
+ *       "ticket_id": "...",
+ *       "message": "...",
+ *       "message_type": "user",
+ *       "sender_name": "...",
+ *       "sender_email": "...",
+ *       "created_at": "..."
+ *     }
+ *   },
+ *   "message": "Message sent successfully"
+ * }
+ */
+router.post(
+  '/tickets/:ticketId/messages',
+  publicRateLimitMiddleware,
+  sanitizeInputMiddleware,
+  addPublicMessage
 );
 
 export default router;

@@ -4,14 +4,17 @@ import { Container, Row, Col, Card, Badge, Button, Table } from 'react-bootstrap
 import { ArrowLeft, User, Mail, Phone, MapPin, Calendar, Package, Edit, Trash2, Key, FileText, DollarSign, Eye, Download, UserPlus, UserCog, History, ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { getConsumerById, resetConsumerPassword, deleteConsumer } from '../api/backend';
+import { checkUserPermission } from '../api/backend/permissions';
 import { useAuth } from '../hooks/useAuth';
 import apiClient from '../services/apiClient';
 
 function ConsumerDetail() {
   const { id } = useParams();
   const history = useHistory();
-  const { isAdmin, isReseller } = useAuth();
+  const { isAdmin, isReseller, user, profile } = useAuth();
   const [consumer, setConsumer] = useState(null);
+  const [checkingPermission, setCheckingPermission] = useState(true);
+  const [hasPermission, setHasPermission] = useState(false);
   const [products, setProducts] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [activityLogs, setActivityLogs] = useState([]);
@@ -39,11 +42,66 @@ function ConsumerDetail() {
     });
   };
 
+  // Check permission for consumers.read (admin only)
   useEffect(() => {
+    const checkPermission = async () => {
+      // Resellers have their own access control, skip permission check
+      if (isReseller) {
+        setHasPermission(true);
+        setCheckingPermission(false);
+        return;
+      }
+
+      // Only check permission for admin users
+      if (!isAdmin || !user || !profile) {
+        setCheckingPermission(false);
+        setHasPermission(false);
+        return;
+      }
+
+      try {
+        // Systemadmins have all permissions
+        if (profile.is_systemadmin === true) {
+          setHasPermission(true);
+          setCheckingPermission(false);
+          return;
+        }
+
+        // Check if user has consumers.read permission
+        const hasReadPermission = await checkUserPermission(user.id, 'consumers.read');
+        setHasPermission(hasReadPermission === true);
+        
+        // Redirect if no permission
+        if (!hasReadPermission) {
+          toast.error('You do not have permission to view consumer details.');
+          setTimeout(() => {
+            history.push('/admin/consumers');
+          }, 500);
+        }
+      } catch (error) {
+        console.error('Error checking consumer read permission:', error);
+        setHasPermission(false);
+        toast.error('Error checking permissions. Access denied.');
+        setTimeout(() => {
+          history.push('/admin/consumers');
+        }, 500);
+      } finally {
+        setCheckingPermission(false);
+      }
+    };
+
+    checkPermission();
+  }, [isAdmin, isReseller, user, profile, history]);
+
+  useEffect(() => {
+    // Only fetch data if user has permission (or is reseller)
+    if (checkingPermission) return;
+    if (!hasPermission && isAdmin) return; // Don't fetch if admin doesn't have permission
+    
     fetchConsumerData();
     fetchConsumerProducts();
     fetchConsumerInvoices();
-  }, [id]);
+  }, [id, checkingPermission, hasPermission, isAdmin]);
 
   useEffect(() => {
     fetchConsumerInvoices();
@@ -304,6 +362,40 @@ function ConsumerDetail() {
       toast.error('Failed to delete consumer');
     }
   };
+
+  // Show loading while checking permission
+  if (checkingPermission) {
+    return (
+      <Container fluid style={{ padding: '24px' }}>
+        <div style={{ textAlign: 'center', marginTop: '50px' }}>
+          <div style={{
+            width: '50px',
+            height: '50px',
+            border: '4px solid #f3f3f3',
+            borderTop: '4px solid #74317e',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+            margin: '0 auto 20px'
+          }} />
+          <p>Checking permissions...</p>
+        </div>
+      </Container>
+    );
+  }
+
+  // Redirect if admin doesn't have permission (resellers have their own access control)
+  if (isAdmin && !hasPermission) {
+    return (
+      <Container fluid style={{ padding: '24px' }}>
+        <div style={{ textAlign: 'center', marginTop: '50px' }}>
+          <p>You do not have permission to view consumer details.</p>
+          <Button onClick={() => history.push('/admin/consumers')}>
+            Back to Consumers
+          </Button>
+        </div>
+      </Container>
+    );
+  }
 
   if (loading) {
     return (

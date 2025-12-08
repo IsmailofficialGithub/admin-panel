@@ -20,15 +20,21 @@ import {
   Star,
   Sparkles,
   Medal,
-  Zap
+  Zap,
+  Lock
 } from 'lucide-react';
 import { Container, Row, Col, Card } from 'react-bootstrap';
 import { useHistory } from 'react-router-dom';
 import { getDashboardStats, getResellerStats } from '../api/backend';
+import { getMyPermissions, checkUserPermission } from '../api/backend/permissions';
+import { useAuth } from '../hooks/useAuth';
 import toast from 'react-hot-toast';
 
 const Dashboard = () => {
   const history = useHistory();
+  const { user, profile } = useAuth();
+  const [hasPermission, setHasPermission] = useState(null); // null = checking, true = has permission, false = no permission
+  const [checkingPermission, setCheckingPermission] = useState(true);
   
   // Real data from API
   const [stats, setStats] = useState({
@@ -52,7 +58,99 @@ const Dashboard = () => {
   const [resellerStats, setResellerStats] = useState([]);
   const [resellerStatsLoading, setResellerStatsLoading] = useState(true);
 
+  // Check permission on mount
   useEffect(() => {
+    const checkPermission = async () => {
+      if (!user || !profile) {
+        setCheckingPermission(false);
+        setHasPermission(false);
+        return;
+      }
+
+      try {
+        setCheckingPermission(true);
+        
+        // Log user info for debugging
+        console.log('🔍 Dashboard: Checking permissions for user:', {
+          userId: user.id,
+          role: profile.role,
+          isSystemAdmin: profile.is_systemadmin,
+          accountStatus: profile.account_status
+        });
+        
+        // Check if user is systemadmin (has all permissions) - ONLY bypass if explicitly systemadmin
+        if (profile.is_systemadmin === true) {
+          console.log('⚠️ Dashboard: User is systemadmin - BYPASSING permission check (systemadmins have all permissions)');
+          console.log('💡 To test permission checks, set is_systemadmin = false for this user');
+          setHasPermission(true);
+          setCheckingPermission(false);
+          return;
+        }
+
+        console.log('🔍 Dashboard: User is NOT systemadmin, checking dashboard.view permission...');
+        
+        // First, get all user permissions to see what they have
+        const myPermissions = await getMyPermissions();
+        console.log('🔍 Dashboard: getMyPermissions response:', myPermissions);
+        
+        if (myPermissions && !myPermissions.error && Array.isArray(myPermissions)) {
+          const permissionNames = myPermissions.map(p => p.permission_name || p.name);
+          console.log('🔍 Dashboard: All user permissions:', permissionNames);
+          const hasPermissionInList = permissionNames.includes('dashboard.view');
+          console.log('🔍 Dashboard: dashboard.view in permissions list?', hasPermissionInList);
+          
+          // Also check using the API endpoint
+          const hasDashboardPermission = await checkUserPermission(user.id, 'dashboard.view');
+          console.log('🔍 Dashboard: checkUserPermission API result:', hasDashboardPermission);
+          
+          // Both checks must agree - if either says false, deny access
+          if (hasPermissionInList === true && hasDashboardPermission === true) {
+            console.log('✅ Dashboard: Permission confirmed by both checks, granting access');
+            setHasPermission(true);
+          } else {
+            console.log('❌ Dashboard: Permission check FAILED');
+            console.log('   - In permissions list:', hasPermissionInList);
+            console.log('   - API check result:', hasDashboardPermission);
+            setHasPermission(false);
+            toast.error('Access denied. You do not have permission to view the dashboard.');
+          }
+        } else {
+          // If getMyPermissions fails or returns error, deny access
+          console.log('❌ Dashboard: getMyPermissions failed or returned error:', myPermissions);
+          setHasPermission(false);
+          toast.error('Access denied. You do not have permission to view the dashboard.');
+        }
+      } catch (error) {
+        console.error('❌ Dashboard: Error checking permission:', error);
+        setHasPermission(false);
+        toast.error('Error checking permissions. Access denied.');
+      } finally {
+        setCheckingPermission(false);
+      }
+    };
+
+    checkPermission();
+  }, [user, profile]);
+
+  // Redirect if no permission
+  useEffect(() => {
+    // Only redirect if permission check is complete (not checking) and user doesn't have permission
+    if (checkingPermission === false && hasPermission === false) {
+      console.log('🔄 Dashboard: No permission, redirecting to /admin/users');
+      toast.error('Redirecting to Users page...');
+      // Small delay to show the toast message
+      setTimeout(() => {
+        history.push('/admin/users');
+      }, 500);
+    }
+  }, [hasPermission, checkingPermission, history]);
+
+  useEffect(() => {
+    // Only fetch stats if user has permission
+    if (hasPermission !== true) {
+      return;
+    }
+
     const fetchDashboardStats = async () => {
       try {
         setLoading(true);
@@ -133,7 +231,7 @@ const Dashboard = () => {
 
     fetchDashboardStats();
     fetchResellerStats();
-  }, []);
+  }, [hasPermission]);
 
   const StatCard = ({ title, value, icon: Icon, color, subtitle, trend }) => (
     <Card 
@@ -261,6 +359,95 @@ const Dashboard = () => {
       </Card.Body>
     </Card>
   );
+
+  // Show loading while checking permission
+  if (checkingPermission || hasPermission === null) {
+    return (
+      <Container fluid style={{ padding: '24px', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            width: '50px',
+            height: '50px',
+            border: '4px solid #f3f3f3',
+            borderTop: '4px solid #74317e',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+            margin: '0 auto 16px'
+          }} />
+          <p style={{ color: '#666', fontSize: '16px' }}>Checking permissions...</p>
+        </div>
+      </Container>
+    );
+  }
+
+  // Show access denied if no permission
+  if (hasPermission === false) {
+    return (
+      <Container fluid style={{ padding: '24px', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+        <div style={{
+          textAlign: 'center',
+          backgroundColor: 'white',
+          padding: '40px',
+          borderRadius: '12px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+          maxWidth: '500px'
+        }}>
+          <div style={{
+            width: '80px',
+            height: '80px',
+            borderRadius: '50%',
+            backgroundColor: '#fee2e2',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 24px'
+          }}>
+            <Lock size={40} color="#dc2626" />
+          </div>
+          <h2 style={{
+            fontSize: '24px',
+            fontWeight: '700',
+            color: '#1f2937',
+            margin: '0 0 12px 0'
+          }}>
+            Access Denied
+          </h2>
+          <p style={{
+            fontSize: '16px',
+            color: '#6b7280',
+            margin: '0 0 24px 0',
+            lineHeight: '1.6'
+          }}>
+            You do not have permission to view the dashboard. Please contact your administrator to request access.
+          </p>
+          <button
+            onClick={() => history.push('/admin/users')}
+            style={{
+              padding: '12px 24px',
+              backgroundColor: '#74317e',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#5a2460';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#74317e';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            Go to Users
+          </button>
+        </div>
+      </Container>
+    );
+  }
 
   return (
     <Container fluid style={{ padding: '24px' }}>
@@ -774,7 +961,7 @@ const Dashboard = () => {
         </Col>
       </Row>
 
-      {/* Pulse Animation */}
+      {/* Animations */}
       <style>
         {`
           @keyframes pulse {
@@ -784,6 +971,10 @@ const Dashboard = () => {
             50% {
               opacity: 0.5;
             }
+          }
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
           }
         `}
       </style>

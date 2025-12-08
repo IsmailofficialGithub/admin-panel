@@ -11,6 +11,7 @@ import {
   handleApiError,
 } from '../../utils/apiOptimization.js';
 import { cacheService } from '../../config/redis.js';
+import { sendTicketCreatedEmail } from '../../services/emailService.js';
 
 /**
  * Generate unique ticket number
@@ -94,7 +95,7 @@ export const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = [
-      "image/jpeg", "image/png", "image/jpg", "image/gif", "image/webp",
+      "image/jpeg", "image/png", "image/jpg", "image/gif", "image/webp", "image/svg+xml",
       "application/pdf",
       "application/msword",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -105,13 +106,13 @@ export const upload = multer({
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error(`Invalid file type: ${file.mimetype}. Allowed: images, PDF, Word, Excel, text files.`), false);
+      cb(new Error(`Invalid file type: ${file.mimetype}. Allowed: images (including SVG), PDF, Word, Excel, text files.`), false);
     }
   },
 });
 
 /**
- * Upload attachment file to Supabase Storage ..
+ * Upload attachment file to Supabase Storage
  */
 async function uploadAttachment(
   fileBuffer,
@@ -635,7 +636,23 @@ export const createPublicTicket = async (req, res) => {
     await cacheService.delByPattern('tickets:*').catch(() => {});
 
     // ========================================
-    // 10. RETURN SUCCESS RESPONSE
+    // 10. SEND EMAIL NOTIFICATION (async, non-blocking)
+    // ========================================
+    if (email && ticket) {
+      sendTicketCreatedEmail({
+        email: email,
+        full_name: name || email.split('@')[0],
+        ticket_number: ticket.ticket_number,
+        subject: subject.trim(),
+        message: message.trim(),
+        ticket_id: ticket.id,
+      }).catch(emailError => {
+        console.warn('⚠️ Failed to send ticket created email:', emailError?.message);
+      });
+    }
+
+    // ========================================
+    // 11. RETURN SUCCESS RESPONSE
     // ========================================
     const responseData = {
       ticket: {
@@ -782,25 +799,37 @@ export const getPublicFileUrl = async (req, res) => {
  */
 export const uploadPublicFile = async (req, res) => {
   try {
-    if (!req.file) {
+    // Check for multer errors (file size, file type, etc.)
+    if (req.fileValidationError) {
       const { statusCode, response } = createErrorResponse(
         400,
         'VALIDATION_ERROR',
-        'No file provided'
+        req.fileValidationError
       );
       return res.status(statusCode).json(response);
     }
 
-    // Generate a temporary UUID for the ticket ID (will be used when ticket is created)
+    if (!req.file) {
+      const { statusCode, response } = createErrorResponse(
+        400,
+        'VALIDATION_ERROR',
+        'No file provided. Please select a file to upload.'
+      );
+      return res.status(statusCode).json(response);
+    }
+
+    // Use ticket_id from body if provided (for chat attachments), otherwise generate new UUID
     // This ensures files are stored in the correct structure: support/{ticketId}/ticket/{filename}
-    const tempTicketId = crypto.randomUUID();
+    const ticketId = req.body.ticket_id && isValidUUID(req.body.ticket_id) 
+      ? req.body.ticket_id 
+      : crypto.randomUUID();
 
     // Upload file to storage
     const uploadResult = await uploadAttachment(
       req.file.buffer,
       req.file.mimetype,
       req.file.originalname,
-      tempTicketId, // Use UUID instead of 'temp'
+      ticketId,
       null
     );
 
@@ -817,7 +846,7 @@ export const uploadPublicFile = async (req, res) => {
       file_name: uploadResult.fileName,
       file_size: req.file.size,
       file_type: req.file.mimetype,
-      ticket_id: tempTicketId // Return the UUID so widget can use it for ticket creation
+      ticket_id: ticketId // Return the ticket ID (existing or new UUID)
     });
 
     return res.status(200).json(response);
@@ -879,18 +908,43 @@ export const getPublicTickets = async (req, res) => {
         .eq("ticket_id", ticket.id)
         .order("created_at", { ascending: true });
 
-      // Get attachments
+      // Get attachments grouped by message_id
       const { data: attachments } = await supabase
         .from("support_attachments")
-        .select("id, file_name, file_url, file_size, file_type, uploaded_at")
+        .select("id, message_id, file_name, file_url, file_size, file_type, uploaded_at")
         .eq("ticket_id", ticket.id)
         .order("uploaded_at", { ascending: true });
+
+      // Group attachments by message_id
+      const attachmentsByMessage = {};
+      if (attachments) {
+        attachments.forEach(att => {
+          if (att.message_id) {
+            if (!attachmentsByMessage[att.message_id]) {
+              attachmentsByMessage[att.message_id] = [];
+            }
+            attachmentsByMessage[att.message_id].push({
+              id: att.id,
+              file_name: att.file_name,
+              file_url: att.file_url,
+              file_size: att.file_size,
+              file_type: att.file_type,
+              uploaded_at: att.uploaded_at
+            });
+          }
+        });
+      }
+
+      // Add attachments to each message
+      const messagesWithAttachments = (messages || []).map(msg => ({
+        ...msg,
+        attachments: attachmentsByMessage[msg.id] || []
+      }));
 
       return res.json(createSuccessResponse({
         ticket: {
           ...ticket,
-          messages: messages || [],
-          attachments: attachments || [],
+          messages: messagesWithAttachments,
         }
       }));
     }
@@ -925,6 +979,275 @@ export const getPublicTickets = async (req, res) => {
       500,
       'INTERNAL_SERVER_ERROR',
       'An unexpected error occurred. Please try again later.',
+    );
+    return res.status(statusCode).json(response);
+  }
+};
+
+/**
+ * Add message to public ticket (no authentication required)
+ * @route   POST /api/public/customer-support/tickets/:ticketId/messages
+ * @access  Public
+ */
+export const addPublicMessage = async (req, res) => {
+  try {
+    // ========================================
+    // 1. RATE LIMITING (by IP)
+    // ========================================
+    const clientIp = req.ip || req.headers['x-forwarded-for']?.split(',')[0] || req.connection.remoteAddress || 'unknown';
+    const rateLimit = await checkRateLimit(clientIp);
+    
+    if (!rateLimit.allowed) {
+      const { statusCode, response } = createErrorResponse(
+        429,
+        'RATE_LIMIT_EXCEEDED',
+        'Too many requests. Please try again later.',
+        { resetAt: rateLimit.resetAt }
+      );
+      return res.status(statusCode).json(response);
+    }
+
+    // ========================================
+    // 2. INPUT VALIDATION & SANITIZATION
+    // ========================================
+    const { ticketId } = req.params;
+    let { email, message, attachments = [] } = req.body;
+
+    if (!ticketId || !isValidUUID(ticketId)) {
+      const { statusCode, response } = createErrorResponse(
+        400,
+        'VALIDATION_ERROR',
+        'Invalid ticket ID format',
+      );
+      return res.status(statusCode).json(response);
+    }
+
+    if (!email || !isValidEmail(email)) {
+      const { statusCode, response } = createErrorResponse(
+        400,
+        'VALIDATION_ERROR',
+        'Valid email address is required',
+      );
+      return res.status(statusCode).json(response);
+    }
+
+    // Validate message or attachments (at least one required)
+    const hasMessage = message && message.trim();
+    const hasAttachments = attachments && Array.isArray(attachments) && attachments.length > 0;
+
+    if (!hasMessage && !hasAttachments) {
+      const { statusCode, response } = createErrorResponse(
+        400,
+        'VALIDATION_ERROR',
+        'Message or attachment is required',
+      );
+      return res.status(statusCode).json(response);
+    }
+
+    // Validate message if provided
+    if (hasMessage) {
+      if (message.trim().length < 3) {
+        const { statusCode, response } = createErrorResponse(
+          400,
+          'VALIDATION_ERROR',
+          'Message must be at least 3 characters long',
+        );
+        return res.status(statusCode).json(response);
+      }
+
+      if (message.trim().length > 5000) {
+        const { statusCode, response } = createErrorResponse(
+          400,
+          'VALIDATION_ERROR',
+          'Message must not exceed 5000 characters',
+        );
+        return res.status(statusCode).json(response);
+      }
+    }
+
+    // Validate attachments if provided
+    if (hasAttachments) {
+      if (attachments.length > 5) {
+        const { statusCode, response } = createErrorResponse(
+          400,
+          'VALIDATION_ERROR',
+          'Maximum 5 attachments allowed per message',
+        );
+        return res.status(statusCode).json(response);
+      }
+
+      for (const att of attachments) {
+        if (!att.file_name || !att.file_path) {
+          const { statusCode, response } = createErrorResponse(
+            400,
+            'VALIDATION_ERROR',
+            'Each attachment must have file_name and file_path',
+          );
+          return res.status(statusCode).json(response);
+        }
+      }
+    }
+
+    const sanitizedEmail = email.toLowerCase().trim();
+    const sanitizedMessage = hasMessage ? sanitizeString(message, 5000) : '(File attachment)';
+
+    // ========================================
+    // 3. VALIDATE TICKET (belongs to email)
+    // ========================================
+    const { data: ticket, error: ticketError } = await supabase
+      .from("support_tickets")
+      .select("id, ticket_number, user_email, user_name, status")
+      .eq("id", ticketId)
+      .eq("user_email", sanitizedEmail)
+      .eq("user_role", "external")
+      .single();
+
+    if (ticketError || !ticket) {
+      const { statusCode, response } = createErrorResponse(
+        404,
+        'TICKET_NOT_FOUND',
+        'Ticket not found or you do not have access to this ticket',
+      );
+      return res.status(statusCode).json(response);
+    }
+
+    // Check if ticket is closed
+    if (ticket.status === 'closed') {
+      const { statusCode, response } = createErrorResponse(
+        400,
+        'VALIDATION_ERROR',
+        'Cannot add messages to a closed ticket',
+      );
+      return res.status(statusCode).json(response);
+    }
+
+    // ========================================
+    // 4. CREATE MESSAGE
+    // ========================================
+    const messagePromise = supabase
+      .from("support_messages")
+      .insert({
+        ticket_id: ticketId,
+        message: sanitizedMessage,
+        message_type: "user",
+        sender_id: null,
+        sender_email: sanitizedEmail,
+        sender_name: ticket.user_name || sanitizedEmail.split('@')[0],
+        sender_role: "external",
+        is_read: false,
+      })
+      .select()
+      .single();
+
+    const { data: newMessage, error: messageError } = await executeWithTimeout(messagePromise, 5000);
+
+    if (messageError || !newMessage) {
+      console.error("❌ Error creating message:", messageError);
+      const { statusCode, response } = createErrorResponse(
+        500,
+        'DATABASE_ERROR',
+        'Failed to save message. Please try again.',
+      );
+      return res.status(statusCode).json(response);
+    }
+
+    // ========================================
+    // 5. STORE ATTACHMENTS (if any)
+    // ========================================
+    if (hasAttachments) {
+      const attachmentRecords = attachments
+        .filter(att => att.file_name && att.file_path)
+        .map((att) => {
+          const fileExtension = att.file_name?.split(".").pop() || "";
+          return {
+            ticket_id: ticketId,
+            message_id: newMessage.id,
+            file_name: sanitizeString(att.file_name, 255),
+            file_path: att.file_path,
+            file_url: att.file_url || att.file_path,
+            file_size: att.file_size || 0,
+            file_type: att.file_type || "application/octet-stream",
+            file_extension: fileExtension,
+            uploaded_by: null, // External user, no user ID
+            is_public: true, // Public files for external users
+          };
+        });
+
+      if (attachmentRecords.length > 0) {
+        const attachPromise = supabase
+          .from("support_attachments")
+          .insert(attachmentRecords);
+
+        executeWithTimeout(attachPromise, 3000).catch(attachError => {
+          console.warn("⚠️ Failed to store attachments:", attachError?.message);
+        });
+      }
+    }
+
+    // ========================================
+    // 6. UPDATE TICKET MESSAGE COUNT
+    // ========================================
+    // Update message count (non-blocking, fail silently)
+    (async () => {
+      try {
+        const { error: rpcError } = await supabase.rpc('increment_ticket_message_count', {
+          ticket_id: ticketId
+        });
+        
+        if (rpcError) {
+          // Fallback: manual count update if RPC doesn't exist
+          const { error: updateError } = await supabase
+            .from("support_tickets")
+            .update({ 
+              message_count: supabase.raw('message_count + 1'),
+              updated_at: new Date().toISOString()
+            })
+            .eq("id", ticketId);
+          
+          if (updateError) {
+            console.warn('⚠️ Failed to update message count:', updateError?.message);
+          }
+        }
+      } catch (updateError) {
+        console.warn('⚠️ Failed to update message count:', updateError?.message);
+      }
+    })();
+
+    // ========================================
+    // 6. CACHE INVALIDATION
+    // ========================================
+    await cacheService.delByPattern('tickets:*').catch(() => {});
+
+    // ========================================
+    // 7. RETURN SUCCESS RESPONSE
+    // ========================================
+    const responseData = {
+      message: {
+        id: newMessage.id,
+        ticket_id: newMessage.ticket_id,
+        message: newMessage.message,
+        message_type: newMessage.message_type,
+        sender_name: newMessage.sender_name,
+        sender_email: newMessage.sender_email,
+        created_at: newMessage.created_at,
+      },
+    };
+
+    const meta = {
+      rate_limit: {
+        remaining: rateLimit.remaining,
+      },
+    };
+
+    return res.status(201).json(createSuccessResponse(responseData, 'Message sent successfully', meta));
+
+  } catch (error) {
+    console.error("❌ Unexpected error in addPublicMessage:", error);
+    const { statusCode, response } = createErrorResponse(
+      500,
+      'INTERNAL_SERVER_ERROR',
+      'An unexpected error occurred. Please try again later.',
+      process.env.NODE_ENV === 'development' ? { error: error.message, stack: error.stack } : null
     );
     return res.status(statusCode).json(response);
   }

@@ -11,6 +11,8 @@ import {
   resetResellerPassword,
   updateResellerAccountStatus
 } from '../api/backend';
+import { checkUserPermissionsBulk, checkUserPermission } from '../api/backend/permissions';
+import { useAuth } from '../hooks/useAuth';
 import apiClient from '../services/apiClient';
 import CreateResellerModal from '../components/ui/createResellerModel';
 import UpdateResellerModal from '../components/ui/updateResellerModel';
@@ -18,6 +20,7 @@ import DeleteModal from '../components/ui/deleteModel';
 
 const Resellers = () => {
   const history = useHistory();
+  const { user, profile } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -39,6 +42,15 @@ const Resellers = () => {
   const [loadingConsumers, setLoadingConsumers] = useState({});
   const [dropdownPosition, setDropdownPosition] = useState({}); // Store dropdown position for each user
   const actionButtonRefs = useRef({});
+  const [permissions, setPermissions] = useState({
+    create: false, // Start as false, update after checking
+    delete: false,
+    update: false,
+    read: false,
+  });
+  const [hasViewPermission, setHasViewPermission] = useState(false); // Start as false
+  const [checkingViewPermission, setCheckingViewPermission] = useState(true);
+  const [checkingPermissions, setCheckingPermissions] = useState(true); // Track permission checking state
   const usersPerPage = 20;
 
   // Debounce search input
@@ -50,8 +62,104 @@ const Resellers = () => {
     return () => clearTimeout(debounceTimer);
   }, [searchInput]);
 
-  // Fetch Resellers from backend API with search
+  // Check resellers.view permission first (required to access the page)
   useEffect(() => {
+    const checkViewPermission = async () => {
+      if (!user || !profile) {
+        setHasViewPermission(false);
+        setCheckingViewPermission(false);
+        return;
+      }
+
+      try {
+        // Systemadmins have all permissions
+        if (profile.is_systemadmin === true) {
+          setHasViewPermission(true);
+          setCheckingViewPermission(false);
+          return;
+        }
+
+        // Check if user has resellers.view permission
+        const hasPermission = await checkUserPermission(user.id, 'resellers.view');
+        setHasViewPermission(hasPermission === true);
+        
+        // Redirect if no permission
+        if (!hasPermission) {
+          toast.error('You do not have permission to view resellers.');
+          setTimeout(() => {
+            history.push('/admin/users');
+          }, 500);
+        }
+      } catch (error) {
+        console.error('Error checking resellers.view permission:', error);
+        setHasViewPermission(false);
+        toast.error('Error checking permissions. Access denied.');
+        setTimeout(() => {
+          history.push('/admin/users');
+        }, 500);
+      } finally {
+        setCheckingViewPermission(false);
+      }
+    };
+
+    checkViewPermission();
+  }, [user, profile, history]);
+
+  // Check multiple permissions at once (optimized bulk check)
+  useEffect(() => {
+    // Only check other permissions if user has view permission
+    if (checkingViewPermission || !hasViewPermission) {
+      return;
+    }
+
+    const checkPermissions = async () => {
+      setCheckingPermissions(true); // Start checking
+      if (!user || !profile) {
+        setPermissions({ create: false, delete: false, update: false, read: false });
+        setCheckingPermissions(false);
+        return;
+      }
+
+      try {
+        // Systemadmins have all permissions
+        if (profile.is_systemadmin === true) {
+          setPermissions({ create: true, delete: true, update: true, read: true });
+          setCheckingPermissions(false);
+          return;
+        }
+
+        // Check multiple permissions in a single optimized API call
+        const permissionResults = await checkUserPermissionsBulk(user.id, [
+          'resellers.create',
+          'resellers.delete',
+          'resellers.update',
+          'resellers.read'
+        ]);
+
+        setPermissions({
+          create: permissionResults['resellers.create'] === true,
+          delete: permissionResults['resellers.delete'] === true,
+          update: permissionResults['resellers.update'] === true,
+          read: permissionResults['resellers.read'] === true
+        });
+      } catch (error) {
+        console.error('Error checking reseller permissions:', error);
+        setPermissions({ create: false, delete: false, update: false, read: false });
+      } finally {
+        setCheckingPermissions(false); // Done checking
+      }
+    };
+
+    checkPermissions();
+  }, [user, profile, checkingViewPermission, hasViewPermission]);
+
+  // Fetch Resellers from backend API with search (only if user has view permission)
+  useEffect(() => {
+    // Don't fetch if still checking permission or if user doesn't have permission
+    if (checkingViewPermission || !hasViewPermission) {
+      return;
+    }
+
     const fetchResellers = async () => {
       try {
         setLoading(true);
@@ -73,7 +181,7 @@ const Resellers = () => {
     };
 
     fetchResellers();
-  }, [searchQuery]);
+  }, [searchQuery, checkingViewPermission, hasViewPermission]);
 
   const indexOfLastUser = currentPage * usersPerPage;
   const indexOfFirstUser = indexOfLastUser - usersPerPage;
@@ -82,6 +190,24 @@ const Resellers = () => {
 
   const handleAction = async (action, userId, userName) => {
     setOpenDropdown(null);
+    
+    // Check permission for read-related actions
+    if (action === 'View Details' && !permissions.read) {
+      toast.error('You do not have permission to view reseller details.');
+      return;
+    }
+
+    // Check permission for update-related actions
+    if ((action === 'Update' || action === 'Deactivate Account' || action === 'Reset Password') && !permissions.update) {
+      toast.error('You do not have permission to update resellers.');
+      return;
+    }
+
+    // Check permission for delete action
+    if (action === 'Delete' && !permissions.delete) {
+      toast.error('You do not have permission to delete resellers.');
+      return;
+    }
     
     if (action === 'View Details') {
       history.push(`/admin/reseller/${userId}`);
@@ -132,6 +258,13 @@ const Resellers = () => {
 
   const handleCreateReseller = async (ResellerData) => {
     try {
+      // Check permission before creating
+      if (!permissions.create) {
+        toast.error('You do not have permission to create resellers.');
+        setIsCreateModalOpen(false);
+        return { error: 'Permission denied' };
+      }
+
       // Call backend API to create Reseller
       const result = await createReseller(ResellerData);
       
@@ -162,6 +295,14 @@ const Resellers = () => {
 
   const handleUpdateReseller = async (updatedReseller) => {
     try {
+      // Check permission before updating
+      if (!permissions.update) {
+        toast.error('You do not have permission to update resellers.');
+        setIsUpdateModalOpen(false);
+        setSelectedReseller(null);
+        return;
+      }
+
       // Call API to update Reseller using user_id
       const result = await updateReseller(updatedReseller.user_id, {
         full_name: updatedReseller.full_name,
@@ -206,6 +347,14 @@ const Resellers = () => {
     try {
       if (!statusUpdateData) return;
 
+      // Check permission before updating status
+      if (!permissions.update) {
+        toast.error('You do not have permission to update resellers.');
+        setShowStatusModal(false);
+        setStatusUpdateData(null);
+        return;
+      }
+
       setIsUpdatingStatus(true);
       const result = await updateResellerAccountStatus(statusUpdateData.id, newStatus);
       
@@ -242,6 +391,14 @@ const Resellers = () => {
   const handleDeleteUser = async () => {
     try {
       if (!deleteUserData) return;
+
+      // Check permission before deletion
+      if (!permissions.delete) {
+        toast.error('You do not have permission to delete resellers.');
+        setShowDeleteModal(false);
+        setDeleteUserData(null);
+        return;
+      }
 
       setIsDeleting(true);
 
@@ -386,6 +543,67 @@ const Resellers = () => {
           }
         `}
       </style>
+    
+    {/* Show loading while checking permission */}
+    {checkingViewPermission && (
+      <div style={{ 
+        backgroundColor: '#f8f9fa', 
+        height: '100vh',
+        padding: '20px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            width: '50px',
+            height: '50px',
+            border: '4px solid #f3f3f3',
+            borderTop: '4px solid #74317e',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+            margin: '0 auto 20px'
+          }} />
+          <p>Checking permissions...</p>
+        </div>
+      </div>
+    )}
+
+    {/* Show access denied message if no permission */}
+    {!checkingViewPermission && !hasViewPermission && (
+      <div style={{ 
+        backgroundColor: '#f8f9fa', 
+        height: '100vh',
+        padding: '20px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <p style={{ fontSize: '18px', marginBottom: '20px' }}>You do not have permission to view resellers.</p>
+          <button
+            onClick={() => history.push('/admin/users')}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#74317e',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}
+          >
+            Back to Users
+          </button>
+        </div>
+      </div>
+    )}
+
+    {/* Only render main content if user has view permission */}
+    {!checkingViewPermission && hasViewPermission && (
     <div style={{ 
       backgroundColor: '#f8f9fa', 
       height: '100vh',
@@ -434,6 +652,7 @@ const Resellers = () => {
                   Manage your Resellers and their permissions
                 </p>
               </div>
+              {!checkingPermissions && permissions.create && (
               <button
                 onClick={() => setIsCreateModalOpen(true)}
                 title="Create New Reseller"
@@ -463,6 +682,7 @@ const Resellers = () => {
               >
                 <UserPlus size={20} />
               </button>
+              )}
             </div>
 
             {/* Search Row */}
@@ -696,6 +916,8 @@ const Resellers = () => {
                     textTransform: 'uppercase',
                     letterSpacing: '0.5px'
                   }}>CONSUMERS</th>
+                  {/* Only show ACTIONS header if user has at least one permission */}
+                  {(permissions.read || permissions.update || permissions.delete) && (
                   <th style={{ 
                     padding: '15px 24px', 
                     textAlign: 'center',
@@ -705,6 +927,7 @@ const Resellers = () => {
                     textTransform: 'uppercase',
                     letterSpacing: '0.5px'
                   }}>ACTIONS</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -963,7 +1186,11 @@ const Resellers = () => {
                         )}
                       </div>
                     </td>
+                    {/* Only show actions column if user has at least one permission */}
+                    {(permissions.read || permissions.update || permissions.delete) && (
                     <td style={{ padding: '15px 24px', textAlign: 'center', position: 'relative' }}>
+                        {/* Only show action dots if user has at least one permission */}
+                        {(permissions.read || permissions.update || permissions.delete) && (
                       <button
                         ref={(el) => {
                           if (el) actionButtonRefs.current[userId] = el;
@@ -991,6 +1218,7 @@ const Resellers = () => {
                       >
                         <MoreVertical size={18} />
                       </button>
+                        )}
                       
                       {openDropdown === userId && (
                         <div style={{
@@ -1007,6 +1235,7 @@ const Resellers = () => {
                           zIndex: 1000,
                           minWidth: '180px'
                         }}>
+                            {permissions.read && (
                           <button
                             onClick={() => handleAction('View Details', userId, user.full_name)}
                             style={{
@@ -1029,6 +1258,9 @@ const Resellers = () => {
                             <Eye size={16} />
                             View Details
                           </button>
+                            )}
+                            {permissions.update && (
+                              <>
                           <div style={{ 
                             height: '1px', 
                             backgroundColor: '#e0e0e0', 
@@ -1106,6 +1338,10 @@ const Resellers = () => {
                             <UserPlus size={16} />
                             {user.account_status === 'deactive' ? 'Activate Account' : 'Deactivate Account'}
                           </button>
+                              </>
+                            )}
+                            {permissions.delete && (
+                              <>
                           <div style={{ 
                             height: '1px', 
                             backgroundColor: '#e0e0e0', 
@@ -1133,9 +1369,12 @@ const Resellers = () => {
                             <Trash2 size={16} />
                             Delete
                           </button>
+                              </>
+                            )}
                         </div>
                       )}
                     </td>
+                    )}
                   </tr>
                   );
                 })}
@@ -1453,6 +1692,7 @@ const Resellers = () => {
         </>
       )}
     </div>
+    )}
     </>
   );
 };

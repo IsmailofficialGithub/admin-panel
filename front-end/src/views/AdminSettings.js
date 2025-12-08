@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../hooks/useAuth';
+import { checkUserPermission } from '../api/backend/permissions';
 import { getDefaultCommission, updateDefaultCommission, getResellerSettings, updateResellerSettings } from '../api/backend';
 import { getAllProducts } from '../api/backend/products';
 import { 
@@ -37,7 +38,7 @@ import {
 } from '../api/backend/productDatabases';
 
 const AdminSettings = () => {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const location = useLocation();
   const history = useHistory();
   const [loading, setLoading] = useState(false);
@@ -45,6 +46,9 @@ const AdminSettings = () => {
   const [saveStatus, setSaveStatus] = useState(null); // 'success' or 'error'
   const [activeMainTab, setActiveMainTab] = useState('general'); // Main tab
   const [activeSubTab, setActiveSubTab] = useState('basic'); // Sub-tab within main tab
+  const [hasViewPermission, setHasViewPermission] = useState(true); // Optimistic: show while checking
+  const [checkingViewPermission, setCheckingViewPermission] = useState(true);
+  const [hasUpdatePermission, setHasUpdatePermission] = useState(true); // Optimistic: show while checking
 
   // Main tabs configuration (defined early for use in useEffect)
   const mainTabs = [
@@ -57,8 +61,63 @@ const AdminSettings = () => {
     { id: 'product-databases', label: 'Product Databases', icon: Database }
   ];
 
+  // Check settings.view permission first (required to access the page)
+  useEffect(() => {
+    const checkViewPermission = async () => {
+      if (!user || !profile) {
+        setHasViewPermission(false);
+        setCheckingViewPermission(false);
+        return;
+      }
+
+      try {
+        // Systemadmins have all permissions
+        if (profile.is_systemadmin === true) {
+          setHasViewPermission(true);
+          setCheckingViewPermission(false);
+          // Also check update permission for systemadmins
+          setHasUpdatePermission(true);
+          return;
+        }
+
+        // Check if user has settings.view permission
+        const hasPermission = await checkUserPermission(user.id, 'settings.view');
+        setHasViewPermission(hasPermission === true);
+        
+        // Also check settings.update permission
+        const hasUpdate = await checkUserPermission(user.id, 'settings.update');
+        setHasUpdatePermission(hasUpdate === true);
+        
+        // Redirect if no view permission
+        if (!hasPermission) {
+          toast.error('You do not have permission to view settings.');
+          setTimeout(() => {
+            history.push('/admin/users');
+          }, 500);
+        }
+      } catch (error) {
+        console.error('Error checking settings.view permission:', error);
+        setHasViewPermission(false);
+        setHasUpdatePermission(false);
+        toast.error('Error checking permissions. Access denied.');
+        setTimeout(() => {
+          history.push('/admin/users');
+        }, 500);
+      } finally {
+        setCheckingViewPermission(false);
+      }
+    };
+
+    checkViewPermission();
+  }, [user, profile, history]);
+
   // Check URL query parameter for tab on mount and when URL changes
   useEffect(() => {
+    // Only proceed if user has view permission
+    if (checkingViewPermission || !hasViewPermission) {
+      return;
+    }
+
     const searchParams = new URLSearchParams(location.search);
     const tabParam = searchParams.get('tab');
     const validTabIds = mainTabs.map(tab => tab.id);
@@ -70,7 +129,7 @@ const AdminSettings = () => {
       const currentPath = location.pathname;
       history.replace(`${currentPath}?tab=general`);
     }
-  }, [location.search, location.pathname, history, mainTabs]);
+  }, [location.search, location.pathname, history, mainTabs, checkingViewPermission, hasViewPermission]);
 
   // Update URL when tab changes
   const handleTabChange = (tabId) => {
@@ -127,9 +186,11 @@ const AdminSettings = () => {
   });
 
   useEffect(() => {
-    // Load settings from localStorage or API
-    loadSettings();
-  }, []);
+    // Only load settings if user has view permission
+    if (!checkingViewPermission && hasViewPermission) {
+      loadSettings();
+    }
+  }, [checkingViewPermission, hasViewPermission]);
 
   const loadSettings = async () => {
     setLoading(true);
@@ -224,6 +285,12 @@ const AdminSettings = () => {
   };
 
   const handleSave = async () => {
+    // Check permission before saving
+    if (!hasUpdatePermission) {
+      toast.error('You do not have permission to update settings.');
+      return;
+    }
+
     setSaving(true);
     setSaveStatus(null);
     
@@ -442,6 +509,12 @@ const AdminSettings = () => {
   };
 
   const handleSaveProductDb = async () => {
+    // Check permission before saving
+    if (!hasUpdatePermission) {
+      toast.error('You do not have permission to update settings.');
+      return;
+    }
+
     if (!productDbConfig.product_id) {
       toast.error('Please select a product');
       return;
@@ -591,6 +664,61 @@ const AdminSettings = () => {
       setActiveSubTab(currentSubTabs[0].id);
     }
   }, [activeMainTab]);
+
+  // Show loading while checking permission
+  if (checkingViewPermission) {
+    return (
+      <Container fluid style={{ padding: '24px' }}>
+        <div style={{ 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '85vh',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <div className="spinner-border text-primary" role="status">
+            <span className="sr-only">Loading...</span>
+          </div>
+          <p>Checking permissions...</p>
+        </div>
+      </Container>
+    );
+  }
+
+  // Show access denied if no permission
+  if (!hasViewPermission) {
+    return (
+      <Container fluid style={{ padding: '24px' }}>
+        <div style={{ 
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '85vh',
+          flexDirection: 'column',
+          gap: '20px'
+        }}>
+          <h3>Access Denied</h3>
+          <p>You do not have permission to view settings.</p>
+          <button
+            onClick={() => history.push('/admin/users')}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#74317e',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}
+          >
+            Back to Users
+          </button>
+        </div>
+      </Container>
+    );
+  }
 
   if (loading) {
     return (
@@ -2076,20 +2204,22 @@ const AdminSettings = () => {
                     >
                       Cancel
                     </Button>
-                    <Button
-                      variant="primary"
-                      onClick={handleSaveProductDb}
-                      disabled={saving || testingCredentials}
-                      style={{
-                        backgroundColor: '#10b981',
-                        borderColor: '#10b981',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px'
-                      }}
-                    >
-                      {saving ? 'Saving...' : 'Save Configuration'}
-                    </Button>
+                    {hasUpdatePermission && (
+                      <Button
+                        variant="primary"
+                        onClick={handleSaveProductDb}
+                        disabled={saving || testingCredentials}
+                        style={{
+                          backgroundColor: '#10b981',
+                          borderColor: '#10b981',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px'
+                        }}
+                      >
+                        {saving ? 'Saving...' : 'Save Configuration'}
+                      </Button>
+                    )}
                   </div>
                 </div>
               </Card.Body>
@@ -2122,9 +2252,10 @@ const AdminSettings = () => {
             <RefreshCw size={18} />
             Reset to Default
           </Button>
-          <Button
-            variant="primary"
-            onClick={handleSave}
+          {hasUpdatePermission && (
+            <Button
+              variant="primary"
+              onClick={handleSave}
             disabled={saving}
             style={{
               display: 'flex',
@@ -2155,6 +2286,7 @@ const AdminSettings = () => {
               </>
             )}
           </Button>
+          )}
         </div>
       </Form>
     </Container>

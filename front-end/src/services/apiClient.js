@@ -747,6 +747,11 @@ const apiClient = {
     check: (userId, permissionName) => axiosInstance.get(`/permissions/check/${userId}/${permissionName}`),
 
     /**
+     * Check if user has multiple permissions (bulk check - optimized)
+     */
+    checkBulk: (userId, permissionNames) => axiosInstance.post(`/permissions/check-bulk/${userId}`, { permissionNames }),
+
+    /**
      * Assign permissions to role
      */
     assignToRole: (role, permissionIds) => axiosInstance.post(`/permissions/role/${role}/assign`, { permissionIds }),
