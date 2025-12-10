@@ -111,7 +111,7 @@ export const getAllUsers = async (req, res) => {
     let query = supabase
       .from('auth_role_with_profiles')
       .select(USER_SELECT_FIELDS); // Don't get count yet, we'll calculate after filtering
-    
+
     // Apply search filter if provided
     if (searchTerm) {
       query = query.or(`full_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);

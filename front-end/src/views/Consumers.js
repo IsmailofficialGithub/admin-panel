@@ -95,30 +95,30 @@ const Consumers = () => {
 
   // Check consumers.view permission first (required to access the page)
   useEffect(() => {
-    if (!user || !profile) {
-      setHasViewPermission(false);
-      setCheckingViewPermission(false);
-      return;
-    }
+      if (!user || !profile) {
+        setHasViewPermission(false);
+        setCheckingViewPermission(false);
+        return;
+      }
 
     // Wait for permissions to load before checking
     if (isLoadingPermissions) {
       setCheckingViewPermission(true);
-      return;
-    }
+          return;
+        }
 
     // Use permissions hook to check permission (only after permissions are loaded)
     const hasViewPerm = hasPermission('consumers.view');
     setHasViewPermission(hasViewPerm);
     setCheckingViewPermission(false);
-    
+        
     // Redirect if no permission (only after permissions are loaded)
     if (!hasViewPerm) {
-      toast.error('You do not have permission to view consumers.');
-      setTimeout(() => {
-        history.push('/admin/users');
-      }, 500);
-    }
+          toast.error('You do not have permission to view consumers.');
+          setTimeout(() => {
+            history.push('/admin/users');
+          }, 500);
+        }
   }, [user, profile, history, hasPermission, isLoadingPermissions]);
 
   // Check multiple permissions using the permissions hook (optimized - no API calls needed)
@@ -130,7 +130,7 @@ const Consumers = () => {
 
     setCheckingPermissions(true);
     
-    // Systemadmins have all permissions
+        // Systemadmins have all permissions
     if (profile?.is_systemadmin === true) {
       setPermissions({ 
         create: true, 
@@ -142,9 +142,9 @@ const Consumers = () => {
         revokeLifetimeAccess: true,
         manageLifetimeAccess: true
       });
-      setCheckingPermissions(false);
-      return;
-    }
+          setCheckingPermissions(false);
+          return;
+        }
 
     // Use permissions hook to check all permissions (already fetched, no API calls)
     try {
@@ -160,12 +160,12 @@ const Consumers = () => {
           revokeLifetimeAccess: hasPermission('consumers.revoke_lifetime_access') || hasPermission('consumers.manage_lifetime_access'),
           manageLifetimeAccess: hasPermission('consumers.manage_lifetime_access')
         });
-    } catch (error) {
-      console.error('Error checking consumer permissions:', error);
+      } catch (error) {
+        console.error('Error checking consumer permissions:', error);
       setPermissions({ create: false, delete: false, update: false, read: false, invoiceCreate: false, grantLifetimeAccess: false, revokeLifetimeAccess: false, manageLifetimeAccess: false });
-    } finally {
+      } finally {
       setCheckingPermissions(false);
-    }
+      }
   }, [user, profile, checkingViewPermission, hasViewPermission, isLoadingPermissions, hasPermission]);
 
   // Fetch consumers from backend API with filters (only if user has view permission)

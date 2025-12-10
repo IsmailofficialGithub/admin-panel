@@ -862,47 +862,56 @@ export const addMessage = async (req, res) => {
     // 7. SEND EMAIL NOTIFICATION (if admin reply, non-blocking)
     // ========================================
     if (isAdmin && !internalFlag) {
-      // Get ticket owner information for email
-      const ownerPromise = supabase
-        .from("profiles")
-        .select("email, full_name")
-        .eq("user_id", ticket.user_id)
-        .single();
+      // Send email asynchronously (don't block the response)
+      (async () => {
+        try {
+          // Get ticket owner information for email
+          const ownerPromise = supabase
+            .from("profiles")
+            .select("email, full_name")
+            .eq("user_id", ticket.user_id)
+            .single();
 
-      executeWithTimeout(ownerPromise, 3000)
-        .then(async ({ data: owner, error: ownerError }) => {
+          const { data: owner, error: ownerError } = await executeWithTimeout(ownerPromise, 5000);
+          
           if (ownerError || !owner) {
             console.warn("⚠️ Failed to fetch ticket owner for email:", ownerError?.message);
             return;
           }
 
-          try {
-            // Prepare attachments for email
-            const emailAttachments = storedAttachments.map(att => ({
-              file_name: att.file_name,
-              file_url: att.file_url || att.file_path,
-              file_path: att.file_path,
-              file_size: att.file_size
-            }));
-
-            await sendTicketReplyEmail({
-              email: owner.email,
-              full_name: owner.full_name || owner.email.split('@')[0],
-              ticket_number: ticket.ticket_number || `TICKET-${ticketId.substring(0, 8).toUpperCase()}`,
-              admin_name: userProfile.full_name || 'Support Team',
-              message: messageText,
-              attachments: emailAttachments,
-              ticket_id: ticketId,
-            });
-            console.log("✅ Ticket reply email sent to:", owner.email);
-          } catch (emailError) {
-            console.warn("⚠️ Failed to send ticket reply email:", emailError?.message);
-            // Don't fail the request if email fails
+          if (!owner.email) {
+            console.warn("⚠️ Ticket owner has no email address");
+            return;
           }
-        })
-        .catch(emailError => {
-          console.warn("⚠️ Error sending ticket reply email:", emailError?.message);
-        });
+
+          // Prepare attachments for email
+          const emailAttachments = storedAttachments.map(att => ({
+            file_name: att.file_name,
+            file_url: att.file_url || att.file_path,
+            file_path: att.file_path,
+            file_size: att.file_size
+          }));
+
+          const emailResult = await sendTicketReplyEmail({
+            email: owner.email,
+            full_name: owner.full_name || owner.email.split('@')[0],
+            ticket_number: ticket.ticket_number || `TICKET-${ticketId.substring(0, 8).toUpperCase()}`,
+            admin_name: userProfile.full_name || 'Support Team',
+            message: messageText,
+            attachments: emailAttachments,
+            ticket_id: ticketId,
+          });
+
+          if (emailResult?.success) {
+            console.log("✅ Ticket reply email sent to:", owner.email);
+          } else {
+            console.warn("⚠️ Failed to send ticket reply email:", emailResult?.error || 'Unknown error');
+          }
+        } catch (emailError) {
+          console.error("❌ Error sending ticket reply email:", emailError?.message || emailError);
+          // Don't fail the request if email fails
+        }
+      })();
     }
 
     // ========================================
@@ -1074,17 +1083,30 @@ export const updateTicketStatus = async (req, res) => {
     // 5. SEND EMAIL NOTIFICATION (if status changed)
     // ========================================
     if (status && oldTicket && updatedTicket.user_email && oldTicket.status !== updatedTicket.status) {
-      console.log('✅ Sending ticket status changed email to:', updatedTicket.user_email);
-      sendTicketStatusChangedEmail({
-        email: updatedTicket.user_email,
-        full_name: updatedTicket.user_name || updatedTicket.user_email.split('@')[0],
-        ticket_number: updatedTicket.ticket_number,
-        old_status: oldTicket.status,
-        new_status: updatedTicket.status,
-        ticket_id: ticketId,
-      }).catch(emailError => {
-        console.warn('⚠️ Failed to send ticket status changed email:', emailError?.message);
-      });
+      // Send email asynchronously (don't block the response)
+      (async () => {
+        try {
+          console.log('📧 Sending ticket status changed email to:', updatedTicket.user_email);
+          
+          const emailResult = await sendTicketStatusChangedEmail({
+            email: updatedTicket.user_email,
+            full_name: updatedTicket.user_name || updatedTicket.user_email.split('@')[0],
+            ticket_number: updatedTicket.ticket_number,
+            old_status: oldTicket.status,
+            new_status: updatedTicket.status,
+            ticket_id: ticketId,
+          });
+
+          if (emailResult?.success) {
+            console.log('✅ Ticket status changed email sent successfully to:', updatedTicket.user_email);
+          } else {
+            console.warn('⚠️ Failed to send ticket status changed email:', emailResult?.error || 'Unknown error');
+          }
+        } catch (emailError) {
+          console.error('❌ Error sending ticket status changed email:', emailError?.message || emailError);
+          // Don't fail the request if email fails
+        }
+      })();
     }
 
     // ========================================

@@ -68,7 +68,7 @@ root.render(
             if (profile?.role && Array.isArray(profile.role) && profile.role.includes('reseller')) {
               window.location.href = '/reseller';
             } else {
-              window.location.href = 'https://social.duhanashrah.ai/';
+            window.location.href = 'https://social.duhanashrah.ai/';
             }
           }, 3000);
           return null;
