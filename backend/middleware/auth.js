@@ -18,17 +18,11 @@ export const authenticate = async (req, res, next) => {
     }
     const token = authHeader.split(' ')[1];
 
-    // Check cache first (cache token verification for 5 minutes)
-    const cacheKey = `auth:token:${token.substring(0, 20)}`; // Use first 20 chars as key
-    const cachedUser = await cacheService.get(cacheKey);
-    
-    if (cachedUser) {
-      console.log('✅ Auth cache HIT');
-      req.user = cachedUser;
-      return next();
-    }
+    // NOTE: We don't cache authentication to ensure fresh user data
+    // Each request verifies the token to get the current user
+    // This prevents role caching issues when switching between users
 
-    console.log('❌ Auth cache MISS - verifying with Supabase');
+    console.log('🔐 Verifying token with Supabase (no cache - always fresh)');
 
     // Verify token with Supabase with timeout handling and retry logic
     let user, error;
@@ -88,9 +82,8 @@ export const authenticate = async (req, res, next) => {
       });
     }
 
-    // Cache the verified user for 5 minutes (300 seconds)
-    await cacheService.set(cacheKey, user, 300);
-    
+    // NOTE: We don't cache the user object to ensure fresh data
+    // This prevents role caching issues when switching between users
     // Attach user to request object
     req.user = user;
     next();
@@ -196,6 +189,7 @@ export const requireAdmin = async (req, res, next) => {
 
 /**
  * Middleware to load user profile from profiles table
+ * NOTE: Always fetches fresh from database (bypasses cache) to ensure current role data
  * This middleware loads the user profile including role, email, full_name, etc.
  * and attaches it to req.userProfile for use in controllers
  */
@@ -208,7 +202,8 @@ export const loadUserProfile = async (req, res, next) => {
       });
     }
 
-    // Fetch user profile from profiles table with timeout
+    // ALWAYS fetch user profile fresh from database (bypass cache)
+    // This ensures role changes are immediately reflected even when Redis is enabled
     let profile, error;
     try {
       const profilePromise = supabase
@@ -224,6 +219,13 @@ export const loadUserProfile = async (req, res, next) => {
       const result = await Promise.race([profilePromise, timeoutPromise]);
       profile = result.data;
       error = result.error;
+      
+      console.log('📊 loadUserProfile: Fetched fresh profile from DB:', {
+        user_id: req.user.id,
+        role: profile?.role,
+        roleType: typeof profile?.role,
+        isArray: Array.isArray(profile?.role)
+      });
     } catch (timeoutError) {
       console.error('❌ Profile fetch timeout:', timeoutError);
       // Fallback to auth user data if profile fetch fails
@@ -242,6 +244,7 @@ export const loadUserProfile = async (req, res, next) => {
         account_status: 'active',
         is_systemadmin: false
       };
+      console.warn('⚠️ loadUserProfile: Profile not found, using fallback admin role');
     } else {
       req.userProfile = profile;
     }
