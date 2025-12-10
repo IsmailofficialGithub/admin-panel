@@ -21,7 +21,8 @@ export {
   deleteConsumer,
   resetConsumerPassword,
   updateConsumerAccountStatus,
-  grantLifetimeAccess
+  grantLifetimeAccess,
+  revokeLifetimeAccess
 } from './consumers';
 
 export {

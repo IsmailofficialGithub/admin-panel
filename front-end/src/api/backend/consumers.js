@@ -75,8 +75,8 @@ export const createConsumer = async (consumerData) => {
       country: consumerData.country,
       city: consumerData.city,
       phone: consumerData.phone || null,
-      trial_expiry_date: consumerData.trial_expiry_date || null,
-      role: 'consumer'
+      roles: consumerData.roles || ['consumer'], // Send roles array
+      trial_expiry_date: consumerData.trial_expiry_date || null
     };
     
     // Add referred_by if provided (reseller ID or admin ID)
@@ -134,6 +134,12 @@ export const updateConsumer = async (consumerId, updateData) => {
     if (updateData.phone !== undefined) cleanedData.phone = updateData.phone;
     if (updateData.trial_expiry_date !== undefined) cleanedData.trial_expiry_date = updateData.trial_expiry_date;
     if (updateData.subscribed_products !== undefined) cleanedData.subscribed_products = updateData.subscribed_products;
+    // Support both roles array and single role (backward compatibility)
+    if (updateData.roles !== undefined) {
+      cleanedData.roles = updateData.roles;
+    } else if (updateData.role !== undefined) {
+      cleanedData.role = updateData.role;
+    }
     
     console.log('updateConsumer sending data:', cleanedData);
     
@@ -251,6 +257,31 @@ export const grantLifetimeAccess = async (consumerId) => {
   }
 };
 
+/**
+ * Revoke lifetime access from a consumer
+ * @param {string} consumerId - Consumer ID
+ * @param {number|null} trialDays - Number of days for trial (1-365, optional, defaults to 7)
+ * @returns {Promise<Object>} Success status
+ */
+export const revokeLifetimeAccess = async (consumerId, trialDays = null) => {
+  try {
+    const response = await apiClient.consumers.revokeLifetimeAccess(consumerId, trialDays);
+    
+    if (response.success) {
+      return {
+        success: true,
+        message: response.message || 'Lifetime access revoked successfully',
+        data: response.data
+      };
+    }
+    
+    return { error: 'Failed to revoke lifetime access' };
+  } catch (error) {
+    console.error('revokeLifetimeAccess Error:', error);
+    return { error: error.message };
+  }
+};
+
 export default {
   getConsumers,
   getConsumerById,
@@ -259,6 +290,7 @@ export default {
   deleteConsumer,
   resetConsumerPassword,
   updateConsumerAccountStatus,
-  grantLifetimeAccess
+  grantLifetimeAccess,
+  revokeLifetimeAccess
 };
 

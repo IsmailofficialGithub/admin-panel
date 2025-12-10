@@ -1,6 +1,6 @@
 import express from 'express';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
-import { requirePermission } from '../middleware/permissions.js';
+import { requirePermission, requireAnyPermission } from '../middleware/permissions.js';
 import {
   getAllConsumers,
   getConsumerById,
@@ -8,6 +8,8 @@ import {
   deleteConsumer,
   resetConsumerPassword,
   updateConsumerAccountStatus,
+  grantLifetimeAccess,
+  revokeLifetimeAccess,
   rateLimitMiddleware,
   sanitizeInputMiddleware
 } from './controllers/consumers.controller.js';
@@ -52,8 +54,22 @@ router.post('/:id/reset-password', authenticate, requireAdmin, rateLimitMiddlewa
 /**
  * @route   PATCH /api/consumers/:id/account-status
  * @desc    Update consumer account status (admin only)
- * @access  Private (Admin)
+ * @access  Private (Admin with consumers.update permission)
  */
-router.patch('/:id/account-status', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, updateConsumerAccountStatus);
+router.patch('/:id/account-status', authenticate, requireAdmin, requirePermission('consumers.update'), rateLimitMiddleware, sanitizeInputMiddleware, updateConsumerAccountStatus);
+
+/**
+ * @route   POST /api/consumers/:id/grant-lifetime-access
+ * @desc    Grant lifetime access to consumer (admin only, requires consumers.grant_lifetime_access permission)
+ * @access  Private (Admin with consumers.grant_lifetime_access or consumers.manage_lifetime_access permission)
+ */
+router.post('/:id/grant-lifetime-access', authenticate, requireAdmin, requireAnyPermission(['consumers.grant_lifetime_access', 'consumers.manage_lifetime_access']), rateLimitMiddleware, sanitizeInputMiddleware, grantLifetimeAccess);
+
+/**
+ * @route   POST /api/consumers/:id/revoke-lifetime-access
+ * @desc    Revoke lifetime access from consumer (admin only, requires consumers.revoke_lifetime_access permission)
+ * @access  Private (Admin with consumers.revoke_lifetime_access or consumers.manage_lifetime_access permission)
+ */
+router.post('/:id/revoke-lifetime-access', authenticate, requireAdmin, requireAnyPermission(['consumers.revoke_lifetime_access', 'consumers.manage_lifetime_access']), rateLimitMiddleware, sanitizeInputMiddleware, revokeLifetimeAccess);
 
 export default router;

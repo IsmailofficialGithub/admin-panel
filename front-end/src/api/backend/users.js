@@ -52,7 +52,7 @@ export const getUserById = async (userId) => {
  * @param {string} userData.email - User email
  * @param {string} userData.password - User password
  * @param {string} userData.full_name - User full name
- * @param {string} userData.role - User role (admin, user, viewer, consumer)
+ * @param {Array<string>} userData.roles - User roles array (e.g., ['consumer', 'reseller'])
  * @param {string} userData.country - User country (optional)
  * @param {string} userData.city - User city (optional)
  * @param {string} userData.phone - User phone (optional)
@@ -60,15 +60,30 @@ export const getUserById = async (userId) => {
  */
 export const createUser = async (userData) => {
   try {
-    const response = await apiClient.users.create({
+    const requestData = {
       email: userData.email,
       password: userData.password,
       full_name: userData.full_name,
-      role: userData.role,
+      roles: userData.roles || ['user'],
       country: userData.country || null,
       city: userData.city || null,
       phone: userData.phone || null
-    });
+    };
+    
+    // Add consumer-specific fields if consumer role is selected
+    if (userData.roles && userData.roles.includes('consumer')) {
+      if (userData.referred_by) {
+        requestData.referred_by = userData.referred_by;
+      }
+      if (userData.subscribed_products && Array.isArray(userData.subscribed_products)) {
+        requestData.subscribed_products = userData.subscribed_products;
+      }
+      if (userData.trial_expiry_date) {
+        requestData.trial_expiry_date = userData.trial_expiry_date;
+      }
+    }
+    
+    const response = await apiClient.users.create(requestData);
     
     if (response.success) {
       return {
@@ -86,10 +101,11 @@ export const createUser = async (userData) => {
 };
 
 /**
- * Update user - supports role, full name, country, city, and phone
+ * Update user - supports roles, full name, country, city, and phone
  * @param {string} userId - User ID
  * @param {Object} updateData - Data to update
- * @param {string} updateData.role - New role (optional)
+ * @param {Array<string>} updateData.roles - New roles array (optional)
+ * @param {string} updateData.role - New role (optional, backward compatibility)
  * @param {string} updateData.full_name - New full name (optional)
  * @param {string} updateData.country - New country (optional)
  * @param {string} updateData.city - New city (optional)
@@ -101,7 +117,12 @@ export const updateUserRole = async (userId, updateData) => {
     // Clean up the update data - only send fields that are provided
     const cleanedData = {};
     
-    if (updateData.role !== undefined) cleanedData.role = updateData.role;
+    // Support both roles array and single role (backward compatibility)
+    if (updateData.roles !== undefined) {
+      cleanedData.roles = updateData.roles;
+    } else if (updateData.role !== undefined) {
+      cleanedData.role = updateData.role;
+    }
     if (updateData.full_name !== undefined) cleanedData.full_name = updateData.full_name;
     if (updateData.country !== undefined) cleanedData.country = updateData.country;
     if (updateData.city !== undefined) cleanedData.city = updateData.city;

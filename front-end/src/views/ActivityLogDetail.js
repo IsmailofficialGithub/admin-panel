@@ -6,6 +6,7 @@ import { useAuth } from '../hooks/useAuth';
 import { getActivityLogById } from '../api/backend';
 import { checkUserPermission } from '../api/backend/permissions';
 import toast from 'react-hot-toast';
+import { hasRole } from '../utils/roleUtils';
 
 const ActivityLogDetail = () => {
   const { id } = useParams();
@@ -82,7 +83,7 @@ const ActivityLogDetail = () => {
       // getActivityLogById returns the log object directly, not wrapped in data
       if (result && result.id) {
         // Check authorization: users can only see their own logs, admin can see all
-        if (profile.role !== 'admin' && result.target_id !== user.id) {
+        if (!hasRole(profile.role, 'admin') && result.target_id !== user.id) {
           setError('You do not have permission to view this log');
           toast.error('Access denied');
           return;

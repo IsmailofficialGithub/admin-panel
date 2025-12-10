@@ -16,6 +16,7 @@ import {
   createRateLimitMiddleware,
   sanitizeInputMiddleware
 } from '../../utils/apiOptimization.js';
+import { hasRole, hasAnyRole } from '../../utils/roleUtils.js';
 
 // Cache configuration
 const CACHE_TTL = 300; // 5 minutes
@@ -88,7 +89,7 @@ export const getConsumerProductsForInvoice = async (req, res) => {
       .from('auth_role_with_profiles')
       .select('user_id, full_name, email, role, referred_by')
       .eq('user_id', consumerId)
-      .eq('role', 'consumer')
+      .contains('role', ['consumer'])
       .single();
 
     const { data: consumer, error: consumerError } = await executeWithTimeout(consumerPromise);
@@ -231,7 +232,7 @@ export const getAllInvoices = async (req, res) => {
     const senderRole = req.userProfile?.role;
 
     // Only admin can see all invoices
-    if (senderRole !== 'admin') {
+    if (!hasRole(senderRole, 'admin')) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',
@@ -362,7 +363,7 @@ export const getAllInvoices = async (req, res) => {
       consumer_email: receiverIdToEmail.get(invoice.receiver?.user_id || invoice.receiver_id) || '',
       referred_by: invoice.receiver?.referred_by || null,
       reseller_id: invoice.sender?.user_id || invoice.sender_id,
-      reseller_name: (senderIdToProfile.get(invoice.sender?.user_id || invoice.sender_id)?.role === 'reseller')
+      reseller_name: hasRole(senderIdToProfile.get(invoice.sender?.user_id || invoice.sender_id)?.role, 'reseller')
         ? (senderIdToProfile.get(invoice.sender?.user_id || invoice.sender_id)?.full_name || 'Unknown Reseller')
         : null,
       invoice_date: invoice.issue_date,
@@ -465,8 +466,8 @@ export const getMyInvoices = async (req, res) => {
     const senderRole = req.userProfile?.role;
     let { search, status, page, limit } = req.query;
 
-    // Only resellers can access this endpoint
-    if (senderRole !== 'reseller') {
+    // Only resellers can access this endpoint (check if role array contains 'reseller')
+    if (!hasRole(senderRole, 'reseller')) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',
@@ -719,7 +720,7 @@ export const getConsumerInvoices = async (req, res) => {
       .from('auth_role_with_profiles')
       .select('user_id, full_name, email, role, referred_by')
       .eq('user_id', consumerId)
-      .eq('role', 'consumer')
+      .contains('role', ['consumer'])
       .single();
 
     const { data: consumer, error: consumerError } = await executeWithTimeout(consumerPromise);
@@ -998,7 +999,7 @@ export const createInvoice = async (req, res) => {
     }
 
     // Verify consumer role
-    if (consumer.role !== 'consumer') {
+    if (!hasRole(consumer.role, 'consumer')) {
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
@@ -1170,7 +1171,7 @@ export const createInvoice = async (req, res) => {
             .from('profiles')
             .select('commission_rate')
             .eq('user_id', senderId)
-            .eq('role', 'reseller')
+            .contains('role', ['reseller'])
             .single();
 
           if (resellerProfile?.commission_rate !== null && resellerProfile?.commission_rate !== undefined) {
@@ -1193,14 +1194,14 @@ export const createInvoice = async (req, res) => {
               console.log(`⚠️ No default commission found, using fallback: ${resellerCommissionPercentage}%`);
             }
           }
-        } else if (senderRole === 'admin') {
+        } else if (hasRole(senderRole, 'admin')) {
           // For admin-created invoices, get the reseller's commission (consumer's reseller)
           if (consumer.referred_by) {
             const { data: resellerProfile } = await supabaseAdmin
               .from('profiles')
               .select('commission_rate')
               .eq('user_id', consumer.referred_by)
-              .eq('role', 'reseller')
+              .contains('role', ['reseller'])
               .single();
 
             if (resellerProfile?.commission_rate !== null && resellerProfile?.commission_rate !== undefined) {
@@ -1234,7 +1235,7 @@ export const createInvoice = async (req, res) => {
             .from('profiles')
             .select('commission_rate')
             .eq('user_id', senderId)
-            .eq('role', 'reseller')
+            .contains('role', ['reseller'])
             .single();
 
           if (resellerProfile?.commission_rate !== null && resellerProfile?.commission_rate !== undefined) {
@@ -1449,7 +1450,7 @@ export const resendInvoice = async (req, res) => {
 
     // Admin and reseller can resend invoices
     // Resellers can only resend invoices they created
-    if (senderRole !== 'admin' && senderRole !== 'reseller') {
+    if (!hasAnyRole(senderRole, ['admin', 'reseller'])) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',
@@ -1543,7 +1544,7 @@ export const resendInvoice = async (req, res) => {
     }));
 
     // Use sender profile from req.userProfile (already available from middleware)
-    const senderProfile = req.userProfile || { full_name: 'Admin', role: 'admin' };
+    const senderProfile = req.userProfile || { full_name: 'Admin', role: ['admin'] }; // Array for TEXT[]
 
     // Send invoice email in background (non-blocking)
     sendInvoiceCreatedEmail({

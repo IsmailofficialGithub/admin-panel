@@ -12,6 +12,7 @@ import {
   createRateLimitMiddleware,
   sanitizeInputMiddleware
 } from '../../utils/apiOptimization.js';
+import { hasRole } from '../../utils/roleUtils.js';
 
 // Cache configuration
 const CACHE_TTL = 300; // 5 minutes
@@ -272,7 +273,7 @@ export const getMyCommission = async (req, res) => {
     }
 
     // Only resellers can access this endpoint
-    if (userProfile.role !== 'reseller') {
+    if (!hasRole(userProfile.role, 'reseller')) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',
@@ -296,7 +297,7 @@ export const getMyCommission = async (req, res) => {
       .from('profiles')
       .select('user_id, commission_rate, commission_updated_at')
       .eq('user_id', resellerId)
-      .eq('role', 'reseller')
+      .contains('role', ['reseller'])
       .single();
 
     const { data: reseller, error: resellerError } = await executeWithTimeout(resellerPromise);
@@ -397,7 +398,7 @@ export const getResellerCommission = async (req, res) => {
       .from('profiles')
       .select('user_id, commission_rate, commission_updated_at')
       .eq('user_id', id)
-      .eq('role', 'reseller')
+      .contains('role', ['reseller'])
       .single();
 
     const { data: reseller, error: resellerError } = await executeWithTimeout(resellerPromise);
@@ -505,7 +506,7 @@ export const setResellerCommission = async (req, res) => {
       .from('profiles')
       .select('user_id, full_name, commission_rate')
       .eq('user_id', id)
-      .eq('role', 'reseller')
+      .contains('role', ['reseller'])
       .single();
 
     const { data: reseller, error: resellerError } = await executeWithTimeout(checkPromise);
@@ -871,7 +872,7 @@ export const resetResellerCommission = async (req, res) => {
       .from('profiles')
       .select('user_id, full_name, commission_rate')
       .eq('user_id', id)
-      .eq('role', 'reseller')
+      .contains('role', ['reseller'])
       .single();
 
     const { data: reseller, error: resellerError } = await executeWithTimeout(checkPromise);

@@ -5,15 +5,18 @@ import { FileText, Download, Eye, Search, DollarSign, Calendar, User, Building, 
 import toast from 'react-hot-toast';
 import { getAllInvoices, getMyInvoices } from '../api/backend';
 import { useAuth } from '../hooks/useAuth';
-import { checkUserPermissionsBulk, checkUserPermission } from '../api/backend/permissions';
+import { checkUserPermissionsBulk } from '../api/backend/permissions';
+import { usePermissions } from '../hooks/usePermissions';
 import apiClient from '../services/apiClient';
 import { getConsumers } from '../api/backend/consumers';
 import { getResellers } from '../api/backend/resellers';
 import { encryptPaymentData } from '../utils/encryption';
+import { getPrimaryRole, hasRole } from '../utils/roleUtils';
 
 const Invoices = () => {
   const { profile, user } = useAuth();
-  const userRole = profile?.role || 'admin';
+  const { hasPermission, isLoading: isLoadingPermissions } = usePermissions();
+  const userRole = getPrimaryRole(profile?.role) || 'admin';
   const history = useHistory();
   const [permissions, setPermissions] = useState({
     create: true, // Optimistic: show while checking
@@ -205,9 +208,11 @@ const Invoices = () => {
       };
 
       let result;
-      if (userRole === 'admin') {
+      // Check if user has admin role (can be primary or in array)
+      if (hasRole(profile?.role, 'admin')) {
         result = await getAllInvoices(filters);
-      } else if (userRole === 'reseller') {
+      } else if (hasRole(profile?.role, 'reseller')) {
+        // User has reseller role (even if also has other roles)
         result = await getMyInvoices(filters);
       } else {
         // Consumer or other roles - for now, return empty
@@ -232,89 +237,60 @@ const Invoices = () => {
 
   // Check invoices.view permission first (required to access the page)
   useEffect(() => {
-    const checkViewPermission = async () => {
-      if (!user || !profile) {
-        setHasViewPermission(false);
-        setCheckingViewPermission(false);
-        return;
-      }
-
-      try {
-        // Systemadmins have all permissions
-        if (profile.is_systemadmin === true) {
-          setHasViewPermission(true);
-          setCheckingViewPermission(false);
-          return;
-        }
-
-        // Check if user has invoices.view permission
-        const hasPermission = await checkUserPermission(user.id, 'invoices.view');
-        setHasViewPermission(hasPermission === true);
-        
-        // Redirect if no permission
-        if (!hasPermission) {
-          toast.error('You do not have permission to view invoices.');
-          setTimeout(() => {
-            history.push('/admin/users');
-          }, 500);
-        }
-      } catch (error) {
-        console.error('Error checking invoices.view permission:', error);
-        setHasViewPermission(false);
-        toast.error('Error checking permissions. Access denied.');
-        setTimeout(() => {
-          history.push('/admin/users');
-        }, 500);
-      } finally {
-        setCheckingViewPermission(false);
-      }
-    };
-
-    checkViewPermission();
-  }, [user, profile, history]);
-
-  // Check multiple permissions at once (optimized bulk check)
-  useEffect(() => {
-    // Only check other permissions if user has view permission
-    if (checkingViewPermission || !hasViewPermission) {
+    if (!user || !profile) {
+      setHasViewPermission(false);
+      setCheckingViewPermission(false);
       return;
     }
 
-    const checkPermissions = async () => {
-      if (!user || !profile) {
-        setPermissions({ create: false, update: false, delete: false, read: false });
-        return;
-      }
+    // Wait for permissions to load before checking
+    if (isLoadingPermissions) {
+      setCheckingViewPermission(true);
+      return;
+    }
 
-      try {
-        // Systemadmins have all permissions
-        if (profile.is_systemadmin === true) {
-          setPermissions({ create: true, update: true, delete: true, read: true });
-          return;
-        }
+    // Use permissions hook to check permission (only after permissions are loaded)
+    const hasViewPerm = hasPermission('invoices.view');
+    setHasViewPermission(hasViewPerm);
+    setCheckingViewPermission(false);
+    
+    // Redirect if no permission (only after permissions are loaded)
+    if (!hasViewPerm) {
+      toast.error('You do not have permission to view invoices.');
+      setTimeout(() => {
+        history.push('/admin/users');
+      }, 500);
+    }
+  }, [user, profile, history, hasPermission, isLoadingPermissions]);
 
-        // Check multiple permissions in a single optimized API call
-        const permissionResults = await checkUserPermissionsBulk(user.id, [
-          'invoices.create',
-          'invoices.update',
-          'invoices.delete',
-          'invoices.read'
-        ]);
+  // Check multiple permissions using the permissions hook (optimized - no API calls needed)
+  useEffect(() => {
+    // Only check other permissions if user has view permission and permissions are loaded
+    if (checkingViewPermission || !hasViewPermission || isLoadingPermissions) {
+      return;
+    }
 
+    // Systemadmins have all permissions
+    if (profile?.is_systemadmin === true) {
+      setPermissions({ create: true, update: true, delete: true, read: true });
+      return;
+    }
+
+    // Use permissions hook to check all permissions (already fetched, no API calls)
+    try {
+
+        // Use permissions hook to check all permissions (already fetched, no API calls)
         setPermissions({
-          create: permissionResults['invoices.create'] === true,
-          update: permissionResults['invoices.update'] === true,
-          delete: permissionResults['invoices.delete'] === true,
-          read: permissionResults['invoices.read'] === true
+          create: hasPermission('invoices.create'),
+          update: hasPermission('invoices.update'),
+          delete: hasPermission('invoices.delete'),
+          read: hasPermission('invoices.read')
         });
-      } catch (error) {
-        console.error('Error checking invoice permissions:', error);
-        setPermissions({ create: false, update: false, delete: false, read: false });
-      }
-    };
-
-    checkPermissions();
-  }, [user, profile, checkingViewPermission, hasViewPermission]);
+    } catch (error) {
+      console.error('Error checking invoice permissions:', error);
+      setPermissions({ create: false, update: false, delete: false, read: false });
+    }
+  }, [user, profile, checkingViewPermission, hasViewPermission, isLoadingPermissions, hasPermission]);
 
   // Fetch invoices on mount and when filters change (only if user has view permission)
   useEffect(() => {

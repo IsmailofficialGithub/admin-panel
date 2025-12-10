@@ -1,7 +1,7 @@
 import { supabase, supabaseAdmin } from "../../config/database.js";
 import multer from "multer";
 import { cacheService } from '../../config/redis.js';
-import { sendTicketStatusChangedEmail } from '../../services/emailService.js';
+import { sendTicketStatusChangedEmail, sendTicketReplyEmail } from '../../services/emailService.js';
 import {
   isValidUUID,
   validatePagination,
@@ -16,6 +16,7 @@ import {
   createRateLimitMiddleware,
   sanitizeInputMiddleware
 } from '../../utils/apiOptimization.js';
+import { hasRole } from '../../utils/roleUtils.js';
 
 // Cache configuration
 const CACHE_TTL = 180; // 3 minutes
@@ -420,7 +421,7 @@ export const getTickets = async (req, res) => {
       });
     }
 
-    const isAdmin = userProfile.role === "admin";
+    const isAdmin = hasRole(userProfile.role, "admin");
 
     // Validate pagination
     const { pageNum, limitNum } = validatePagination(page, limit);
@@ -556,7 +557,7 @@ export const getTicket = async (req, res) => {
       });
     }
 
-    const isAdmin = userProfile.role === "admin";
+    const isAdmin = hasRole(userProfile.role, "admin");
 
     // ========================================
     // 2. CACHE CHECK
@@ -741,14 +742,14 @@ export const addMessage = async (req, res) => {
       });
     }
 
-    const isAdmin = userProfile.role === "admin";
+    const isAdmin = hasRole(userProfile.role, "admin");
 
     // ========================================
     // 3. VALIDATE TICKET (with timeout)
     // ========================================
     const ticketPromise = supabase
       .from("support_tickets")
-      .select("id, user_id, status")
+      .select("id, user_id, status, ticket_number")
       .eq("id", ticketId)
       .single();
 
@@ -807,6 +808,7 @@ export const addMessage = async (req, res) => {
     // ========================================
     // 5. STORE ATTACHMENTS (with timeout, non-blocking)
     // ========================================
+    let storedAttachments = [];
     if (hasAttachments) {
       const mapped = attachments
         .filter(file => file.file_name && file.file_path)
@@ -826,11 +828,16 @@ export const addMessage = async (req, res) => {
       if (mapped.length > 0) {
         const attachPromise = supabase
           .from("support_attachments")
-          .insert(mapped);
+          .insert(mapped)
+          .select();
 
-        executeWithTimeout(attachPromise, 3000).catch(attachError => {
+        const { data: insertedAttachments, error: attachError } = await executeWithTimeout(attachPromise, 3000);
+        
+        if (attachError) {
           console.warn("⚠️ Failed to store attachments:", attachError?.message);
-        });
+        } else if (insertedAttachments) {
+          storedAttachments = insertedAttachments;
+        }
       }
     }
 
@@ -852,14 +859,61 @@ export const addMessage = async (req, res) => {
     }
 
     // ========================================
-    // 7. CACHE INVALIDATION
+    // 7. SEND EMAIL NOTIFICATION (if admin reply, non-blocking)
+    // ========================================
+    if (isAdmin && !internalFlag) {
+      // Get ticket owner information for email
+      const ownerPromise = supabase
+        .from("profiles")
+        .select("email, full_name")
+        .eq("user_id", ticket.user_id)
+        .single();
+
+      executeWithTimeout(ownerPromise, 3000)
+        .then(async ({ data: owner, error: ownerError }) => {
+          if (ownerError || !owner) {
+            console.warn("⚠️ Failed to fetch ticket owner for email:", ownerError?.message);
+            return;
+          }
+
+          try {
+            // Prepare attachments for email
+            const emailAttachments = storedAttachments.map(att => ({
+              file_name: att.file_name,
+              file_url: att.file_url || att.file_path,
+              file_path: att.file_path,
+              file_size: att.file_size
+            }));
+
+            await sendTicketReplyEmail({
+              email: owner.email,
+              full_name: owner.full_name || owner.email.split('@')[0],
+              ticket_number: ticket.ticket_number || `TICKET-${ticketId.substring(0, 8).toUpperCase()}`,
+              admin_name: userProfile.full_name || 'Support Team',
+              message: messageText,
+              attachments: emailAttachments,
+              ticket_id: ticketId,
+            });
+            console.log("✅ Ticket reply email sent to:", owner.email);
+          } catch (emailError) {
+            console.warn("⚠️ Failed to send ticket reply email:", emailError?.message);
+            // Don't fail the request if email fails
+          }
+        })
+        .catch(emailError => {
+          console.warn("⚠️ Error sending ticket reply email:", emailError?.message);
+        });
+    }
+
+    // ========================================
+    // 8. CACHE INVALIDATION
     // ========================================
     await cacheService.del(CACHE_KEYS.TICKET_BY_ID(ticketId));
     await cacheService.delByPattern('tickets:*');
     console.log('✅ Cache invalidated for message addition');
 
     // ========================================
-    // 8. DATA SANITIZATION
+    // 9. DATA SANITIZATION
     // ========================================
     const sanitizedMessage = sanitizeObject(newMessage);
 

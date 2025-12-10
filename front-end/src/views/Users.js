@@ -15,6 +15,7 @@ import UpdateUserModal from '../components/ui/UpdateUserModel';
 import CreateUserModal from '../components/ui/createUserModel';
 import ForgetPasswordConfirmPopup from '../components/ui/forgetPasswordComformPopup';
 import DeleteModal from '../components/ui/deleteModel';
+import { hasRole, getRolesString } from '../utils/roleUtils';
 
 const User = () => {
   const history = useHistory();
@@ -111,7 +112,7 @@ const User = () => {
       const user = users.find(u => (u.id || u.user_id) === userId);
       if (user) {
         // Prevent deactivating admin
-        if (user.role === 'admin') {
+        if (hasRole(user.role, 'admin')) {
           toast.error('Cannot deactivate admin account');
           return;
         }
@@ -691,7 +692,7 @@ const User = () => {
                         display: 'inline-block',
                         textTransform: 'capitalize'
                       }}>
-                        {user.role || 'user'}
+                        {getRolesString(user.role) || 'user'}
                       </span>
                     </td>
                     <td style={{ padding: '15px 24px', color: '#666', fontSize: '14px' }}>
@@ -818,24 +819,24 @@ const User = () => {
                           </button>
                           <button
                             onClick={() => handleAction('Deactivate Account', userId, user.name || user.full_name)}
-                            disabled={user.role === 'admin'}
+                            disabled={hasRole(user.role, 'admin')}
                             style={{
                               width: '100%',
                               padding: '10px 16px',
                               border: 'none',
                               backgroundColor: user.account_status === 'deactive' ? 'transparent' : 'transparent',
                               textAlign: 'left',
-                              cursor: user.role === 'admin' ? 'not-allowed' : 'pointer',
+                              cursor: hasRole(user.role, 'admin') ? 'not-allowed' : 'pointer',
                               fontSize: '14px',
-                              color: user.role === 'admin' ? '#999' : (user.account_status === 'deactive' ? '#28a745' : '#dc3545'),
+                              color: hasRole(user.role, 'admin') ? '#999' : (user.account_status === 'deactive' ? '#28a745' : '#dc3545'),
                               display: 'flex',
                               alignItems: 'center',
                               gap: '8px',
                               transition: 'background-color 0.2s',
-                              opacity: user.role === 'admin' ? 0.5 : 1
+                              opacity: hasRole(user.role, 'admin') ? 0.5 : 1
                             }}
                             onMouseEnter={(e) => {
-                              if (user.role !== 'admin') {
+                              if (!hasRole(user.role, 'admin')) {
                                 if (user.account_status === 'deactive') {
                                   e.currentTarget.style.backgroundColor = '#f0fdf4';
                                 } else {

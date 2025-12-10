@@ -97,8 +97,7 @@ export const getAllConsumers = async (req, res) => {
     let query = supabase
       .from('auth_role_with_profiles')
       .select(CONSUMER_SELECT_FIELDS, { count: 'exact' })
-      .eq('role', 'consumer');
-
+      .contains('role', ['consumer']); // Check if role array contains 'consumer'
     // Filter by account_status if provided
     if (statusFilter && statusFilter !== 'all') {
       query = query.eq('account_status', statusFilter);
@@ -118,6 +117,7 @@ export const getAllConsumers = async (req, res) => {
 
     // Execute query with timeout protection
     const { data: consumers, error, count } = await executeWithTimeout(query);
+    console.log('consumers', consumers);
 
     // ========================================
     // 4. ERROR HANDLING (Security)
@@ -240,7 +240,7 @@ export const getConsumerById = async (req, res) => {
       .from('auth_role_with_profiles')
       .select(CONSUMER_SELECT_FIELDS)
       .eq('user_id', id)
-      .eq('role', 'consumer')
+      .contains('role', ['consumer']) // Check if role array contains 'consumer'
       .single();
 
     const { data: consumer, error } = await executeWithTimeout(queryPromise);
@@ -326,9 +326,14 @@ export const updateConsumer = async (req, res) => {
       });
     }
 
-    let { full_name, phone, trial_expiry_date, country, city, subscribed_products } = req.body;
+    let { full_name, phone, trial_expiry_date, country, city, subscribed_products, roles } = req.body;
     
-    console.log('subscribed_products received:', subscribed_products);
+    console.log('📝 Update consumer - received data:', { 
+      roles, 
+      rolesType: typeof roles, 
+      isArray: Array.isArray(roles),
+      subscribed_products 
+    });
 
     // Validate required fields for update
     if (!country || !city || !phone) {
@@ -408,12 +413,44 @@ export const updateConsumer = async (req, res) => {
     // ========================================
     // 3. DATABASE QUERIES WITH TIMEOUT
     // ========================================
+    // Handle roles update if provided
+    if (roles !== undefined) {
+      // Normalize roles to array
+      let rolesArray = roles;
+      if (!Array.isArray(roles)) {
+        // If it's a string, convert to array
+        if (typeof roles === 'string') {
+          rolesArray = [roles];
+        } else {
+          console.warn('⚠️ Roles is not an array or string, defaulting to consumer:', roles);
+          rolesArray = ['consumer'];
+        }
+      }
+      
+      const validRoles = ['consumer', 'reseller'];
+      const userRoles = rolesArray.map(r => String(r).toLowerCase()).filter(r => validRoles.includes(r));
+      
+      if (userRoles.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: `At least one valid role is required. Valid roles: ${validRoles.join(', ')}`
+        });
+      }
+      
+      // Remove duplicates and set as array
+      updateData.role = [...new Set(userRoles)];
+      console.log('✅ Roles processed and set in updateData:', updateData.role);
+    } else {
+      console.log('ℹ️ No roles provided in update request, keeping existing roles');
+    }
+    
     // Get current consumer data before update to compare trial_expiry
     const currentConsumerPromise = supabase
       .from('auth_role_with_profiles')
       .select('email, full_name, trial_expiry')
       .eq('user_id', id)
-      .eq('role', 'consumer')
+      .contains('role', ['consumer']) // Check if role array contains 'consumer'
       .single();
 
     const { data: currentConsumer, error: fetchError } = await executeWithTimeout(currentConsumerPromise);
@@ -424,10 +461,9 @@ export const updateConsumer = async (req, res) => {
 
     // Get old data for logging changed fields
     const oldConsumerPromise = supabase
-      .from('profiles')
+      .from('auth_role_with_profiles')
       .select('*')
       .eq('user_id', id)
-      .eq('role', 'consumer')
       .single();
 
     const { data: oldConsumer } = await executeWithTimeout(oldConsumerPromise);
@@ -438,7 +474,6 @@ export const updateConsumer = async (req, res) => {
       .from('profiles')
       .update(updateData)
       .eq('user_id', id)
-      .eq('role', 'consumer')
       .select()
       .maybeSingle();
 
@@ -592,10 +627,10 @@ export const deleteConsumer = async (req, res) => {
     // 2. CHECK IF CONSUMER EXISTS (with timeout)
     // ========================================
     const consumerPromise = supabase
-      .from('profiles')
+      .from('auth_role_with_profiles')
       .select('*')
       .eq('user_id', id)
-      .eq('role', 'consumer')
+      .contains('role', ['consumer']) // Check if role array contains 'consumer'
       .single();
 
     const { data: consumer, error: fetchError } = await executeWithTimeout(consumerPromise);
@@ -724,10 +759,10 @@ export const updateConsumerAccountStatus = async (req, res) => {
     // 2. FETCH CONSUMER (with timeout)
     // ========================================
     const consumerPromise = supabase
-      .from('profiles')
+      .from('auth_role_with_profiles')
       .select('created_at, trial_expiry, lifetime_access')
       .eq('user_id', id)
-      .eq('role', 'consumer')
+      .contains('role', ['consumer']) // Check if role array contains 'consumer'
       .single();
 
     const { data: consumer, error: fetchError } = await executeWithTimeout(consumerPromise);
@@ -745,10 +780,47 @@ export const updateConsumerAccountStatus = async (req, res) => {
     const updateData = { account_status };
 
     // Handle lifetime access - set lifetime_access field
+    // Check permissions if lifetime_access is being modified
     if (lifetime_access === true) {
+      // Check if user has permission to grant lifetime access
+      const { data: hasGrantPermission } = await supabase.rpc('has_permission', {
+        p_user_id: req.user.id,
+        p_permission_name: 'consumers.grant_lifetime_access'
+      });
+      const { data: hasManagePermission } = await supabase.rpc('has_permission', {
+        p_user_id: req.user.id,
+        p_permission_name: 'consumers.manage_lifetime_access'
+      });
+      
+      if (!hasGrantPermission && !hasManagePermission) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden',
+          message: 'Permission required: consumers.grant_lifetime_access or consumers.manage_lifetime_access'
+        });
+      }
+      
       updateData.lifetime_access = true;
       console.log('♾️ Granting lifetime access (setting lifetime_access to true)');
     } else if (lifetime_access === false) {
+      // Check if user has permission to revoke lifetime access
+      const { data: hasRevokePermission } = await supabase.rpc('has_permission', {
+        p_user_id: req.user.id,
+        p_permission_name: 'consumers.revoke_lifetime_access'
+      });
+      const { data: hasManagePermission } = await supabase.rpc('has_permission', {
+        p_user_id: req.user.id,
+        p_permission_name: 'consumers.manage_lifetime_access'
+      });
+      
+      if (!hasRevokePermission && !hasManagePermission) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden',
+          message: 'Permission required: consumers.revoke_lifetime_access or consumers.manage_lifetime_access'
+        });
+      }
+      
       // Allow explicitly revoking lifetime access
       updateData.lifetime_access = false;
       console.log('♾️ Revoking lifetime access (setting lifetime_access to false)');
@@ -806,7 +878,7 @@ export const updateConsumerAccountStatus = async (req, res) => {
       .from('auth_role_with_profiles')
       .select('email, full_name, trial_expiry')
       .eq('user_id', id)
-      .eq('role', 'consumer')
+      .contains('role', ['consumer']) // Check if role array contains 'consumer'
       .single();
 
     const { data: consumerInfo, error: infoError } = await executeWithTimeout(consumerInfoPromise);
@@ -825,7 +897,7 @@ export const updateConsumerAccountStatus = async (req, res) => {
       .from('profiles')
       .update(updateData)
       .eq('user_id', id)
-      .eq('role', 'consumer')
+      .contains('role', ['consumer'])
       .select()
       .maybeSingle();
 
@@ -1030,6 +1102,300 @@ export const resetConsumerPassword = async (req, res) => {
     });
   } catch (error) {
     return handleApiError(error, res, 'An error occurred while resetting the password.');
+  }
+};
+
+/**
+ * Grant lifetime access to consumer (admin only, requires consumers.grant_lifetime_access permission)
+ * @route   POST /api/consumers/:id/grant-lifetime-access
+ * @access  Private (Admin with consumers.grant_lifetime_access or consumers.manage_lifetime_access permission)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Permission check (Security)
+ * 3. Query timeout (Performance)
+ * 4. Cache invalidation (Performance)
+ * 5. Activity logging (Audit)
+ */
+export const grantLifetimeAccess = async (req, res) => {
+  try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
+    const { id } = req.params;
+
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid consumer ID format'
+      });
+    }
+
+    // ========================================
+    // 2. FETCH CONSUMER (with timeout)
+    // ========================================
+    const consumerPromise = supabase
+      .from('auth_role_with_profiles')
+      .select('user_id, full_name, email, lifetime_access, role')
+      .eq('user_id', id)
+      .contains('role', ['consumer']) // Check if role array contains 'consumer'
+      .single();
+
+    const { data: consumer, error: fetchError } = await executeWithTimeout(consumerPromise);
+
+    if (fetchError || !consumer) {
+      console.error('❌ Error fetching consumer:', fetchError);
+      return res.status(404).json({
+        success: false,
+        error: 'Not Found',
+        message: 'Consumer not found'
+      });
+    }
+
+    // Check if already has lifetime access
+    if (consumer.lifetime_access === true) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Consumer already has lifetime access'
+      });
+    }
+
+    // ========================================
+    // 3. UPDATE LIFETIME ACCESS (with timeout)
+    // ========================================
+    const updatePromise = supabase
+      .from('profiles')
+      .update({ lifetime_access: true })
+      .eq('user_id', id)
+      .select()
+      .maybeSingle();
+
+    const { data: updatedConsumer, error } = await executeWithTimeout(updatePromise);
+
+    if (error) {
+      console.error('❌ Error granting lifetime access:', error);
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Failed to grant lifetime access. Please try again.'
+      });
+    }
+
+    if (!updatedConsumer) {
+      return res.status(404).json({
+        success: false,
+        error: 'Not Found',
+        message: 'Consumer not found after update'
+      });
+    }
+
+    // ========================================
+    // 4. LOG ACTIVITY (non-blocking)
+    // ========================================
+    const { actorId, actorRole } = await getActorInfo(req);
+    logActivity({
+      actorId,
+      actorRole,
+      targetId: id,
+      actionType: 'update',
+      tableName: 'profiles',
+      changedFields: {
+        lifetime_access: {
+          old: false,
+          new: true
+        }
+      },
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    }).catch(logError => {
+      console.warn('⚠️ Failed to log activity:', logError?.message);
+    });
+
+    // ========================================
+    // 5. CACHE INVALIDATION
+    // ========================================
+    await cacheService.del(CACHE_KEYS.CONSUMER_BY_ID(id));
+    await cacheService.delByPattern('consumers:*');
+    console.log('✅ Cache invalidated for lifetime access grant');
+
+    // ========================================
+    // 6. DATA SANITIZATION
+    // ========================================
+    const sanitizedConsumer = sanitizeObject(updatedConsumer);
+
+    res.json({
+      success: true,
+      message: 'Lifetime access granted successfully',
+      data: sanitizedConsumer
+    });
+  } catch (error) {
+    return handleApiError(error, res, 'An error occurred while granting lifetime access.');
+  }
+};
+
+/**
+ * Revoke lifetime access from consumer (admin only, requires consumers.revoke_lifetime_access permission)
+ * @route   POST /api/consumers/:id/revoke-lifetime-access
+ * @access  Private (Admin with consumers.revoke_lifetime_access or consumers.manage_lifetime_access permission)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Permission check (Security)
+ * 3. Query timeout (Performance)
+ * 4. Cache invalidation (Performance)
+ * 5. Activity logging (Audit)
+ */
+export const revokeLifetimeAccess = async (req, res) => {
+  try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
+    const { id } = req.params;
+    const { trial_days } = req.body; // Optional: number of days for trial (1-30 or custom)
+
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid consumer ID format'
+      });
+    }
+
+    // Validate trial_days if provided
+    let trialDays = null;
+    if (trial_days !== undefined && trial_days !== null) {
+      const days = parseInt(trial_days, 10);
+      if (isNaN(days) || days < 1 || days > 365) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: 'trial_days must be a number between 1 and 365'
+        });
+      }
+      trialDays = days;
+    }
+
+    // ========================================
+    // 2. FETCH CONSUMER (with timeout)
+    // ========================================
+    const consumerPromise = supabase
+      .from('auth_role_with_profiles')
+      .select('user_id, full_name, email, lifetime_access, role, created_at, trial_expiry')
+      .eq('user_id', id)
+      .contains('role', ['consumer']) // Check if role array contains 'consumer'
+      .single();
+
+    const { data: consumer, error: fetchError } = await executeWithTimeout(consumerPromise);
+
+    if (fetchError || !consumer) {
+      console.error('❌ Error fetching consumer:', fetchError);
+      return res.status(404).json({
+        success: false,
+        error: 'Not Found',
+        message: 'Consumer not found'
+      });
+    }
+
+    // Check if already doesn't have lifetime access
+    if (consumer.lifetime_access !== true) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Consumer does not have lifetime access'
+      });
+    }
+
+    // ========================================
+    // 3. UPDATE LIFETIME ACCESS (with timeout)
+    // ========================================
+    const updateData = { lifetime_access: false };
+    
+    // If revoking lifetime access, set trial expiry based on trial_days parameter
+    const createdAt = new Date(consumer.created_at);
+    const trialExpiry = new Date(createdAt);
+    
+    if (trialDays !== null) {
+      // Use provided trial_days
+      trialExpiry.setDate(trialExpiry.getDate() + trialDays);
+      updateData.trial_expiry = trialExpiry.toISOString();
+      console.log(`📅 Setting trial_expiry (${trialDays} days from creation):`, updateData.trial_expiry);
+    } else if (!consumer.trial_expiry) {
+      // Default to 7 days if no trial_days provided and no existing trial_expiry
+      trialExpiry.setDate(trialExpiry.getDate() + 7);
+      updateData.trial_expiry = trialExpiry.toISOString();
+      console.log('📅 Setting default trial_expiry (7 days from creation):', updateData.trial_expiry);
+    }
+    // If consumer.trial_expiry exists and no trial_days provided, keep existing trial_expiry
+
+    const updatePromise = supabase
+      .from('profiles')
+      .update(updateData)
+      .eq('user_id', id)
+      .select()
+      .maybeSingle();
+
+    const { data: updatedConsumer, error } = await executeWithTimeout(updatePromise);
+
+    if (error) {
+      console.error('❌ Error revoking lifetime access:', error);
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Failed to revoke lifetime access. Please try again.'
+      });
+    }
+
+    if (!updatedConsumer) {
+      return res.status(404).json({
+        success: false,
+        error: 'Not Found',
+        message: 'Consumer not found after update'
+      });
+    }
+
+    // ========================================
+    // 4. LOG ACTIVITY (non-blocking)
+    // ========================================
+    const { actorId, actorRole } = await getActorInfo(req);
+    logActivity({
+      actorId,
+      actorRole,
+      targetId: id,
+      actionType: 'update',
+      tableName: 'profiles',
+      changedFields: {
+        lifetime_access: {
+          old: true,
+          new: false
+        }
+      },
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    }).catch(logError => {
+      console.warn('⚠️ Failed to log activity:', logError?.message);
+    });
+
+    // ========================================
+    // 5. CACHE INVALIDATION
+    // ========================================
+    await cacheService.del(CACHE_KEYS.CONSUMER_BY_ID(id));
+    await cacheService.delByPattern('consumers:*');
+    console.log('✅ Cache invalidated for lifetime access revoke');
+
+    // ========================================
+    // 6. DATA SANITIZATION
+    // ========================================
+    const sanitizedConsumer = sanitizeObject(updatedConsumer);
+
+    res.json({
+      success: true,
+      message: 'Lifetime access revoked successfully',
+      data: sanitizedConsumer
+    });
+  } catch (error) {
+    return handleApiError(error, res, 'An error occurred while revoking lifetime access.');
   }
 };
 

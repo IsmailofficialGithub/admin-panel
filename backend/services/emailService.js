@@ -9,6 +9,7 @@ import {
   InviteEmailTemplate,
   TicketCreatedTemplate,
   TicketStatusChangedTemplate,
+  TicketReplyTemplate,
 } from "../utils/emailTemplates.js";
 import { encryptPaymentData } from "../utils/encryption.js";
 
@@ -21,7 +22,7 @@ dotenv.config();
 // Initialize SendGrid with API key
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
 const SENDER_EMAIL = process.env.AdminEmail || "no-reply@duhanashrah.ai";
-
+const Support_Sender_Email = process.env.Support_Sender_Email || "support@duhanashrah.ai";
 
 if (SENDGRID_API_KEY) {
   sgMail.setApiKey(SENDGRID_API_KEY);
@@ -38,17 +39,19 @@ if (SENDGRID_API_KEY) {
  * @param {string} params.role - User role (user, reseller, consumer, admin)
  * @returns {Promise<Object>} Email send result
  */
-export const sendWelcomeEmail = async ({ email, full_name, password, role = 'user' }) => {
+import { hasRole } from '../utils/roleUtils.js';
+
+export const sendWelcomeEmail = async ({ email, full_name, password, role = ['user'] }) => {
   try {
     // HARDCODED: Consumers ALWAYS use https://social.duhanashrah.ai/ - no exceptions
     // CLIENT_URL is the admin panel URL - we NEVER use it for consumers
     // This ensures consumers never get redirected to admin panel, regardless of env vars
-    const website_url = role === 'consumer' 
+    const website_url = hasRole(role, 'consumer') 
       ? 'https://social.duhanashrah.ai/'  // Hardcoded - ignores CLIENT_URL completely
       : (process.env.CLIENT_URL || "");   // Only non-consumers use CLIENT_URL (admin panel)
 
     // Debug log to verify consumer URL is set correctly
-    if (role === 'consumer') {
+    if (hasRole(role, 'consumer')) {
       console.log('🔗 Consumer email - Using HARDCODED URL (CLIENT_URL ignored):', website_url);
     }
 
@@ -72,7 +75,7 @@ export const sendWelcomeEmail = async ({ email, full_name, password, role = 'use
       to: email,
       from: {
         email: SENDER_EMAIL,
-        name: "Duha Nashrah"
+        name: "DuhaNashrahAi"
       },
       subject: roleSubjects[role] || roleSubjects.user,
       html: htmlContent,
@@ -119,7 +122,7 @@ export const sendPasswordResetEmail = async ({
       to: email,
       from: {
         email: SENDER_EMAIL,
-        name: "Duha Nashrah"
+        name: "DuhaNashrahAi"
       },
       subject: `Password Reset: ${full_name}`,
       html: htmlContent,
@@ -190,7 +193,7 @@ export const sendTrialPeriodChangeEmail = async ({
       to: email,
       from: {
         email: SENDER_EMAIL,
-        name: "Duha Nashrah"
+        name: "DuhaNashrahAi"
       },
       subject: `Trial Period Updated: ${full_name}`,
       html: htmlContent,
@@ -240,7 +243,7 @@ export const sendTrialExtensionEmail = async ({
       to: email,
       from: {
         email: SENDER_EMAIL,
-        name: "Duha Nashrah"
+        name: "DuhaNashrahAi"
       },
       subject: `Trial Extended: ${full_name}`,
       html: htmlContent,
@@ -277,7 +280,7 @@ export const sendInviteEmail = async ({
   inviter_name = 'Admin',
 }) => {
   try {
-    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+    const website_url = process.env.CLIENT_URL 
 
     const htmlContent = InviteEmailTemplate({
       email,
@@ -291,7 +294,7 @@ export const sendInviteEmail = async ({
       to: email,
       from: {
         email: SENDER_EMAIL,
-        name: "Duha Nashrah"
+        name: "DuhaNashrahAi"
       },
       subject: `You're Invited to Join as ${role.charAt(0).toUpperCase() + role.slice(1)}!`,
       html: htmlContent,
@@ -378,7 +381,7 @@ export const sendInvoiceCreatedEmail = async ({
       to: email,
       from: {
         email: SENDER_EMAIL,
-        name: "Duha Nashrah"
+        name: "DuhaNashrahAi"
       },
       subject: `Invoice Created: ${invoice_number}`,
       html: htmlContent,
@@ -428,8 +431,8 @@ export const sendTicketCreatedEmail = async ({
     const msg = {
       to: email,
       from: {
-        email: SENDER_EMAIL,
-        name: "Duha Nashrah"
+        email: Support_Sender_Email,
+        name: "DuhaNashrahAi"
       },
       subject: `Support Ticket Created: ${ticket_number}`,
       html: htmlContent,
@@ -438,7 +441,7 @@ export const sendTicketCreatedEmail = async ({
     console.log("📧 Sending ticket created email to:", email);
     await sgMail.send(msg);
     console.log("✅ Ticket created email sent successfully");
-    
+
     return { success: true };
   } catch (error) {
     console.error("❌ Error sending ticket created email:", error.response?.body || error);
@@ -479,8 +482,8 @@ export const sendTicketStatusChangedEmail = async ({
     const msg = {
       to: email,
       from: {
-        email: SENDER_EMAIL,
-        name: "Duha Nashrah"
+        email: Support_Sender_Email,
+        name: "DuhaNashrahAi"
       },
       subject: `Ticket Status Updated: ${ticket_number}`,
       html: htmlContent,
@@ -497,6 +500,60 @@ export const sendTicketStatusChangedEmail = async ({
   }
 };
 
+/**
+ * Send ticket reply email (admin reply)
+ * @param {Object} params
+ * @param {string} params.email - Recipient email (ticket owner)
+ * @param {string} params.full_name - Ticket owner's full name
+ * @param {string} params.ticket_number - Ticket number
+ * @param {string} params.admin_name - Admin's name who replied
+ * @param {string} params.message - Reply message
+ * @param {Array} params.attachments - Array of attachment objects with file_name, file_url, file_size
+ * @param {string} params.ticket_id - Ticket ID (optional, for link generation)
+ */
+export const sendTicketReplyEmail = async ({
+  email,
+  full_name,
+  ticket_number,
+  admin_name,
+  message,
+  attachments = [],
+  ticket_id = '',
+}) => {
+  try {
+    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+
+    const htmlContent = TicketReplyTemplate({
+      full_name: full_name || email.split('@')[0],
+      ticket_number,
+      admin_name,
+      message,
+      attachments,  // Attachments are included as clickable links in the email body
+      ticket_id,
+      website_url,
+    });
+
+    const msg = {
+      to: email,
+      from: {
+        email: Support_Sender_Email,
+        name: "DuhaNashrahAi"
+      },
+      subject: `New Reply on Ticket ${ticket_number} from ${admin_name}`,
+      html: htmlContent,
+    };
+
+    console.log("📧 Sending ticket reply email to:", email);
+    await sgMail.send(msg);
+    console.log("✅ Ticket reply email sent successfully");
+    
+    return { success: true };
+  } catch (error) {
+    console.error("❌ Error sending ticket reply email:", error.response?.body || error);
+    return { success: false, error: error.message };
+  }
+};
+
 export default {
   sendWelcomeEmail,
   sendPasswordResetEmail,
@@ -506,5 +563,6 @@ export default {
   sendInvoiceCreatedEmail,
   sendTicketCreatedEmail,
   sendTicketStatusChangedEmail,
+  sendTicketReplyEmail,
   testEmailConfiguration,
 };

@@ -44,7 +44,7 @@ export const requirePermission = (permissionName) => {
               user_id: req.user.id,
               email: req.user.email,
               full_name: req.user.email,
-              role: "admin",
+              role: ["admin"], // Use array for role (TEXT[])
               account_status: "active",
               is_systemadmin: false,
             };
@@ -57,7 +57,7 @@ export const requirePermission = (permissionName) => {
             user_id: req.user.id,
             email: req.user.email,
             full_name: req.user.email,
-            role: "admin",
+            role: ["admin"], // Use array for role (TEXT[])
             account_status: "active",
             is_systemadmin: false,
           };
@@ -141,7 +141,7 @@ export const requireAnyPermission = (permissionNames = []) => {
               user_id: req.user.id,
               email: req.user.email,
               full_name: req.user.email,
-              role: "admin",
+              role: ["admin"], // Use array for role (TEXT[])
               account_status: "active",
               is_systemadmin: false,
             };
@@ -154,7 +154,7 @@ export const requireAnyPermission = (permissionNames = []) => {
             user_id: req.user.id,
             email: req.user.email,
             full_name: req.user.email,
-            role: "admin",
+            role: ["admin"], // Use array for role (TEXT[])
             account_status: "active",
             is_systemadmin: false,
           };
@@ -241,7 +241,7 @@ export const requireAllPermissions = (permissionNames = []) => {
               user_id: req.user.id,
               email: req.user.email,
               full_name: req.user.email,
-              role: "admin",
+              role: ["admin"], // Use array for role (TEXT[])
               account_status: "active",
               is_systemadmin: false,
             };
@@ -254,7 +254,7 @@ export const requireAllPermissions = (permissionNames = []) => {
             user_id: req.user.id,
             email: req.user.email,
             full_name: req.user.email,
-            role: "admin",
+            role: ["admin"], // Use array for role (TEXT[])
             account_status: "active",
             is_systemadmin: false,
           };
@@ -360,7 +360,7 @@ export const requireSystemAdmin = async (req, res, next) => {
           user_id: req.user.id,
           email: req.user.email,
           full_name: req.user.email,
-          role: "admin",
+          role: ["admin"], // Use array for role (TEXT[])
           account_status: "active",
           is_systemadmin: false,
         };

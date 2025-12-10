@@ -16,14 +16,17 @@ import {
   getTicketStats
 } from '../api/backend';
 import { useAuth } from '../contexts/AuthContext';
-import { checkUserPermissionsBulk, checkUserPermission } from '../api/backend/permissions';
+import { checkUserPermissionsBulk } from '../api/backend/permissions';
+import { usePermissions } from '../hooks/usePermissions';
 import apiClient from '../services/apiClient';
 import { supabase } from '../lib/supabase/Production/client';
+import { hasRole } from '../utils/roleUtils';
 
 const Customers = () => {
   const history = useHistory();
   const { profile, user } = useAuth();
-  const isAdmin = profile?.role === 'admin';
+  const { hasPermission, isLoading: isLoadingPermissions } = usePermissions();
+  const isAdmin = hasRole(profile?.role, 'admin');
   const [permissions, setPermissions] = useState({
     create: false, // Start as false, update after checking
     update: false,
@@ -89,92 +92,64 @@ const Customers = () => {
 
   // Check customer_support.view permission first (required to access the page)
   useEffect(() => {
-    const checkViewPermission = async () => {
-      if (!user || !profile) {
-        setHasViewPermission(false);
-        setCheckingViewPermission(false);
-        return;
-      }
-
-      try {
-        // Systemadmins have all permissions
-        if (profile.is_systemadmin === true) {
-          setHasViewPermission(true);
-          setCheckingViewPermission(false);
-          return;
-        }
-
-        // Check if user has customer_support.view permission
-        const hasPermission = await checkUserPermission(user.id, 'customer_support.view');
-        setHasViewPermission(hasPermission === true);
-        
-        // Redirect if no permission
-        if (!hasPermission) {
-          toast.error('You do not have permission to view customer support.');
-          setTimeout(() => {
-            history.push('/admin/users');
-          }, 500);
-        }
-      } catch (error) {
-        console.error('Error checking customer_support.view permission:', error);
-        setHasViewPermission(false);
-        toast.error('Error checking permissions. Access denied.');
-        setTimeout(() => {
-          history.push('/admin/users');
-        }, 500);
-      } finally {
-        setCheckingViewPermission(false);
-      }
-    };
-
-    checkViewPermission();
-  }, [user, profile, history]);
-
-  // Check multiple permissions at once (optimized bulk check)
-  useEffect(() => {
-    // Only check other permissions if user has view permission
-    if (checkingViewPermission || !hasViewPermission) {
+    if (!user || !profile) {
+      setHasViewPermission(false);
+      setCheckingViewPermission(false);
       return;
     }
 
-    const checkPermissions = async () => {
-      setCheckingPermissions(true); // Start checking
-      if (!user || !profile) {
-        setPermissions({ create: false, update: false, read: false });
-        setCheckingPermissions(false);
-        return;
-      }
+    // Wait for permissions to load before checking
+    if (isLoadingPermissions) {
+      setCheckingViewPermission(true);
+      return;
+    }
 
-      try {
-        // Systemadmins have all permissions
-        if (profile.is_systemadmin === true) {
-          setPermissions({ create: true, update: true, read: true });
-          setCheckingPermissions(false);
-          return;
-        }
+    // Use permissions hook to check permission (only after permissions are loaded)
+    const hasViewPerm = hasPermission('customer_support.view');
+    setHasViewPermission(hasViewPerm);
+    setCheckingViewPermission(false);
+    
+    // Redirect if no permission (only after permissions are loaded)
+    if (!hasViewPerm) {
+      toast.error('You do not have permission to view customer support.');
+      setTimeout(() => {
+        history.push('/admin/users');
+      }, 500);
+    }
+  }, [user, profile, history, hasPermission, isLoadingPermissions]);
 
-        // Check multiple permissions in a single optimized API call
-        const permissionResults = await checkUserPermissionsBulk(user.id, [
-          'customer_support.create',
-          'customer_support.update',
-          'customer_support.read'
-        ]);
+  // Check multiple permissions using the permissions hook (optimized - no API calls needed)
+  useEffect(() => {
+    // Only check other permissions if user has view permission and permissions are loaded
+    if (checkingViewPermission || !hasViewPermission || isLoadingPermissions) {
+      return;
+    }
 
+    setCheckingPermissions(true);
+    
+    // Systemadmins have all permissions
+    if (profile?.is_systemadmin === true) {
+      setPermissions({ create: true, update: true, read: true });
+      setCheckingPermissions(false);
+      return;
+    }
+
+    // Use permissions hook to check all permissions (already fetched, no API calls)
+    try {
+
+        // Use permissions hook to check all permissions (already fetched, no API calls)
         setPermissions({
-          create: permissionResults['customer_support.create'] === true,
-          update: permissionResults['customer_support.update'] === true,
-          read: permissionResults['customer_support.read'] === true
+          create: hasPermission('customer_support.create'),
+          update: hasPermission('customer_support.update'),
+          read: hasPermission('customer_support.read')
         });
-      } catch (error) {
-        console.error('Error checking customer support permissions:', error);
-        setPermissions({ create: false, update: false, read: false });
-      } finally {
-        setCheckingPermissions(false); // Done checking
-      }
-    };
-
-    checkPermissions();
-  }, [user, profile, checkingViewPermission, hasViewPermission]);
+    } catch (error) {
+      console.error('Error checking customer support permissions:', error);
+      setPermissions({ create: false, update: false, read: false });
+    } finally {
+      setCheckingPermissions(false);
+    }
+  }, [user, profile, checkingViewPermission, hasViewPermission, isLoadingPermissions, hasPermission]);
 
   // Fetch tickets (only if user has view permission)
   useEffect(() => {

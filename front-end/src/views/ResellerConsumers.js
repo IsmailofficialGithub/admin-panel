@@ -153,7 +153,8 @@ const ResellerConsumers = () => {
           trial_expiry: consumer.trial_expiry,
           trial_expiry_date: consumer.trial_expiry,
           created_at: consumer.created_at,
-          subscribed_products: consumer.subscribed_products || []
+          subscribed_products: consumer.subscribed_products || [],
+          role: consumer.role || ['consumer'] // Include role field from consumer data
         });
         console.log('Reseller: Setting consumer for update with subscribed_products:', consumer.subscribed_products);
         setIsUpdateModalOpen(true);

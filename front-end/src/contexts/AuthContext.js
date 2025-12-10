@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
 import { useHistory, useLocation } from 'react-router-dom'
 import { createClient } from '../lib/supabase/Production/client'
 import toast from 'react-hot-toast'
+import { hasRole, hasAnyRole, getPrimaryRole, normalizeRole } from '../utils/roleUtils'
 
 const AuthContext = createContext({})
 
@@ -41,9 +42,43 @@ export const AuthProvider = ({ children }) => {
       const role = profileData?.role
       const accountStatus = profileData?.account_status
 
-      // Consumers should be redirected to external site immediately
-      if (role === 'consumer') {
-        console.log('❌ AuthContext: Consumer role detected. Redirecting to external site.')
+      console.log('🔍 checkValidRole: Checking role:', { role, roleType: typeof role, isArray: Array.isArray(role) })
+
+      // Check if user has reseller role first
+      if (hasRole(role, 'reseller')) {
+        console.log('✅ checkValidRole: User has reseller role, allowing access')
+        // Check if reseller account is deactivated
+        if (accountStatus === 'deactive') {
+          await supabase.auth.signOut()
+          // Wait for signOut to complete
+          await new Promise(resolve => setTimeout(resolve, 200))
+          // Clear all tokens and storage
+          localStorage.clear()
+          sessionStorage.clear()
+          // Clear all cookies including Supabase auth cookies with domain
+          document.cookie.split(";").forEach((c) => {
+            const cookieName = c.split("=")[0].trim()
+            document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=${window.location.hostname};`
+            document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`
+          })
+          setUser(null)
+          setProfile(null)
+          toast.error('Your account has been deactivated. Please contact the administrator.')
+          // Force redirect and reload to ensure clean state
+          setTimeout(() => {
+            window.location.href = '/login'
+          }, 500)
+          return false
+        }
+        // User has reseller role and account is active, allow access
+        return true
+      }
+      
+      // If user is ONLY consumer (no reseller role), redirect to external site
+      const userRoles = normalizeRole(role)
+      const isOnlyConsumer = userRoles.length === 1 && userRoles.includes('consumer')
+      if (isOnlyConsumer) {
+        console.log('❌ AuthContext: Consumer-only role detected. Redirecting to external site.')
         await supabase.auth.signOut()
         // Wait for signOut to complete
         await new Promise(resolve => setTimeout(resolve, 200))
@@ -63,10 +98,10 @@ export const AuthProvider = ({ children }) => {
         return false
       }
 
-      // Define allowed roles (consumers are not allowed)
-      const allowedRoles = ['admin', 'reseller']
+      // Define allowed roles (admin is allowed, reseller already handled above)
+      const allowedRoles = ['admin']
       
-      if (!role || !allowedRoles.includes(role)) {
+      if (!hasAnyRole(role, allowedRoles)) {
         await supabase.auth.signOut()
         // Clear all tokens and storage
         localStorage.clear()
@@ -80,54 +115,6 @@ export const AuthProvider = ({ children }) => {
         setProfile(null)
         toast.error('Access denied. No valid role assigned.')
         history.push('/login')
-        return false
-      }
-
-      // Check if consumer account is deactivated
-      if (role === 'consumer' && accountStatus === 'deactive') {
-        await supabase.auth.signOut()
-        // Wait for signOut to complete
-        await new Promise(resolve => setTimeout(resolve, 200))
-        // Clear all tokens and storage
-        localStorage.clear()
-        sessionStorage.clear()
-        // Clear all cookies including Supabase auth cookies with domain
-        document.cookie.split(";").forEach((c) => {
-          const cookieName = c.split("=")[0].trim()
-          document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=${window.location.hostname};`
-          document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`
-        })
-        setUser(null)
-        setProfile(null)
-        toast.error('Your account has been deactivated. Please contact the administrator.')
-        // Force redirect and reload to ensure clean state
-        setTimeout(() => {
-          window.location.href = '/login'
-        }, 500)
-        return false
-      }
-
-      // Check if reseller account is deactivated
-      if (role === 'reseller' && accountStatus === 'deactive') {
-        await supabase.auth.signOut()
-        // Wait for signOut to complete
-        await new Promise(resolve => setTimeout(resolve, 200))
-        // Clear all tokens and storage
-        localStorage.clear()
-        sessionStorage.clear()
-        // Clear all cookies including Supabase auth cookies with domain
-        document.cookie.split(";").forEach((c) => {
-          const cookieName = c.split("=")[0].trim()
-          document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=${window.location.hostname};`
-          document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`
-        })
-        setUser(null)
-        setProfile(null)
-        toast.error('Your account has been deactivated. Please contact the administrator.')
-        // Force redirect and reload to ensure clean state
-        setTimeout(() => {
-          window.location.href = '/login'
-        }, 500)
         return false
       }
       
@@ -168,9 +155,23 @@ export const AuthProvider = ({ children }) => {
             .eq('user_id', session.user.id)
             .single()
 
-          // Consumers should be redirected to external site immediately
-          if (profileData?.role === 'consumer') {
-            console.log('❌ AuthContext: Consumer role detected. Redirecting to external site.')
+          console.log('🔍 AuthContext: Profile loaded:', { role: profileData?.role, roleType: typeof profileData?.role, isArray: Array.isArray(profileData?.role) })
+
+          // Check if user has reseller role first - if yes, allow access
+          if (hasRole(profileData?.role, 'reseller')) {
+            console.log('✅ AuthContext: User has reseller role, setting profile and allowing access')
+            // User has reseller role, set profile and continue (will redirect to reseller dashboard)
+            setProfile(profileData)
+            setLoading(false)
+            return
+          }
+          
+          // If user is ONLY consumer (no reseller role), redirect to external site
+          const userRoles = normalizeRole(profileData?.role)
+          console.log('🔍 AuthContext: Normalized roles:', userRoles, 'isOnlyConsumer:', userRoles.length === 1 && userRoles.includes('consumer'))
+          const isOnlyConsumer = userRoles.length === 1 && userRoles.includes('consumer')
+          if (isOnlyConsumer) {
+            console.log('❌ AuthContext: Consumer-only role detected. Redirecting to external site.')
             await supabase.auth.signOut()
             // Wait for signOut to complete
             await new Promise(resolve => setTimeout(resolve, 200))
@@ -194,7 +195,7 @@ export const AuthProvider = ({ children }) => {
           }
 
           // Check if reseller account is deactivated
-          if (profileData?.role === 'reseller' && profileData?.account_status === 'deactive') {
+          if (hasRole(profileData?.role, 'reseller') && profileData?.account_status === 'deactive') {
             await supabase.auth.signOut()
             // Wait for signOut to complete
             await new Promise(resolve => setTimeout(resolve, 200))
@@ -282,10 +283,8 @@ export const AuthProvider = ({ children }) => {
   const canAccessRoute = (path) => {
     if (!profile || !profile.role) return false
     
-    const role = profile.role
-    
-    if (role === 'admin' && path.startsWith('/admin')) return true
-    if (role === 'reseller' && path.startsWith('/reseller')) return true
+    if (hasRole(profile.role, 'admin') && path.startsWith('/admin')) return true
+    if (hasRole(profile.role, 'reseller') && path.startsWith('/reseller')) return true
     
     return false
   }
@@ -294,9 +293,9 @@ export const AuthProvider = ({ children }) => {
   const getDashboardPath = () => {
     if (!profile || !profile.role) return '/login'
     
-    const role = profile.role
-    if (role === 'admin') return '/admin/dashboard'
-    if (role === 'reseller') return '/reseller/dashboard'
+    const primaryRole = getPrimaryRole(profile.role)
+    if (primaryRole === 'admin') return '/admin/dashboard'
+    if (primaryRole === 'reseller') return '/reseller/dashboard'
     
     return '/login'
   }
@@ -309,8 +308,8 @@ export const AuthProvider = ({ children }) => {
     canAccessRoute,
     getDashboardPath,
     isAuthenticated: !!user,
-    isAdmin: profile?.role === 'admin',
-    isReseller: profile?.role === 'reseller',
+    isAdmin: hasRole(profile?.role, 'admin'),
+    isReseller: hasRole(profile?.role, 'reseller'),
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -13,6 +13,7 @@ import {
   createRateLimitMiddleware,
   sanitizeInputMiddleware
 } from '../../utils/apiOptimization.js';
+import { hasRole } from '../../utils/roleUtils.js';
 
 // Cache configuration
 const CACHE_TTL = 300; // 5 minutes
@@ -639,7 +640,7 @@ export const reviewPayment = async (req, res) => {
     }
 
     // Only admin can review payments
-    if (userRole !== 'admin') {
+    if (!hasRole(userRole, 'admin')) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',

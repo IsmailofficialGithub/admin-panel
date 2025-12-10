@@ -2,6 +2,7 @@ import React from "react";
 import { useLocation, Route, Switch, Redirect } from "react-router-dom";
 import { useAuth } from "hooks/useAuth";
 import toast from "react-hot-toast";
+import { hasRole } from "utils/roleUtils";
 
 import AdminNavbar from "components/Navbars/AdminNavbar";
 import Footer from "components/Footer/Footer";
@@ -23,7 +24,7 @@ function Reseller() {
   React.useEffect(() => {
     if (profile) {
       // Check if reseller account is deactivated
-      if (profile.role === 'reseller' && profile.account_status === 'deactive') {
+      if (hasRole(profile.role, 'reseller') && profile.account_status === 'deactive') {
         toast.error('Your account has been deactivated. Please contact the administrator.');
         signOut();
       }
@@ -67,7 +68,11 @@ function Reseller() {
         <div className="main-panel" ref={mainPanel}>
           <AdminNavbar />
           <div className="content">
-            <Switch>{getRoutes(resellerRoutes)}</Switch>
+            <Switch>
+              {getRoutes(resellerRoutes)}
+              {/* Default redirect: /reseller -> /reseller/dashboard */}
+              <Redirect exact from="/reseller" to="/reseller/dashboard" />
+            </Switch>
           </div>
           <Footer />
         </div>

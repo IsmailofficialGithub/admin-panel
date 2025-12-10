@@ -11,16 +11,19 @@ import {
   resetResellerPassword,
   updateResellerAccountStatus
 } from '../api/backend';
-import { checkUserPermissionsBulk, checkUserPermission } from '../api/backend/permissions';
+import { checkUserPermissionsBulk } from '../api/backend/permissions';
 import { useAuth } from '../hooks/useAuth';
+import { usePermissions } from '../hooks/usePermissions';
 import apiClient from '../services/apiClient';
 import CreateResellerModal from '../components/ui/createResellerModel';
 import UpdateResellerModal from '../components/ui/updateResellerModel';
 import DeleteModal from '../components/ui/deleteModel';
+import { getRolesString } from '../utils/roleUtils';
 
 const Resellers = () => {
   const history = useHistory();
   const { user, profile } = useAuth();
+  const { hasPermission, isLoading: isLoadingPermissions } = usePermissions();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -64,94 +67,65 @@ const Resellers = () => {
 
   // Check resellers.view permission first (required to access the page)
   useEffect(() => {
-    const checkViewPermission = async () => {
-      if (!user || !profile) {
-        setHasViewPermission(false);
-        setCheckingViewPermission(false);
-        return;
-      }
-
-      try {
-        // Systemadmins have all permissions
-        if (profile.is_systemadmin === true) {
-          setHasViewPermission(true);
-          setCheckingViewPermission(false);
-          return;
-        }
-
-        // Check if user has resellers.view permission
-        const hasPermission = await checkUserPermission(user.id, 'resellers.view');
-        setHasViewPermission(hasPermission === true);
-        
-        // Redirect if no permission
-        if (!hasPermission) {
-          toast.error('You do not have permission to view resellers.');
-          setTimeout(() => {
-            history.push('/admin/users');
-          }, 500);
-        }
-      } catch (error) {
-        console.error('Error checking resellers.view permission:', error);
-        setHasViewPermission(false);
-        toast.error('Error checking permissions. Access denied.');
-        setTimeout(() => {
-          history.push('/admin/users');
-        }, 500);
-      } finally {
-        setCheckingViewPermission(false);
-      }
-    };
-
-    checkViewPermission();
-  }, [user, profile, history]);
-
-  // Check multiple permissions at once (optimized bulk check)
-  useEffect(() => {
-    // Only check other permissions if user has view permission
-    if (checkingViewPermission || !hasViewPermission) {
+    if (!user || !profile) {
+      setHasViewPermission(false);
+      setCheckingViewPermission(false);
       return;
     }
 
-    const checkPermissions = async () => {
-      setCheckingPermissions(true); // Start checking
-      if (!user || !profile) {
-        setPermissions({ create: false, delete: false, update: false, read: false });
-        setCheckingPermissions(false);
-        return;
-      }
+    // Wait for permissions to load before checking
+    if (isLoadingPermissions) {
+      setCheckingViewPermission(true);
+      return;
+    }
 
-      try {
-        // Systemadmins have all permissions
-        if (profile.is_systemadmin === true) {
-          setPermissions({ create: true, delete: true, update: true, read: true });
-          setCheckingPermissions(false);
-          return;
-        }
+    // Use permissions hook to check permission (only after permissions are loaded)
+    const hasViewPerm = hasPermission('resellers.view');
+    setHasViewPermission(hasViewPerm);
+    setCheckingViewPermission(false);
+    
+    // Redirect if no permission (only after permissions are loaded)
+    if (!hasViewPerm) {
+      toast.error('You do not have permission to view resellers.');
+      setTimeout(() => {
+        history.push('/admin/users');
+      }, 500);
+    }
+  }, [user, profile, history, hasPermission, isLoadingPermissions]);
 
-        // Check multiple permissions in a single optimized API call
-        const permissionResults = await checkUserPermissionsBulk(user.id, [
-          'resellers.create',
-          'resellers.delete',
-          'resellers.update',
-          'resellers.read'
-        ]);
+  // Check multiple permissions using the permissions hook (optimized - no API calls needed)
+  useEffect(() => {
+    // Only check other permissions if user has view permission and permissions are loaded
+    if (checkingViewPermission || !hasViewPermission || isLoadingPermissions) {
+      return;
+    }
 
+    setCheckingPermissions(true);
+    
+    // Systemadmins have all permissions
+    if (profile?.is_systemadmin === true) {
+      setPermissions({ create: true, delete: true, update: true, read: true });
+      setCheckingPermissions(false);
+      return;
+    }
+
+    // Use permissions hook to check all permissions (already fetched, no API calls)
+    try {
+
+        // Use permissions hook to check all permissions (already fetched, no API calls)
         setPermissions({
-          create: permissionResults['resellers.create'] === true,
-          delete: permissionResults['resellers.delete'] === true,
-          update: permissionResults['resellers.update'] === true,
-          read: permissionResults['resellers.read'] === true
+          create: hasPermission('resellers.create'),
+          delete: hasPermission('resellers.delete'),
+          update: hasPermission('resellers.update'),
+          read: hasPermission('resellers.read')
         });
-      } catch (error) {
-        console.error('Error checking reseller permissions:', error);
-        setPermissions({ create: false, delete: false, update: false, read: false });
-      } finally {
-        setCheckingPermissions(false); // Done checking
-      }
-    };
-
-    checkPermissions();
-  }, [user, profile, checkingViewPermission, hasViewPermission]);
+    } catch (error) {
+      console.error('Error checking reseller permissions:', error);
+      setPermissions({ create: false, delete: false, update: false, read: false });
+    } finally {
+      setCheckingPermissions(false);
+    }
+  }, [user, profile, checkingViewPermission, hasViewPermission, isLoadingPermissions, hasPermission]);
 
   // Fetch Resellers from backend API with search (only if user has view permission)
   useEffect(() => {
@@ -963,7 +937,7 @@ const Resellers = () => {
                         display: 'inline-block',
                         textTransform: 'capitalize'
                       }}>
-                        {user.role}
+                        {getRolesString(user.role)}
                       </span>
                     </td>
                     <td style={{ padding: '15px 24px' }}>

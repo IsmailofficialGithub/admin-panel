@@ -4,6 +4,7 @@ import { useHistory } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { createClient } from '../lib/supabase/Production/client';
 import { useAuth } from '../hooks/useAuth';
+import { hasRole, getPrimaryRole, isRoleEmpty, normalizeRole } from '../utils/roleUtils';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -16,15 +17,26 @@ const Login = () => {
   // Redirect if already authenticated
   useEffect(() => {
     if (!loading && user && profile) {
-      if (profile.role === 'admin') {
-        history.push('/admin/dashboard');
-      } else if (profile.role === 'reseller') {
+      // Check if user has reseller role first - redirect to reseller dashboard
+      if (hasRole(profile.role, 'reseller')) {
         history.push('/reseller/dashboard');
-      } else if (profile.role === 'consumer') {
+        return;
+      }
+      
+      // Check if user is ONLY consumer (no reseller role)
+      const userRoles = normalizeRole(profile.role);
+      const isOnlyConsumer = userRoles.length === 1 && userRoles.includes('consumer');
+      if (isOnlyConsumer) {
         toast.error('You are not authorized to access this page. Redirecting to external site...');
         setTimeout(() => {
           window.location.href = 'https://social.duhanashrah.ai/';
         }, 3000);
+        return;
+      }
+      
+      // Check for admin role
+      if (hasRole(profile.role, 'admin')) {
+        history.push('/admin/dashboard');
       }
     }
   }, [user, profile, loading, history]);
@@ -79,7 +91,7 @@ const Login = () => {
           .select('*')
           .eq('user_id', data.user.id)
           .maybeSingle();
-        if (profileError || !profile?.role) {
+        if (profileError || isRoleEmpty(profile?.role)) {
           console.error('❌ Login: No profile or role found');
           // Sign out before clearing to ensure complete session removal
           await supabase.auth.signOut();
@@ -100,7 +112,10 @@ const Login = () => {
         }
 
         // Check if consumer account is deactivated BEFORE completing login
-        if (profile.role === 'consumer' && profile.account_status === 'deactive') {
+        // Only check this if user is ONLY consumer (not if they also have reseller role)
+        const userRoles = normalizeRole(profile.role);
+        const isOnlyConsumer = userRoles.length === 1 && userRoles.includes('consumer');
+        if (isOnlyConsumer && profile.account_status === 'deactive') {
           console.error('❌ Login: Consumer account is deactivated');
           // Sign out immediately before clearing storage
           await supabase.auth.signOut();
@@ -126,7 +141,7 @@ const Login = () => {
         }
 
         // Check if reseller account is deactivated BEFORE completing login
-        if (profile.role === 'reseller' && profile.account_status === 'deactive') {
+        if (hasRole(profile.role, 'reseller') && profile.account_status === 'deactive') {
           console.error('❌ Login: Reseller account is deactivated');
           // Sign out immediately before clearing storage
           await supabase.auth.signOut();
@@ -151,19 +166,20 @@ const Login = () => {
           return;
         }
 
+        // Add debug logging
+        console.log('🔍 Login handleLogin: Profile role check:', { 
+          role: profile.role, 
+          roleType: typeof profile.role, 
+          isArray: Array.isArray(profile.role),
+          hasReseller: hasRole(profile.role, 'reseller'),
+          hasConsumer: hasRole(profile.role, 'consumer'),
+          normalizedRoles: normalizeRole(profile.role)
+        });
+
         // Check role and redirect accordingly
-        if (profile.role === 'admin') {
-          toast.success(`Welcome back, Admin!`);
-          
-          // Redirect to admin users page
-          try {
-            setTimeout(() => {
-              window.location.href = '/admin/dashboard';
-            }, 500);
-          } catch (redirectError) {
-            console.error('❌ Redirect failed:', redirectError);
-          }
-        } else if (profile.role === 'reseller') {
+        // IMPORTANT: Check reseller role FIRST (even if user also has consumer)
+        if (hasRole(profile.role, 'reseller')) {
+          console.log('✅ Login: User has reseller role, redirecting to /reseller/dashboard');
           toast.success(`Welcome back, Reseller!`);
           
           // Redirect to resellers page
@@ -174,42 +190,64 @@ const Login = () => {
           } catch (redirectError) {
             console.error('❌ Redirect failed:', redirectError);
           }
-        } else if (profile.role === 'consumer') {
-          // Consumers should be redirected to external site without saving token
-          console.log('❌ Login: Consumer role detected. Redirecting to external site without saving token.');
+        } else if (hasRole(profile.role, 'admin')) {
+          toast.success(`Welcome back, Admin!`);
           
-          // Sign out immediately before clearing storage
-          await supabase.auth.signOut();
-          // Wait for signOut to complete
-          await new Promise(resolve => setTimeout(resolve, 200));
-          // Clear all tokens and storage
-          localStorage.clear();
-          sessionStorage.clear();
-          // Clear all cookies including Supabase auth cookies with domain
-          document.cookie.split(";").forEach((c) => {
-            const cookieName = c.split("=")[0].trim();
-            document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=${window.location.hostname};`;
-            document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
-          });
-          
-          // Redirect to external site
-          setIsLoading(false);
-          window.location.href = 'https://social.duhanashrah.ai/';
-          return;
+          // Redirect to admin users page
+          try {
+            setTimeout(() => {
+              window.location.href = '/admin/dashboard';
+            }, 500);
+          } catch (redirectError) {
+            console.error('❌ Redirect failed:', redirectError);
+          }
         } else {
-          // Deny access for other roles
-          await supabase.auth.signOut();
-          // Clear all tokens and storage
-          localStorage.clear();
-          sessionStorage.clear();
-          // Clear all cookies including Supabase auth cookies
-          document.cookie.split(";").forEach((c) => {
-            const cookieName = c.split("=")[0].trim();
-            document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+          // Check if user is ONLY consumer (no reseller or admin role)
+          const normalizedUserRoles = normalizeRole(profile.role);
+          const isOnlyConsumer = normalizedUserRoles.length === 1 && normalizedUserRoles.includes('consumer');
+          
+          console.log('🔍 Login: Checking if only consumer:', { 
+            normalizedRoles: normalizedUserRoles, 
+            isOnlyConsumer 
           });
-          toast.error('Access denied. Invalid user role.');
-          setIsLoading(false);
-          return;
+          
+          if (isOnlyConsumer) {
+            // Consumers should be redirected to external site without saving token
+            console.log('❌ Login: Consumer-only role detected. Redirecting to external site without saving token.');
+            
+            // Sign out immediately before clearing storage
+            await supabase.auth.signOut();
+            // Wait for signOut to complete
+            await new Promise(resolve => setTimeout(resolve, 200));
+            // Clear all tokens and storage
+            localStorage.clear();
+            sessionStorage.clear();
+            // Clear all cookies including Supabase auth cookies with domain
+            document.cookie.split(";").forEach((c) => {
+              const cookieName = c.split("=")[0].trim();
+              document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=${window.location.hostname};`;
+              document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+            });
+            
+            // Redirect to external site
+            setIsLoading(false);
+            window.location.href = 'https://social.duhanashrah.ai/';
+            return;
+          } else {
+            // Deny access for other roles
+            await supabase.auth.signOut();
+            // Clear all tokens and storage
+            localStorage.clear();
+            sessionStorage.clear();
+            // Clear all cookies including Supabase auth cookies
+            document.cookie.split(";").forEach((c) => {
+              const cookieName = c.split("=")[0].trim();
+              document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+            });
+            toast.error('Access denied. Invalid user role.');
+            setIsLoading(false);
+            return;
+          }
         }
         
         // Keep loading state true while redirecting

@@ -3,11 +3,12 @@ import { X, FileText, Calendar, DollarSign, Package, User, Mail, AlertCircle, Ch
 import { getConsumerProductsForInvoice, createInvoice, getProducts } from '../../api/backend';
 import { useAuth } from '../../hooks/useAuth';
 import toast from 'react-hot-toast';
+import { hasRole } from '../../utils/roleUtils';
 
 const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
   const { profile } = useAuth();
-  const isAdmin = profile?.role === 'admin';
-  const isReseller = profile?.role === 'reseller';
+  const isAdmin = hasRole(profile?.role, 'admin');
+  const isReseller = hasRole(profile?.role, 'reseller');
   const [formData, setFormData] = useState({
     consumer_id: '',
     consumer_name: '',

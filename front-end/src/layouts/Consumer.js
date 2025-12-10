@@ -2,6 +2,7 @@ import React from "react";
 import { useLocation, Route, Switch } from "react-router-dom";
 import { useAuth } from "hooks/useAuth";
 import toast from "react-hot-toast";
+import { hasRole } from "utils/roleUtils";
 
 import AdminNavbar from "components/Navbars/AdminNavbar";
 import Footer from "components/Footer/Footer";
@@ -23,7 +24,7 @@ function ConsumerLayout() {
   React.useEffect(() => {
     if (profile) {
       // Check if consumer account is deactivated
-      if (profile.role === 'consumer' && profile.account_status === 'deactive') {
+      if (hasRole(profile.role, 'consumer') && profile.account_status === 'deactive') {
         toast.error('Your account has been deactivated. Please contact the administrator.');
         signOut();
       }

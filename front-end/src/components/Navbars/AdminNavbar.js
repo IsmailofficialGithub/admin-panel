@@ -3,6 +3,7 @@ import React, { Component } from "react";
 import { useLocation } from "react-router-dom";
 import { Navbar, Container, Nav, Dropdown, Button } from "react-bootstrap";
 import { useAuth } from "../../hooks/useAuth";
+import { hasRole } from "../../utils/roleUtils";
 
 import routes from "routes.js";
 
@@ -31,9 +32,9 @@ function Header() {
     if (!profile || !profile.role) return '/admin/account';
     
     const role = profile.role;
-    if (role === 'admin') return '/admin/account';
-    if (role === 'reseller') return '/reseller/account';
-    if (role === 'consumer') return '/consumer/account';
+    if (hasRole(role, 'admin')) return '/admin/account';
+    if (hasRole(role, 'reseller')) return '/reseller/account';
+    if (hasRole(role, 'consumer')) return '/consumer/account';
     
     return '/admin/account';
   };

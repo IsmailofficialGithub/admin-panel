@@ -2,6 +2,7 @@
  * Email Templates for User Management
  * All templates use the unified styling from text.html
  */
+import { hasRole } from './roleUtils.js';
 
 /**
  * Base Email Template - Unified styling for all emails
@@ -227,13 +228,15 @@ export const AdminEmailTemplateUserCreated = ({
     }
   };
 
-  const roleInfo = roleMessages[role] || roleMessages.user;
+  // Normalize role for roleMessages lookup (handles both string and array)
+  const roleForLookup = Array.isArray(role) ? role[0] : role;
+  const roleInfo = roleMessages[roleForLookup] || roleMessages.user;
 
   // HARDCODED: Consumers ALWAYS redirect to https://social.duhanashrah.ai/ - no exceptions
   // IGNORES website_url parameter and CLIENT_URL env var completely for consumers
   // This ensures consumers NEVER get admin panel URL, even if accidentally passed
   let finalWebsiteUrl;
-  if (role === 'consumer') {
+  if (hasRole(role, 'consumer')) {
     finalWebsiteUrl = 'https://social.duhanashrah.ai/'; // Hardcoded - never use CLIENT_URL
     console.log('📧 Email Template - Consumer: Using HARDCODED URL (ignoring any passed URL):', finalWebsiteUrl);
   } else {
@@ -891,6 +894,131 @@ export const TicketStatusChangedTemplate = ({
   });
 };
 
+/**
+ * Ticket Reply Email Template (Admin Reply)
+ */
+export const TicketReplyTemplate = ({
+  full_name = 'Customer',
+  ticket_number = 'TICKET-0001',
+  admin_name = 'Support Team',
+  message = 'Reply message',
+  attachments = [],
+  ticket_id = '',
+  website_url = '#',
+} = {}) => {
+  const formatDate = (dateStr) => {
+    try {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (e) {
+      return dateStr;
+    }
+  };
+
+  const normalizedWebsiteUrl = website_url.replace(/\/+$/, '');
+  const viewTicketUrl = ticket_id 
+    ? `${normalizedWebsiteUrl}/support-widget?ticket_id=${ticket_id}`
+    : normalizedWebsiteUrl;
+
+  // Helper function to format file size
+  const formatFileSize = (bytes) => {
+    if (!bytes) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  // Format attachments list
+  let attachmentsHtml = '';
+  if (attachments && attachments.length > 0) {
+    attachmentsHtml = `
+      <tr>
+        <td style="padding: 12px 0 0 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+          <strong>Attachments:</strong>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 8px 0 0 0; color: #66698c; font-family: Verdana, Geneva, sans-serif;">
+          <ul style="margin: 0; padding-left: 20px; color: #66698c;">
+            ${attachments.map(att => `
+              <li style="margin: 4px 0;">
+                <a href="${att.file_url || att.file_path}" style="color: #8a3b9a; text-decoration: none;">${att.file_name}</a>
+                ${att.file_size ? ` <span style="color: #999; font-size: 12px;">(${formatFileSize(att.file_size)})</span>` : ''}
+              </li>
+            `).join('')}
+          </ul>
+        </td>
+      </tr>
+    `;
+  }
+
+  const content = `
+    <p style="margin: 0 0 12px 0; color: #232347;">
+      Hello <strong style="color: #8a3b9a;">${full_name}</strong>,
+    </p>
+    
+    <p style="margin: 0 0 20px 0; color: #232347;">
+      You have received a reply from <strong style="color: #8a3b9a;">${admin_name}</strong> regarding your support ticket.
+    </p>
+
+    <!-- Reply Details - Outlook compatible -->
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #8a3b9a;">
+      <tr>
+        <td style="padding: 20px; color: #232347; font-size: 15px; line-height: 1.6; font-family: Verdana, Geneva, sans-serif;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+            <tr>
+              <td style="padding: 0 0 10px 0; font-size: 16px; font-weight: bold; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+                Reply from ${admin_name}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+                <strong>Ticket Number:</strong> <span class="mono-num" style="color: #8a3b9a; font-weight: bold; font-family: 'Courier New', Courier, monospace;">${ticket_number}</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+                <strong>Replied on:</strong> ${formatDate(new Date().toISOString())}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 12px 0 0 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+                <strong>Message:</strong>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0 0 0; color: #66698c; font-family: Verdana, Geneva, sans-serif; font-style: italic; border-left: 3px solid #8a3b9a; padding-left: 12px; white-space: pre-wrap;">
+                ${message.replace(/\n/g, '<br>')}
+              </td>
+            </tr>
+            ${attachmentsHtml}
+            <tr>
+              <td style="padding: 12px 0 0 0; font-size: 13px; color: #66698c; font-family: Verdana, Geneva, sans-serif;">
+                You can view the full conversation and reply to this ticket using the button below.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  return BaseEmailTemplate({
+    title: `New Reply on Ticket: ${ticket_number}`,
+    subtitle: `Reply from ${admin_name}`,
+    content,
+    buttonText: 'View & Reply to Ticket',
+    buttonUrl: viewTicketUrl,
+    footerText: `This is an automated notification from Duha Nashrah support team. Please do not reply directly to this email. Use the button above to reply to your ticket.`
+  });
+};
+
 export default { 
   AdminEmailTemplateUserCreated, 
   PasswordResetTemplate, 
@@ -899,7 +1027,8 @@ export default {
   InviteEmailTemplate,
   InvoiceCreatedTemplate,
   TicketCreatedTemplate,
-  TicketStatusChangedTemplate
+  TicketStatusChangedTemplate,
+  TicketReplyTemplate
 };
 
 export { AdminEmailTemplateUserCreated as _Admin, PasswordResetTemplate as _Reset };

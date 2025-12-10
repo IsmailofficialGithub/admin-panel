@@ -6,12 +6,14 @@ import toast from 'react-hot-toast';
 import CreateProductModal from '../components/ui/createProductModal';
 import UpdateProductModal from '../components/ui/updateProductModal';
 import { getAllProducts, deleteProduct } from '../api/backend/products';
-import { checkUserPermissionsBulk, checkUserPermission } from '../api/backend/permissions';
+import { checkUserPermissionsBulk } from '../api/backend/permissions';
 import { useAuth } from '../hooks/useAuth';
+import { usePermissions } from '../hooks/usePermissions';
 
 const Products = () => {
   const history = useHistory();
   const { user, profile } = useAuth();
+  const { hasPermission, isLoading: isLoadingPermissions } = usePermissions();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -56,94 +58,65 @@ const Products = () => {
 
   // Check products.view permission first (required to access the page)
   useEffect(() => {
-    const checkViewPermission = async () => {
-      if (!user || !profile) {
-        setHasViewPermission(false);
-        setCheckingViewPermission(false);
-        return;
-      }
-
-      try {
-        // Systemadmins have all permissions
-        if (profile.is_systemadmin === true) {
-          setHasViewPermission(true);
-          setCheckingViewPermission(false);
-          return;
-        }
-
-        // Check if user has products.view permission
-        const hasPermission = await checkUserPermission(user.id, 'products.view');
-        setHasViewPermission(hasPermission === true);
-        
-        // Redirect if no permission
-        if (!hasPermission) {
-          toast.error('You do not have permission to view products.');
-          setTimeout(() => {
-            history.push('/admin/users');
-          }, 500);
-        }
-      } catch (error) {
-        console.error('Error checking products.view permission:', error);
-        setHasViewPermission(false);
-        toast.error('Error checking permissions. Access denied.');
-        setTimeout(() => {
-          history.push('/admin/users');
-        }, 500);
-      } finally {
-        setCheckingViewPermission(false);
-      }
-    };
-
-    checkViewPermission();
-  }, [user, profile, history]);
-
-  // Check multiple permissions at once (optimized bulk check)
-  useEffect(() => {
-    // Only check other permissions if user has view permission
-    if (checkingViewPermission || !hasViewPermission) {
+    if (!user || !profile) {
+      setHasViewPermission(false);
+      setCheckingViewPermission(false);
       return;
     }
 
-    const checkPermissions = async () => {
-      setCheckingPermissions(true); // Start checking
-      if (!user || !profile) {
-        setPermissions({ create: false, delete: false, update: false, read: false });
-        setCheckingPermissions(false);
-        return;
-      }
+    // Wait for permissions to load before checking
+    if (isLoadingPermissions) {
+      setCheckingViewPermission(true);
+      return;
+    }
 
-      try {
-        // Systemadmins have all permissions
-        if (profile.is_systemadmin === true) {
-          setPermissions({ create: true, delete: true, update: true, read: true });
-          setCheckingPermissions(false);
-          return;
-        }
+    // Use permissions hook to check permission (only after permissions are loaded)
+    const hasViewPerm = hasPermission('products.view');
+    setHasViewPermission(hasViewPerm);
+    setCheckingViewPermission(false);
+    
+    // Redirect if no permission (only after permissions are loaded)
+    if (!hasViewPerm) {
+      toast.error('You do not have permission to view products.');
+      setTimeout(() => {
+        history.push('/admin/users');
+      }, 500);
+    }
+  }, [user, profile, history, hasPermission, isLoadingPermissions]);
 
-        // Check multiple permissions in a single optimized API call
-        const permissionResults = await checkUserPermissionsBulk(user.id, [
-          'products.create',
-          'products.delete',
-          'products.update',
-          'products.read'
-        ]);
+  // Check multiple permissions using the permissions hook (optimized - no API calls needed)
+  useEffect(() => {
+    // Only check other permissions if user has view permission and permissions are loaded
+    if (checkingViewPermission || !hasViewPermission || isLoadingPermissions) {
+      return;
+    }
 
+    setCheckingPermissions(true);
+    
+    // Systemadmins have all permissions
+    if (profile?.is_systemadmin === true) {
+      setPermissions({ create: true, delete: true, update: true, read: true });
+      setCheckingPermissions(false);
+      return;
+    }
+
+    // Use permissions hook to check all permissions (already fetched, no API calls)
+    try {
+
+        // Use permissions hook to check all permissions (already fetched, no API calls)
         setPermissions({
-          create: permissionResults['products.create'] === true,
-          delete: permissionResults['products.delete'] === true,
-          update: permissionResults['products.update'] === true,
-          read: permissionResults['products.read'] === true
+          create: hasPermission('products.create'),
+          delete: hasPermission('products.delete'),
+          update: hasPermission('products.update'),
+          read: hasPermission('products.read')
         });
-      } catch (error) {
-        console.error('Error checking product permissions:', error);
-        setPermissions({ create: false, delete: false, update: false, read: false });
-      } finally {
-        setCheckingPermissions(false); // Done checking
-      }
-    };
-
-    checkPermissions();
-  }, [user, profile, checkingViewPermission, hasViewPermission]);
+    } catch (error) {
+      console.error('Error checking product permissions:', error);
+      setPermissions({ create: false, delete: false, update: false, read: false });
+    } finally {
+      setCheckingPermissions(false);
+    }
+  }, [user, profile, checkingViewPermission, hasViewPermission, isLoadingPermissions, hasPermission]);
 
   // Fetch products (only if user has view permission)
   useEffect(() => {

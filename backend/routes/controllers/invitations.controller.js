@@ -15,6 +15,7 @@ import {
   createRateLimitMiddleware,
   sanitizeInputMiddleware
 } from '../../utils/apiOptimization.js';
+import { hasRole } from '../../utils/roleUtils.js';
 import crypto from 'crypto';
 
 // Cache configuration
@@ -154,7 +155,7 @@ export const inviteUser = async (req, res) => {
       token,
       role,
       invited_by: inviterId,
-      referred_by: role === 'reseller' ? inviterId : null,
+      referred_by: hasRole(role, 'reseller') ? inviterId : null,
       expires_at: expiresAt.toISOString(),
       trial_expiry_date: trial_expiry_date ? new Date(trial_expiry_date).toISOString() : null,
       subscribed_products: subscribed_products && Array.isArray(subscribed_products) ? subscribed_products : []
@@ -277,7 +278,7 @@ export const inviteReseller = async (req, res) => {
 
     const { data: inviterProfile, error: inviterError } = await executeWithTimeout(inviterPromise);
 
-    if (inviterError || !inviterProfile || inviterProfile.role !== 'reseller') {
+    if (inviterError || !inviterProfile || !hasRole(inviterProfile.role, 'reseller')) {
       console.error('❌ Error fetching inviter profile:', inviterError);
       return res.status(403).json({
         success: false,
@@ -332,7 +333,7 @@ export const inviteReseller = async (req, res) => {
     const invitationData = {
       email,
       token,
-      role: 'reseller',
+      role: 'reseller', // invitations table uses TEXT, not TEXT[]
       invited_by: inviterId,
       referred_by: inviterId,
       expires_at: expiresAt.toISOString()
@@ -363,7 +364,7 @@ export const inviteReseller = async (req, res) => {
 
     sendInviteEmail({
       email,
-      role: 'reseller',
+      role: ['reseller'], // Array for email service
       invite_url: inviteUrl,
       inviter_name: inviterName
     }).catch(emailError => {
@@ -659,7 +660,11 @@ export const signupWithInvite = async (req, res) => {
     // ========================================
     const { getResellerSettings } = await import('../../utils/resellerSettings.js');
     const resellerSettings = await getResellerSettings();
-    const accountStatus = invitation.role === 'reseller' && resellerSettings.requireResellerApproval 
+    
+    // Normalize invitation.role (invitations table uses TEXT, profiles uses TEXT[])
+    const invitationRole = Array.isArray(invitation.role) ? invitation.role : [invitation.role];
+    
+    const accountStatus = hasRole(invitationRole, 'reseller') && resellerSettings.requireResellerApproval 
       ? 'pending' 
       : 'active';
 
@@ -669,7 +674,7 @@ export const signupWithInvite = async (req, res) => {
     const profileData = {
       user_id: newUser.user.id,
       full_name,
-      role: invitation.role,
+      role: invitationRole, // Array for TEXT[]
       phone: phone || null,
       country: country || null,
       city: city || null,
@@ -678,9 +683,9 @@ export const signupWithInvite = async (req, res) => {
     };
 
     // Add trial expiry for consumer if provided
-    if (invitation.role === 'consumer' && invitation.trial_expiry_date) {
+    if (hasRole(invitationRole, 'consumer') && invitation.trial_expiry_date) {
       profileData.trial_expiry = new Date(invitation.trial_expiry_date);
-    } else if (invitation.role === 'consumer') {
+    } else if (hasRole(invitationRole, 'consumer')) {
       // Default 3-day trial for consumers
       const trialExpiry = new Date();
       trialExpiry.setDate(trialExpiry.getDate() + 3);
@@ -711,7 +716,9 @@ export const signupWithInvite = async (req, res) => {
     // ========================================
     // 7. STORE PRODUCT ACCESS (with timeout, non-blocking)
     // ========================================
-    if (invitation.role === 'consumer' && invitation.subscribed_products && invitation.subscribed_products.length > 0) {
+    // Normalize invitation.role for check (invitations table uses TEXT, but we need array check)
+    const invitationRoleForCheck = Array.isArray(invitation.role) ? invitation.role : [invitation.role];
+    if (hasRole(invitationRoleForCheck, 'consumer') && invitation.subscribed_products && invitation.subscribed_products.length > 0) {
       const productAccessRecords = invitation.subscribed_products
         .filter(productId => isValidUUID(productId))
         .map(productId => ({

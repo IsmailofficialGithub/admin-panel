@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Phone, Calendar, Globe, MapPin, ChevronDown, Package, CheckCircle } from 'lucide-react';
+import { X, User, Phone, Calendar, Globe, MapPin, ChevronDown, Package, CheckCircle, Shield } from 'lucide-react';
 import { countries, searchCountries } from '../../utils/countryData';
 import { getProducts } from '../../api/backend';
+import { normalizeRole } from '../../utils/roleUtils';
 
 const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
   const [formData, setFormData] = useState({
@@ -10,8 +11,18 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
     trial_expiry_date: '',
     country: '',
     city: '',
-    subscribed_products: []
+    subscribed_products: [],
+    roles: ['consumer'] // Default to consumer, but allow reseller too
   });
+  
+  // Available roles for consumer form
+  const availableRoles = [
+    { value: 'consumer', label: 'Consumer' },
+    { value: 'reseller', label: 'Reseller' }
+  ];
+  
+  // Check if consumer role is selected
+  const isConsumerSelected = formData.roles?.includes('consumer') || false;
 
   const [countrySearch, setCountrySearch] = useState('');
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
@@ -40,13 +51,21 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
       const consumerProducts = consumer.subscribed_products || [];
       console.log('Update modal: Setting subscribed_products from consumer:', consumerProducts);
       
+      // Handle role - use normalizeRole utility to handle all formats (array, string, etc.)
+      const consumerRoles = normalizeRole(consumer.role);
+      console.log('Update modal: Consumer role from API:', consumer.role, 'Normalized:', consumerRoles);
+      
+      // Ensure at least consumer role is present (default to consumer if empty)
+      const finalRoles = consumerRoles.length > 0 ? consumerRoles : ['consumer'];
+      
       setFormData({
         full_name: consumer.full_name || consumer.name || '',
         phone: '',
         trial_expiry_date: trialDate,
         country: consumer.country || '',
         city: consumer.city || '',
-        subscribed_products: consumerProducts || []
+        subscribed_products: consumerProducts || [],
+        roles: finalRoles
       });
       
       // If consumer has a country, find and set it
@@ -85,9 +104,9 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
     }
   }, [consumer]);
 
-  // Fetch products when modal opens
+  // Fetch products when modal opens and consumer role is selected
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && isConsumerSelected) {
       const fetchProducts = async () => {
         setLoadingProducts(true);
         try {
@@ -108,7 +127,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
 
       fetchProducts();
     }
-  }, [isOpen]);
+  }, [isOpen, isConsumerSelected]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -194,6 +213,41 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
     const productIdStr = String(productId);
     return formData.subscribed_products.some(id => String(id) === productIdStr);
   };
+  
+  // Handle role change
+  const handleRoleChange = (roleValue) => {
+    setFormData(prev => {
+      const currentRoles = prev.roles || ['consumer'];
+      const isSelected = currentRoles.includes(roleValue);
+      
+      let newRoles;
+      if (isSelected) {
+        // Remove role if already selected
+        newRoles = currentRoles.filter(r => r !== roleValue);
+        // Ensure at least consumer is selected (since this is update consumer form)
+        if (newRoles.length === 0 || !newRoles.includes('consumer')) {
+          newRoles = ['consumer'];
+        }
+      } else {
+        // Add role
+        newRoles = [...currentRoles, roleValue];
+      }
+      
+      // If consumer role is removed, clear consumer-specific fields
+      const wasConsumer = currentRoles.includes('consumer');
+      const isNowConsumer = newRoles.includes('consumer');
+      
+      return {
+        ...prev,
+        roles: newRoles,
+        // Clear consumer-specific fields if consumer role is removed
+        ...(wasConsumer && !isNowConsumer ? {
+          subscribed_products: [],
+          trial_expiry_date: ''
+        } : {})
+      };
+    });
+  };
 
   const validateForm = () => {
     const newErrors = {};
@@ -237,7 +291,8 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         trial_expiry_date: formData.trial_expiry_date || null,
         country: formData.country.trim() || null,
         city: formData.city.trim() || null,
-        subscribed_products: formData.subscribed_products || []
+        subscribed_products: formData.subscribed_products || [],
+        roles: formData.roles || ['consumer'] // Send roles array
       };
 
       console.log('Update modal sending subscribed_products:', updateData.subscribed_products);
@@ -415,6 +470,89 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                 marginBottom: 0
               }}>
                 {errors.full_name}
+              </p>
+            )}
+          </div>
+
+          {/* Roles Field */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              Roles <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <div style={{
+              border: errors.roles ? '1px solid #ef4444' : '1px solid #d1d5db',
+              borderRadius: '8px',
+              padding: '12px',
+              backgroundColor: 'white',
+              minHeight: '80px'
+            }}>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px'
+              }}>
+                {availableRoles.map((role) => {
+                  const isChecked = formData.roles?.includes(role.value) || false;
+                  return (
+                    <label
+                      key={role.value}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        cursor: 'pointer',
+                        padding: '8px',
+                        borderRadius: '6px',
+                        transition: 'background-color 0.2s',
+                        backgroundColor: isChecked ? '#f3f4f6' : 'transparent'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#f9fafb';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isChecked) {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                        }
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => handleRoleChange(role.value)}
+                        style={{
+                          width: '18px',
+                          height: '18px',
+                          marginRight: '12px',
+                          cursor: 'pointer',
+                          accentColor: '#74317e'
+                        }}
+                      />
+                      <Shield size={16} style={{ marginRight: '8px', color: '#6b7280' }} />
+                      <span style={{
+                        fontSize: '14px',
+                        color: '#374151',
+                        fontWeight: isChecked ? '500' : '400'
+                      }}>
+                        {role.label}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            {formData.roles && formData.roles.length > 0 && (
+              <p style={{
+                color: '#6b7280',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                Selected: {formData.roles.join(', ')}
               </p>
             )}
           </div>

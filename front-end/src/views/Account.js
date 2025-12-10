@@ -9,6 +9,7 @@ import { countries, searchCountries } from '../utils/countryData';
 import { getActivityLogs, getMyCommission } from '../api/backend';
 import apiClient from '../services/apiClient';
 import { Award, Percent, DollarSign } from 'lucide-react';
+import { hasRole } from '../utils/roleUtils';
 
 const Account = () => {
   const { user, profile } = useAuth();
@@ -116,7 +117,7 @@ const Account = () => {
       fetchUserActivityLogs(user.id);
 
       // Fetch commission data for resellers
-      if (profile && profile.role === 'reseller') {
+      if (profile && hasRole(profile.role, 'reseller')) {
         fetchCommissionData();
       }
     }
@@ -831,7 +832,7 @@ const Account = () => {
                 Account Information
               </h5>
 
-              {profile && profile.role === 'reseller' && (
+              {profile && hasRole(profile.role, 'reseller') && (
                 <div style={{
                   marginBottom: '20px',
                   padding: '16px',

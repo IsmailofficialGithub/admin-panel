@@ -13,6 +13,7 @@ import {
   sanitizeObject,
   sanitizeArray
 } from '../../utils/validation.js';
+import { hasRole } from '../../utils/roleUtils.js';
 
 // Cache configuration
 export const CACHE_TTL = 300; // 5 minutes
@@ -103,22 +104,27 @@ export const getAllUsers = async (req, res) => {
     // ========================================
     // 3. OPTIMIZED DATABASE QUERY
     // ========================================
+    // Filter for users that are NOT consumers or resellers
+    // Since role is now an array (TEXT[]), we can't use .neq() directly
+    // We'll fetch a larger batch and filter in memory, then apply pagination
+    // This is a workaround until we can use an RPC function or view
     let query = supabase
       .from('auth_role_with_profiles')
-      .select(USER_SELECT_FIELDS, { count: 'exact' }) // Get total count for pagination
-      .neq('role', 'consumer')
-      .neq('role', 'reseller');
-
+      .select(USER_SELECT_FIELDS); // Don't get count yet, we'll calculate after filtering
+    
     // Apply search filter if provided
     if (searchTerm) {
       query = query.or(`full_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
       console.log('✅ Searching for:', searchTerm);
     }
 
-    // Order and paginate
-    query = query
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limitNum - 1); // Pagination
+    // Order (but don't paginate yet - we'll do that after filtering)
+    query = query.order('created_at', { ascending: false });
+    
+    // Fetch a larger batch to account for filtering (fetch up to 10x the limit)
+    // This ensures we have enough results after filtering
+    const fetchLimit = limitNum * 10;
+    query = query.limit(fetchLimit);
 
     // Execute query with timeout protection
     const queryPromise = query;
@@ -145,29 +151,48 @@ export const getAllUsers = async (req, res) => {
     }
 
     // ========================================
-    // 5. DATA SANITIZATION (Security)
+    // 5. FILTER OUT CONSUMERS AND RESELLERS (in memory)
     // ========================================
-    const sanitizedUsers = sanitizeArray(users || []);
-
-    console.log(`✅ Found ${sanitizedUsers.length} users (Total: ${count})`);
+    // Filter for users that have admin, user, or viewer roles (not consumer/reseller)
+    const allowedRoles = ['admin', 'user', 'viewer'];
+    const filteredUsers = (users || []).filter(user => {
+      if (!user.role || !Array.isArray(user.role)) return false;
+      // Check if user has any of the allowed roles AND doesn't have consumer/reseller
+      const hasAllowedRole = user.role.some(role => allowedRoles.includes(role));
+      const hasConsumerReseller = user.role.includes('consumer') || user.role.includes('reseller');
+      return hasAllowedRole && !hasConsumerReseller;
+    });
 
     // ========================================
-    // 6. RESPONSE STRUCTURE
+    // 6. APPLY PAGINATION TO FILTERED RESULTS
+    // ========================================
+    const totalFiltered = filteredUsers.length;
+    const paginatedUsers = filteredUsers.slice(offset, offset + limitNum);
+
+    // ========================================
+    // 7. DATA SANITIZATION (Security)
+    // ========================================
+    const sanitizedUsers = sanitizeArray(paginatedUsers);
+
+    console.log(`✅ Found ${sanitizedUsers.length} users after filtering and pagination (Total filtered: ${totalFiltered}, Fetched: ${users?.length || 0})`);
+
+    // ========================================
+    // 8. RESPONSE STRUCTURE
     // ========================================
     const response = {
       success: true,
       count: sanitizedUsers.length,
-      total: count || 0,
+      total: totalFiltered, // Total after filtering
       page: pageNum,
       limit: limitNum,
-      totalPages: Math.ceil((count || 0) / limitNum),
-      hasMore: offset + limitNum < (count || 0),
+      totalPages: Math.ceil(totalFiltered / limitNum),
+      hasMore: offset + limitNum < totalFiltered,
       data: sanitizedUsers,
       search: searchTerm || null
     };
 
     // ========================================
-    // 7. CACHE THE RESPONSE
+    // 8. CACHE THE RESPONSE
     // ========================================
     await cacheService.set(cacheKey, response, CACHE_TTL);
 
@@ -302,7 +327,7 @@ export const createUser = async (req, res) => {
     // ========================================
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
-    let { email, password, full_name, role, phone, country, city } = req.body;
+    let { email, password, full_name, role, roles, phone, country, city, referred_by, subscribed_products, trial_expiry_date } = req.body;
 
     // Validate required fields
     if (!email || !password || !full_name || !country || !city) {
@@ -349,16 +374,38 @@ export const createUser = async (req, res) => {
       }
     }
 
-    // Validate role
-    const validRoles = ['user', 'admin', 'consumer'];
-    if (role && !validRoles.includes(role.toLowerCase())) {
-      return res.status(400).json({
-        success: false,
-        error: 'Bad Request',
-        message: `Invalid role. Must be one of: ${validRoles.join(', ')}`
-      });
+    // Validate roles - support both single role (backward compatibility) and roles array
+    const validRoles = ['user', 'admin', 'consumer', 'reseller', 'viewer'];
+    let userRoles = [];
+    
+    // If roles array is provided, use it; otherwise check for single role (backward compatibility)
+    if (roles && Array.isArray(roles)) {
+      userRoles = roles.map(r => r.toLowerCase()).filter(r => validRoles.includes(r));
+      if (userRoles.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: `At least one valid role is required. Valid roles: ${validRoles.join(', ')}`
+        });
+      }
+    } else if (role) {
+      // Backward compatibility: single role
+      const singleRole = role.toLowerCase();
+      if (!validRoles.includes(singleRole)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: `Invalid role. Must be one of: ${validRoles.join(', ')}`
+        });
+      }
+      userRoles = [singleRole];
+    } else {
+      // Default to 'user' if no roles provided
+      userRoles = ['user'];
     }
-    role = role ? role.toLowerCase() : 'user';
+    
+    // Remove duplicates
+    userRoles = [...new Set(userRoles)];
 
     // Validate password strength (minimum 8 characters)
     if (password.length < 8) {
@@ -377,6 +424,7 @@ export const createUser = async (req, res) => {
     }
 
     // Create user with Supabase Admin
+    // Store first role in user_metadata for backward compatibility
     const createUserPayload = {
       email,
       password,
@@ -385,7 +433,8 @@ export const createUser = async (req, res) => {
         full_name: full_name || "",
         country: country || "",
         city: city || "",
-        role: role || "user",
+        role: userRoles[0] || "user",
+        roles: userRoles,
       }
     };
 
@@ -406,27 +455,55 @@ export const createUser = async (req, res) => {
       });
     }
 
-    // Get the user ID of who created this user (from token)
-    const referred_by = req.user && req.user.id ? req.user.id : null;
+    // Get the user ID of who created this user (from token) - use as fallback if referred_by not provided
+    const adminId = req.user && req.user.id ? req.user.id : null;
+    
+    // For consumer role: use provided referred_by, otherwise use admin creating the user
+    // For other roles: use admin creating the user
+    let finalReferredBy = adminId;
+    if (userRoles.includes('consumer') && referred_by) {
+      // Validate referred_by is a valid UUID if provided
+      if (isValidUUID(referred_by)) {
+        finalReferredBy = referred_by;
+      } else {
+        console.warn('⚠️ Invalid referred_by UUID provided, using admin ID instead');
+      }
+    }
 
     // Prepare profile data
     const profileData = {
       user_id: newUser.user.id,
       full_name,
-      role: role || 'user',
+      role: userRoles, // Store as array
       phone: phone || null,
       country: country || null,
       city: city || null,
-      referred_by: referred_by || null,
+      referred_by: finalReferredBy || null,
     };
 
-    // If role is consumer, set trial_expiry to 3 days from now and account_status to active
-    if (role === 'consumer') {
-      const trialExpiry = new Date();
-      trialExpiry.setDate(trialExpiry.getDate() + 3);
-      profileData.trial_expiry = trialExpiry.toISOString();
+    // If roles include consumer, handle trial_expiry and account_status
+    if (userRoles.includes('consumer')) {
+      // Use provided trial_expiry_date if valid, otherwise default to 3 days from now
+      if (trial_expiry_date) {
+        const trialDate = new Date(trial_expiry_date);
+        if (!isNaN(trialDate.getTime()) && trialDate >= new Date()) {
+          profileData.trial_expiry = trialDate.toISOString();
+          console.log('✅ Using provided trial expiry date:', profileData.trial_expiry);
+        } else {
+          // Invalid date, use default
+          const trialExpiry = new Date();
+          trialExpiry.setDate(trialExpiry.getDate() + 3);
+          profileData.trial_expiry = trialExpiry.toISOString();
+          console.log('⚠️ Invalid trial_expiry_date provided, using default 3-day trial:', profileData.trial_expiry);
+        }
+      } else {
+        // No date provided, use default 3 days
+        const trialExpiry = new Date();
+        trialExpiry.setDate(trialExpiry.getDate() + 3);
+        profileData.trial_expiry = trialExpiry.toISOString();
+        console.log('✅ Setting default 3-day trial for consumer:', profileData.trial_expiry);
+      }
       profileData.account_status = 'active';
-      console.log('✅ Setting 3-day trial for consumer:', profileData.trial_expiry);
     }
 
     // Update user role in profiles table
@@ -443,13 +520,44 @@ export const createUser = async (req, res) => {
       });
     }
 
+    // If consumer role and subscribed_products provided, store in user_product_access table
+    if (userRoles.includes('consumer') && subscribed_products && Array.isArray(subscribed_products) && subscribed_products.length > 0) {
+      try {
+        // Validate all product IDs are valid UUIDs
+        const validProductIds = subscribed_products.filter(productId => isValidUUID(productId));
+        
+        if (validProductIds.length > 0) {
+          const productAccessRecords = validProductIds.map(productId => ({
+            user_id: newUser.user.id,
+            product_id: productId
+          }));
+
+          const productAccessPromise = supabaseAdmin
+            .from('user_product_access')
+            .insert(productAccessRecords);
+
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Product access insert timeout')), 5000)
+          );
+
+          await Promise.race([productAccessPromise, timeoutPromise]);
+          console.log(`✅ Stored ${validProductIds.length} product access record(s) for consumer`);
+        } else {
+          console.warn('⚠️ No valid product IDs provided in subscribed_products');
+        }
+      } catch (productAccessError) {
+        console.warn('⚠️ Failed to store product access (non-critical):', productAccessError?.message || productAccessError);
+        // Don't fail the request, just log the error
+      }
+    }
+
     // Send custom welcome email
     try {
       await sendWelcomeEmail({
         email,
         full_name,
         password,
-        role: role || 'user'
+        role: userRoles.join(', ') || 'user'
       });
       console.log('✅ Custom welcome email sent to:', email);
     } catch (emailError) {
@@ -484,7 +592,7 @@ export const createUser = async (req, res) => {
         full_name,
         country: country || null,
         city: city || null,
-        role: role || 'user',
+        role: userRoles, // Return as array
         phone: phone || null,
       }
     });
@@ -526,7 +634,15 @@ export const updateUser = async (req, res) => {
       });
     }
 
-    let { full_name, role, phone, country, city } = req.body;
+    let { full_name, role, roles, phone, country, city } = req.body;
+    
+    console.log('📝 Update user - received data:', { 
+      roles, 
+      role,
+      rolesType: typeof roles, 
+      roleType: typeof role,
+      isArray: Array.isArray(roles)
+    });
 
     // Validate required fields for update
     if (!country || !city || !phone) {
@@ -554,16 +670,53 @@ export const updateUser = async (req, res) => {
       updateData.full_name = full_name;
     }
     
-    if (role) {
-      const validRoles = ['user', 'admin', 'consumer'];
-      if (!validRoles.includes(role.toLowerCase())) {
+    // Handle roles - support both single role (backward compatibility) and roles array
+    if (roles !== undefined) {
+      // Normalize roles to array
+      let rolesArray = roles;
+      if (!Array.isArray(roles)) {
+        // If it's a string, convert to array
+        if (typeof roles === 'string') {
+          rolesArray = [roles];
+        } else {
+          console.warn('⚠️ Roles is not an array or string, checking single role field:', roles);
+          // Fall through to check single role field
+        }
+      }
+      
+      if (Array.isArray(rolesArray)) {
+      const validRoles = ['user', 'admin', 'consumer', 'reseller', 'viewer'];
+        const userRoles = rolesArray.map(r => String(r).toLowerCase()).filter(r => validRoles.includes(r));
+      if (userRoles.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: `At least one valid role is required. Valid roles: ${validRoles.join(', ')}`
+        });
+      }
+        // Remove duplicates and set as array
+      updateData.role = [...new Set(userRoles)];
+        console.log('✅ Roles processed and set in updateData:', updateData.role);
+      }
+    }
+    
+    // Backward compatibility: single role field
+    if (role && !updateData.role) {
+      const validRoles = ['user', 'admin', 'consumer', 'reseller', 'viewer'];
+      const singleRole = String(role).toLowerCase();
+      if (!validRoles.includes(singleRole)) {
         return res.status(400).json({
           success: false,
           error: 'Bad Request',
           message: `Invalid role. Must be one of: ${validRoles.join(', ')}`
         });
       }
-      updateData.role = role.toLowerCase();
+      updateData.role = [singleRole];
+      console.log('✅ Single role processed and set in updateData:', updateData.role);
+    }
+    
+    if (!updateData.role) {
+      console.log('ℹ️ No roles provided in update request, keeping existing roles');
     }
     
     // Validate and sanitize phone
@@ -987,7 +1140,7 @@ export const createReseller = async (req, res) => {
       email_confirm: true,
       user_metadata: {
         full_name: full_name || "",
-        role: "reseller",
+        role: ["reseller"], // Array for TEXT[]
         country: country || "",
         city: city || "",
         referred_by: referred_by || "",
@@ -1025,7 +1178,7 @@ export const createReseller = async (req, res) => {
       {
         user_id: newUser.user.id,
         full_name,
-        role: "reseller",
+        role: ["reseller"], // Array for TEXT[]
         phone: phone || null,
         country: country || null,
         city: city || null,
@@ -1049,7 +1202,7 @@ export const createReseller = async (req, res) => {
         email,
         full_name,
         password,
-        role: 'reseller'
+        role: ['reseller'] // Array for TEXT[]
       });
       console.log("✅ Custom welcome email sent to:", email);
     } catch (emailError) {
@@ -1067,7 +1220,7 @@ export const createReseller = async (req, res) => {
       changedFields: {
         user_id: newUser.user.id,
         full_name,
-        role: 'reseller',
+        role: ['reseller'], // Array for TEXT[]
         phone: phone || null,
         country: country || null,
         city: city || null,
@@ -1179,7 +1332,7 @@ export const updateUserAccountStatus = async (req, res) => {
     }
 
     // Prevent admin from deactivating another admin
-    if (userProfile.role === 'admin' && account_status === 'deactive') {
+    if (hasRole(userProfile.role, 'admin') && account_status === 'deactive') {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',

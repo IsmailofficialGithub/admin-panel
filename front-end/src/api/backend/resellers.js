@@ -67,15 +67,30 @@ export const getResellerById = async (resellerId) => {
  */
 export const createReseller = async (resellerData) => {
   try {
-    const response = await apiClient.resellers.create({
+    const requestData = {
       email: resellerData.email,
       password: resellerData.password,
       full_name: resellerData.full_name,
       country: resellerData.country || null,
       city: resellerData.city || null,
       phone: resellerData.phone || null,
-      role: 'reseller'
-    });
+      roles: resellerData.roles || ['reseller'] // Send roles array
+    };
+    
+    // Add consumer-specific fields if consumer role is selected
+    if (resellerData.roles && resellerData.roles.includes('consumer')) {
+      if (resellerData.referred_by) {
+        requestData.referred_by = resellerData.referred_by;
+      }
+      if (resellerData.subscribed_products && Array.isArray(resellerData.subscribed_products)) {
+        requestData.subscribed_products = resellerData.subscribed_products;
+      }
+      if (resellerData.trial_expiry_date) {
+        requestData.trial_expiry_date = resellerData.trial_expiry_date;
+      }
+    }
+    
+    const response = await apiClient.resellers.create(requestData);
     
     if (response.success) {
       return {
@@ -111,6 +126,12 @@ export const updateReseller = async (resellerId, updateData) => {
     if (updateData.country !== undefined) cleanedData.country = updateData.country;
     if (updateData.city !== undefined) cleanedData.city = updateData.city;
     if (updateData.phone !== undefined) cleanedData.phone = updateData.phone;
+    // Support both roles array and single role (backward compatibility)
+    if (updateData.roles !== undefined) {
+      cleanedData.roles = updateData.roles;
+    } else if (updateData.role !== undefined) {
+      cleanedData.role = updateData.role;
+    }
     
     const response = await apiClient.resellers.update(resellerId, cleanedData);
     

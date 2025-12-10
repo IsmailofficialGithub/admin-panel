@@ -1,13 +1,19 @@
 import React from 'react';
-import { Route, Redirect } from 'react-router-dom';
+import { Route, Redirect, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { hasRole, hasAnyRole, isRoleEmpty, normalizeRole } from '../utils/roleUtils';
 
 const ProtectedRoute = ({ component: Component, allowedRoles = [], ...rest }) => {
   const { user, profile, loading, getDashboardPath, signOut } = useAuth();
+  const location = useLocation();
 
   console.log('🔒 ProtectedRoute: Checking auth...', { 
     user: !!user, 
-    role: profile?.role, 
+    role: profile?.role,
+    roleType: typeof profile?.role,
+    isArray: Array.isArray(profile?.role),
+    hasReseller: profile?.role ? hasRole(profile.role, 'reseller') : false,
+    hasConsumer: profile?.role ? hasRole(profile.role, 'consumer') : false,
     loading, 
     allowedRoles,
     path: rest.path 
@@ -66,14 +72,30 @@ const ProtectedRoute = ({ component: Component, allowedRoles = [], ...rest }) =>
         }
 
         // If no profile yet, wait
-        if (!profile || !profile.role) {
+        if (!profile || isRoleEmpty(profile.role)) {
           console.log('⏳ ProtectedRoute: Waiting for profile...');
           return null;
         }
-
-        // Block consumer access completely - redirect to external site
-        if (profile.role === 'consumer') {
-          console.log('❌ ProtectedRoute: Consumer role detected. Redirecting to external site.');
+        
+        // Check if user has reseller role - redirect to reseller dashboard ONLY if not already on a reseller route
+        if (hasRole(profile.role, 'reseller')) {
+          // Only redirect if user is NOT already on a reseller route
+          const currentPath = location.pathname;
+          const isResellerRoute = currentPath.startsWith('/reseller');
+          
+          if (!isResellerRoute) {
+            console.log('🔄 ProtectedRoute: Reseller role detected. Redirecting to /reseller/dashboard.');
+            return <Redirect to="/reseller/dashboard" />;
+          }
+          // If already on reseller route, allow access (don't redirect)
+          console.log('✅ ProtectedRoute: Reseller on reseller route, allowing access.');
+        }
+        
+        // If user is ONLY consumer (has consumer but no reseller), redirect to external site
+        const userRoles = normalizeRole(profile.role);
+        const isOnlyConsumer = userRoles.length === 1 && userRoles.includes('consumer');
+        if (isOnlyConsumer) {
+          console.log('❌ ProtectedRoute: Consumer-only role detected. Redirecting to external site.');
           signOut();
           // Redirect to external site after a brief delay
           setTimeout(() => {
@@ -83,14 +105,14 @@ const ProtectedRoute = ({ component: Component, allowedRoles = [], ...rest }) =>
         }
 
         // Check if user's role is allowed
-        if (allowedRoles.length > 0 && !allowedRoles.includes(profile.role)) {
+        if (allowedRoles.length > 0 && !hasAnyRole(profile.role, allowedRoles)) {
           console.log('❌ ProtectedRoute: Role not allowed. Redirecting to correct dashboard.');
           const dashboardPath = getDashboardPath();
           return <Redirect to={dashboardPath} />;
         }
 
         // Check if account is deactivated (for reseller)
-        if (profile.role === 'reseller' && profile.account_status === 'deactive') {
+        if (hasRole(profile.role, 'reseller') && profile.account_status === 'deactive') {
           console.log('❌ ProtectedRoute: Account is deactivated. Signing out and redirecting.');
           signOut();
           return <Redirect to="/login" />;

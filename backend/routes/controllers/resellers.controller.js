@@ -21,6 +21,7 @@ import {
   createRateLimitMiddleware,
   sanitizeInputMiddleware
 } from '../../utils/apiOptimization.js';
+import { hasRole } from '../../utils/roleUtils.js';
 
 // Cache configuration
 const CACHE_TTL = 300; // 5 minutes
@@ -93,7 +94,7 @@ export const getAllResellers = async (req, res) => {
     let query = supabase
       .from('auth_role_with_profiles')
       .select(RESELLER_SELECT_FIELDS, { count: 'exact' })
-      .eq('role', 'reseller');
+      .contains('role', ['reseller']); // Check if role array contains 'reseller'
 
     // Apply search filter if provided
     if (searchTerm) {
@@ -138,7 +139,7 @@ export const getAllResellers = async (req, res) => {
     // Get commission data for all resellers
     const resellerIds = (resellers || []).map(r => r.user_id);
     const profilesWithCommissionPromise = supabaseAdmin
-      .from('profiles')
+      .from('auth_role_with_profiles')
       .select('user_id, commission_rate, commission_updated_at')
       .in('user_id', resellerIds);
 
@@ -165,7 +166,7 @@ export const getAllResellers = async (req, res) => {
           .from('auth_role_with_profiles')
           .select('user_id', { count: 'exact', head: true })
           .eq('referred_by', reseller.user_id)
-          .eq('role', 'consumer');
+          .contains('role', ['consumer']); // Check if role array contains 'consumer'
 
         const { count, error: referredError } = await executeWithTimeout(referredCountPromise, 5000);
 
@@ -247,7 +248,7 @@ export const getReferredConsumers = async (req, res) => {
       .from('auth_role_with_profiles')
       .select('user_id, full_name, email, role, referred_by, account_status, created_at')
       .eq('referred_by', id)
-      .eq('role', 'consumer')
+      .contains('role', ['consumer'])
       .order('created_at', { ascending: false });
 
     const { data: consumers, error } = await executeWithTimeout(queryPromise);
@@ -322,7 +323,7 @@ export const getResellerById = async (req, res) => {
       .from('auth_role_with_profiles')
       .select(RESELLER_SELECT_FIELDS)
       .eq('user_id', id)
-      .eq('role', 'reseller')
+      .contains('role', ['reseller']) // Check if role array contains 'reseller'
       .single();
 
     const { data: reseller, error } = await executeWithTimeout(queryPromise);
@@ -397,7 +398,7 @@ export const createReseller = async (req, res) => {
     // ========================================
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
-    let { email, password, full_name, phone, country, city } = req.body;
+    let { email, password, full_name, phone, country, city, roles, referred_by, subscribed_products, trial_expiry_date } = req.body;
 
     // Validate required fields
     if (!email || !password || !full_name || !country || !city) {
@@ -450,12 +451,47 @@ export const createReseller = async (req, res) => {
     // If admin approval is required, set account_status to 'pending' instead of 'active'
     const accountStatus = resellerSettings.requireResellerApproval ? 'pending' : 'active';
 
-    // Get the user ID of who created this reseller (from token)
-    const referred_by = req.user && req.user.id ? req.user.id : null;
+    // Get the user ID of who created this reseller (from token) - use as fallback if referred_by not provided
+    const adminId = req.user && req.user.id ? req.user.id : null;
+    
+    // Validate roles - support both single role (backward compatibility) and roles array
+    const validRoles = ['reseller', 'consumer'];
+    let userRoles = [];
+    
+    // If roles array is provided, use it; otherwise default to reseller
+    if (roles && Array.isArray(roles)) {
+      userRoles = roles.map(r => r.toLowerCase()).filter(r => validRoles.includes(r));
+      if (userRoles.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: `At least one valid role is required. Valid roles: ${validRoles.join(', ')}`
+        });
+      }
+    } else {
+      // Default to reseller if no roles provided
+      userRoles = ['reseller'];
+    }
+    
+    // Remove duplicates
+    userRoles = [...new Set(userRoles)];
+    
+    // For consumer role: use provided referred_by, otherwise use admin creating the user
+    // For other roles: use admin creating the user
+    let finalReferredBy = adminId;
+    if (userRoles.includes('consumer') && referred_by) {
+      // Validate referred_by is a valid UUID if provided
+      if (isValidUUID(referred_by)) {
+        finalReferredBy = referred_by;
+      } else {
+        console.warn('⚠️ Invalid referred_by UUID provided, using admin ID instead');
+      }
+    }
 
     // ========================================
     // 3. CREATE USER (with timeout)
     // ========================================
+    // Store first role in user_metadata for backward compatibility
     const createUserPayload = {
       email,
       password,
@@ -464,7 +500,8 @@ export const createReseller = async (req, res) => {
         full_name: full_name || '',
         country: country || '',
         city: city || '',
-        role: 'reseller'
+        role: userRoles[0] || 'reseller',
+        roles: userRoles
       }
     };
 
@@ -493,15 +530,41 @@ export const createReseller = async (req, res) => {
     const profileData = {
       user_id: newUser.user.id,
       full_name,
-      role: 'reseller',
+      role: userRoles, // Store as array
       phone: phone || null,
       country: country || null,
       city: city || null,
-      referred_by: referred_by || null,
+      referred_by: finalReferredBy || null,
       commission_rate: null, // Explicitly set to NULL to use default
       commission_updated_at: null,
       account_status: accountStatus
     };
+    
+    // If roles include consumer, handle trial_expiry and account_status
+    if (userRoles.includes('consumer')) {
+      // Use provided trial_expiry_date if valid, otherwise default to 3 days from now
+      if (trial_expiry_date) {
+        const trialDate = new Date(trial_expiry_date);
+        if (!isNaN(trialDate.getTime()) && trialDate >= new Date()) {
+          profileData.trial_expiry = trialDate.toISOString();
+          console.log('✅ Using provided trial expiry date:', profileData.trial_expiry);
+        } else {
+          // Invalid date, use default
+          const trialExpiry = new Date();
+          trialExpiry.setDate(trialExpiry.getDate() + 3);
+          profileData.trial_expiry = trialExpiry.toISOString();
+          console.log('⚠️ Invalid trial_expiry_date provided, using default 3-day trial:', profileData.trial_expiry);
+        }
+      } else {
+        // No date provided, use default 3 days
+        const trialExpiry = new Date();
+        trialExpiry.setDate(trialExpiry.getDate() + 3);
+        profileData.trial_expiry = trialExpiry.toISOString();
+        console.log('✅ Setting default 3-day trial for consumer:', profileData.trial_expiry);
+      }
+      // If consumer is included, set account_status to active (override pending for resellers)
+      profileData.account_status = 'active';
+    }
 
     const profilePromise = supabaseAdmin
       .from('profiles')
@@ -524,13 +587,44 @@ export const createReseller = async (req, res) => {
       });
     }
 
+    // If consumer role and subscribed_products provided, store in user_product_access table
+    if (userRoles.includes('consumer') && subscribed_products && Array.isArray(subscribed_products) && subscribed_products.length > 0) {
+      try {
+        // Validate all product IDs are valid UUIDs
+        const validProductIds = subscribed_products.filter(productId => isValidUUID(productId));
+        
+        if (validProductIds.length > 0) {
+          const productAccessRecords = validProductIds.map(productId => ({
+            user_id: newUser.user.id,
+            product_id: productId
+          }));
+
+          const productAccessPromise = supabaseAdmin
+            .from('user_product_access')
+            .insert(productAccessRecords);
+
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Product access insert timeout')), 5000)
+          );
+
+          await Promise.race([productAccessPromise, timeoutPromise]);
+          console.log(`✅ Stored ${validProductIds.length} product access record(s) for consumer`);
+        } else {
+          console.warn('⚠️ No valid product IDs provided in subscribed_products');
+        }
+      } catch (productAccessError) {
+        console.warn('⚠️ Failed to store product access (non-critical):', productAccessError?.message || productAccessError);
+        // Don't fail the request, just log the error
+      }
+    }
+
     // Send welcome email
     try {
       await sendWelcomeEmail({
         email,
         full_name,
         password,
-        role: 'reseller'
+        role: userRoles.join(', ')
       });
       console.log('✅ Welcome email sent to:', email);
     } catch (emailError) {
@@ -556,7 +650,7 @@ export const createReseller = async (req, res) => {
         id: newUser.user.id,
         email: newUser.user.email,
         full_name,
-        role: 'reseller',
+        role: userRoles, // Return as array
         phone: phone || null,
         country: country || null,
         city: city || null,
@@ -588,7 +682,13 @@ export const updateReseller = async (req, res) => {
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
     const { id } = req.params;
-    let { full_name, phone, country, city } = req.body;
+    let { full_name, phone, country, city, roles } = req.body;
+    
+    console.log('📝 Update reseller - received data:', { 
+      roles, 
+      rolesType: typeof roles, 
+      isArray: Array.isArray(roles)
+    });
 
     if (!id || !isValidUUID(id)) {
       return res.status(400).json({
@@ -614,6 +714,38 @@ export const updateReseller = async (req, res) => {
     updateData.country = sanitizeString(country, 100);
     updateData.city = sanitizeString(city, 100);
 
+    // Handle roles update if provided
+    if (roles !== undefined) {
+      // Normalize roles to array
+      let rolesArray = roles;
+      if (!Array.isArray(roles)) {
+        // If it's a string, convert to array
+        if (typeof roles === 'string') {
+          rolesArray = [roles];
+        } else {
+          console.warn('⚠️ Roles is not an array or string, defaulting to reseller:', roles);
+          rolesArray = ['reseller'];
+        }
+      }
+      
+      const validRoles = ['consumer', 'reseller'];
+      const userRoles = rolesArray.map(r => String(r).toLowerCase()).filter(r => validRoles.includes(r));
+      
+      if (userRoles.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: `At least one valid role is required. Valid roles: ${validRoles.join(', ')}`
+        });
+      }
+      
+      // Remove duplicates and set as array
+      updateData.role = [...new Set(userRoles)];
+      console.log('✅ Roles processed and set in updateData:', updateData.role);
+    } else {
+      console.log('ℹ️ No roles provided in update request, keeping existing roles');
+    }
+
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({
         success: false,
@@ -629,7 +761,7 @@ export const updateReseller = async (req, res) => {
       .from('profiles')
       .select('*')
       .eq('user_id', id)
-      .eq('role', 'reseller')
+      .contains('role', ['reseller']) // Check if role array contains 'reseller'
       .single();
 
     const { data: oldReseller } = await executeWithTimeout(oldDataPromise, 3000);
@@ -641,7 +773,6 @@ export const updateReseller = async (req, res) => {
       .from('profiles')
       .update(updateData)
       .eq('user_id', id)
-      .eq('role', 'reseller')
       .select()
       .maybeSingle();
 
@@ -751,7 +882,7 @@ export const deleteReseller = async (req, res) => {
       .from('profiles')
       .select('*')
       .eq('user_id', id)
-      .eq('role', 'reseller')
+      .contains('role', ['reseller']) // Check if role array contains 'reseller'
       .single();
 
     const { data: reseller, error: fetchError } = await executeWithTimeout(checkPromise);
@@ -957,7 +1088,7 @@ export const getMyConsumers = async (req, res) => {
     const consumersPromise = supabase
       .from('auth_role_with_profiles')
       .select('user_id, full_name, email, role, phone, trial_expiry, lifetime_access, referred_by, created_at, updated_at, country, city')
-      .eq('role', 'consumer')
+      .contains('role', ['consumer']) // Check if role array contains 'consumer'
       .eq('referred_by', resellerId)
       .order('created_at', { ascending: false });
 
@@ -1035,7 +1166,7 @@ export const createMyConsumer = async (req, res) => {
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
     const resellerId = req.user.id;
-    let { email, password, full_name, phone, trial_expiry_date, country, city, subscribed_products } = req.body;
+    let { email, password, full_name, phone, trial_expiry_date, country, city, subscribed_products, roles } = req.body;
 
     // Validate required fields
     if (!email || !password || !full_name) {
@@ -1079,18 +1210,41 @@ export const createMyConsumer = async (req, res) => {
       });
     }
 
+    // Validate roles - support both single role (backward compatibility) and roles array
+    const validRoles = ['consumer', 'reseller'];
+    let userRoles = [];
+    
+    // If roles array is provided, use it; otherwise default to consumer
+    if (roles && Array.isArray(roles)) {
+      userRoles = roles.map(r => r.toLowerCase()).filter(r => validRoles.includes(r));
+      if (userRoles.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: `At least one valid role is required. Valid roles: ${validRoles.join(', ')}`
+        });
+      }
+    } else {
+      // Default to consumer if no roles provided
+      userRoles = ['consumer'];
+    }
+    
+    // Remove duplicates
+    userRoles = [...new Set(userRoles)];
+    
     // ========================================
     // 2. CHECK MAX CONSUMERS LIMIT (with timeout)
     // ========================================
     const { getResellerSettings } = await import('../../utils/resellerSettings.js');
     const resellerSettings = await getResellerSettings();
     
-    if (resellerSettings.maxConsumersPerReseller !== null && resellerSettings.maxConsumersPerReseller > 0) {
+    // Only check limit if consumer role is included
+    if (userRoles.includes('consumer') && resellerSettings.maxConsumersPerReseller !== null && resellerSettings.maxConsumersPerReseller > 0) {
       const countPromise = supabaseAdmin
-        .from('profiles')
+        .from('auth_role_with_profiles')
         .select('*', { count: 'exact', head: true })
         .eq('referred_by', resellerId)
-        .eq('role', 'consumer');
+        .contains('role', ['consumer']); // Check if role array contains 'consumer'
 
       const { count: currentConsumerCount, error: countError } = await executeWithTimeout(countPromise);
 
@@ -1112,7 +1266,7 @@ export const createMyConsumer = async (req, res) => {
       email_confirm: true,
       user_metadata: {
         full_name: full_name || '',
-        role: 'consumer',
+        role: ['consumer'], // Array for TEXT[]
         country: country || '',
         city: city || '',
       }
@@ -1144,16 +1298,36 @@ export const createMyConsumer = async (req, res) => {
     const profileData = {
       user_id: newUser.user.id,
       full_name,
-      role: 'consumer',
+      role: userRoles, // Store as array
       phone: phone || null,
       country: country || null,
       city: city || null,
       referred_by: resellerId
     };
 
-    // Add trial_expiry if provided
-    if (trial_expiry_date) {
-      profileData.trial_expiry = new Date(trial_expiry_date);
+    // If roles include consumer, handle trial_expiry and account_status
+    if (userRoles.includes('consumer')) {
+      // Use provided trial_expiry_date if valid, otherwise default to 3 days from now
+      if (trial_expiry_date) {
+        const trialDate = new Date(trial_expiry_date);
+        if (!isNaN(trialDate.getTime()) && trialDate >= new Date()) {
+          profileData.trial_expiry = trialDate.toISOString();
+          console.log('✅ Using provided trial expiry date:', profileData.trial_expiry);
+        } else {
+          // Invalid date, use default
+          const trialExpiry = new Date();
+          trialExpiry.setDate(trialExpiry.getDate() + 3);
+          profileData.trial_expiry = trialExpiry.toISOString();
+          console.log('⚠️ Invalid trial_expiry_date provided, using default 3-day trial:', profileData.trial_expiry);
+        }
+      } else {
+        // No date provided, use default 3 days
+        const trialExpiry = new Date();
+        trialExpiry.setDate(trialExpiry.getDate() + 3);
+        profileData.trial_expiry = trialExpiry.toISOString();
+        console.log('✅ Setting default 3-day trial for consumer:', profileData.trial_expiry);
+      }
+      profileData.account_status = 'active';
     }
 
     const profilePromise = supabaseAdmin
@@ -1180,7 +1354,8 @@ export const createMyConsumer = async (req, res) => {
     // ========================================
     // 5. STORE PRODUCT ACCESS (with timeout, non-blocking)
     // ========================================
-    if (subscribed_products && Array.isArray(subscribed_products) && subscribed_products.length > 0) {
+    // Only store product access if consumer role is included
+    if (userRoles.includes('consumer') && subscribed_products && Array.isArray(subscribed_products) && subscribed_products.length > 0) {
       const productAccessRecords = subscribed_products
         .filter(productId => isValidUUID(productId))
         .map(productId => ({
@@ -1206,7 +1381,7 @@ export const createMyConsumer = async (req, res) => {
       email,
       password,
       full_name,
-      role: 'consumer'
+      role: userRoles.join(', ')
     }).catch(emailError => {
       console.warn('⚠️ Failed to send welcome email:', emailError?.message);
     });
@@ -1235,7 +1410,7 @@ export const createMyConsumer = async (req, res) => {
       id: newUser.user.id,
       email: newUser.user.email,
       full_name,
-      role: 'consumer',
+      role: ['consumer'], // Array for TEXT[]
       referred_by: resellerId
     });
 
@@ -1281,7 +1456,7 @@ export const updateMyConsumer = async (req, res) => {
     // 2. VERIFY CONSUMER OWNERSHIP (with timeout)
     // ========================================
     const checkPromise = supabase
-      .from('profiles')
+      .from('auth_role_with_profiles')
       .select('referred_by, role')
       .eq('user_id', id)
       .single();
@@ -1307,7 +1482,7 @@ export const updateMyConsumer = async (req, res) => {
     }
 
     // Check role
-    if (consumer.role !== 'consumer') {
+    if (!hasRole(consumer.role, 'consumer')) {
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
@@ -1319,7 +1494,7 @@ export const updateMyConsumer = async (req, res) => {
     // 3. GET OLD DATA FOR LOGGING (with timeout)
     // ========================================
     const oldDataPromise = supabase
-      .from('profiles')
+      .from('auth_role_with_profiles')
       .select('*')
       .eq('user_id', id)
       .single();
@@ -1478,7 +1653,7 @@ export const deleteMyConsumer = async (req, res) => {
     // 2. VERIFY CONSUMER OWNERSHIP (with timeout)
     // ========================================
     const checkPromise = supabase
-      .from('profiles')
+      .from('auth_role_with_profiles')
       .select('referred_by, role')
       .eq('user_id', id)
       .single();
@@ -1504,7 +1679,7 @@ export const deleteMyConsumer = async (req, res) => {
     }
 
     // Check role
-    if (consumer.role !== 'consumer') {
+    if (!hasRole(consumer.role, 'consumer')) {
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
@@ -1516,7 +1691,7 @@ export const deleteMyConsumer = async (req, res) => {
     // 3. GET FULL DATA FOR LOGGING (with timeout)
     // ========================================
     const fullDataPromise = supabase
-      .from('profiles')
+      .from('auth_role_with_profiles')
       .select('*')
       .eq('user_id', id)
       .single();
@@ -1606,7 +1781,7 @@ export const resetMyConsumerPassword = async (req, res) => {
     // 2. VERIFY CONSUMER OWNERSHIP (with timeout)
     // ========================================
     const checkPromise = supabase
-      .from('profiles')
+      .from('auth_role_with_profiles')
       .select('referred_by, role, full_name')
       .eq('user_id', id)
       .single();
@@ -1632,7 +1807,7 @@ export const resetMyConsumerPassword = async (req, res) => {
     }
 
     // Check role
-    if (consumer.role !== 'consumer') {
+    if (!hasRole(consumer.role, 'consumer')) {
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
@@ -1766,10 +1941,10 @@ export const createConsumerAdmin = async (req, res) => {
     let isReferredByReseller = false;
     if (referred_by && referred_by !== req.user?.id) {
       const resellerPromise = supabaseAdmin
-        .from('profiles')
+        .from('auth_role_with_profiles')
         .select('user_id, role')
         .eq('user_id', referred_by)
-        .eq('role', 'reseller')
+        .contains('role', ['reseller'])
         .single();
 
       const { data: reseller, error: resellerError } = await executeWithTimeout(resellerPromise);
@@ -1797,7 +1972,7 @@ export const createConsumerAdmin = async (req, res) => {
           .from('profiles')
           .select('*', { count: 'exact', head: true })
           .eq('referred_by', referred_by)
-          .eq('role', 'consumer');
+          .contains('role', ['consumer']); // Check if role array contains 'consumer'
 
         const { count: currentConsumerCount, error: countError } = await executeWithTimeout(countPromise);
 
@@ -1820,7 +1995,7 @@ export const createConsumerAdmin = async (req, res) => {
       email_confirm: true,
       user_metadata: {
         full_name: full_name || '',
-        role: 'consumer',
+        role: ['consumer'], // Array for TEXT[]
         country: country || '',
         city: city || '',
       }
@@ -1852,7 +2027,7 @@ export const createConsumerAdmin = async (req, res) => {
     const profileData = {
       user_id: newUser.user.id,
       full_name,
-      role: 'consumer',
+      role: ['consumer'], // Array for TEXT[]
       phone: phone || null,
       country: country || null,
       city: city || null,
@@ -1914,7 +2089,7 @@ export const createConsumerAdmin = async (req, res) => {
       email,
       full_name,
       password,
-      role: 'consumer'
+      role: ['consumer'] // Array for TEXT[]
     }).catch(emailError => {
       console.warn('⚠️ Failed to send welcome email:', emailError?.message);
     });
@@ -1943,7 +2118,7 @@ export const createConsumerAdmin = async (req, res) => {
       id: newUser.user.id,
       email: newUser.user.email,
       full_name,
-      role: 'consumer',
+      role: ['consumer'], // Array for TEXT[]
       phone: phone || null,
       country: country || null,
       city: city || null,
@@ -2008,10 +2183,10 @@ export const updateResellerAccountStatus = async (req, res) => {
     // 2. CHECK IF RESELLER EXISTS (with timeout)
     // ========================================
     const checkPromise = supabase
-      .from('profiles')
+      .from('auth_role_with_profiles')
       .select('role, account_status')
       .eq('user_id', id)
-      .eq('role', 'reseller')
+      .contains('role', ['reseller']) // Check if role array contains 'reseller'
       .single();
 
     const { data: resellerProfile, error: fetchError } = await executeWithTimeout(checkPromise);
@@ -2035,7 +2210,7 @@ export const updateResellerAccountStatus = async (req, res) => {
         updated_at: new Date().toISOString()
       })
       .eq('user_id', id)
-      .eq('role', 'reseller')
+      .contains('role', ['reseller']) // Use contains for array role column
       .select()
       .single();
 
@@ -2104,14 +2279,14 @@ export const getAllReferredResellers = async (req, res) => {
     // 2. GET USER PROFILE (with timeout)
     // ========================================
     const profilePromise = supabase
-      .from('profiles')
+      .from('auth_role_with_profiles')
       .select('role')
       .eq('user_id', currentUserId)
       .single();
 
     const { data: currentUserProfile } = await executeWithTimeout(profilePromise, 3000);
 
-    const isAdmin = currentUserProfile?.role === 'admin';
+    const isAdmin = hasRole(currentUserProfile?.role, 'admin');
 
     // ========================================
     // 3. BUILD QUERY (with timeout)
@@ -2119,7 +2294,7 @@ export const getAllReferredResellers = async (req, res) => {
     let query = supabase
       .from('auth_role_with_profiles')
       .select('user_id, full_name, email, role, referred_by, account_status, created_at')
-      .eq('role', 'reseller');
+      .contains('role', ['reseller']); // Use contains for array role column
 
     // If reseller, only show their referred resellers
     if (!isAdmin) {
@@ -2194,7 +2369,7 @@ export const getMyResellers = async (req, res) => {
     let query = supabase
       .from('auth_role_with_profiles')
       .select('user_id, full_name, email, role, referred_by, account_status, created_at')
-      .eq('role', 'reseller')
+      .contains('role', ['reseller']) // Use contains for array role column
       .eq('referred_by', resellerId);
 
     // Optional search
@@ -2235,7 +2410,7 @@ export const getMyResellers = async (req, res) => {
     
     if (resellerIds.length > 0) {
       const commissionPromise = supabaseAdmin
-        .from('profiles')
+        .from('auth_role_with_profiles')
         .select('user_id, commission_rate, commission_updated_at')
         .in('user_id', resellerIds);
 
@@ -2258,7 +2433,7 @@ export const getMyResellers = async (req, res) => {
           .from('auth_role_with_profiles')
           .select('user_id', { count: 'exact', head: true })
           .eq('referred_by', reseller.user_id)
-          .eq('role', 'consumer');
+          .contains('role', ['consumer']); // Check if role array contains 'consumer'
 
         const { count } = await executeWithTimeout(countPromise, 3000);
 
@@ -2331,7 +2506,7 @@ export const getMyResellerById = async (req, res) => {
       .from('auth_role_with_profiles')
       .select('user_id, full_name, email, role, referred_by, account_status, created_at')
       .eq('user_id', id)
-      .eq('role', 'reseller')
+      .contains('role', ['reseller']) // Use contains for array role column
       .eq('referred_by', resellerId)
       .single();
 
@@ -2408,10 +2583,10 @@ export const updateMyReseller = async (req, res) => {
     // 2. VERIFY OWNERSHIP (with timeout)
     // ========================================
     const checkPromise = supabase
-      .from('profiles')
+      .from('auth_role_with_profiles')
       .select('referred_by, role')
       .eq('user_id', id)
-      .eq('role', 'reseller')
+      .contains('role', ['reseller']) // Check if role array contains 'reseller'
       .single();
 
     const { data: reseller, error: checkError } = await executeWithTimeout(checkPromise);
@@ -2437,7 +2612,7 @@ export const updateMyReseller = async (req, res) => {
     // 3. GET OLD DATA FOR LOGGING (with timeout)
     // ========================================
     const oldDataPromise = supabase
-      .from('profiles')
+      .from('auth_role_with_profiles')
       .select('*')
       .eq('user_id', id)
       .single();
@@ -2451,7 +2626,7 @@ export const updateMyReseller = async (req, res) => {
       .from('profiles')
       .update(updateData)
       .eq('user_id', id)
-      .eq('role', 'reseller')
+      .contains('role', ['reseller']) // Use contains for array role column
       .select()
       .single();
 
@@ -2588,7 +2763,7 @@ export const createMyReseller = async (req, res) => {
         full_name: full_name || '',
         country: country || '',
         city: city || '',
-        role: 'reseller'
+        role: ['reseller'] // Array for TEXT[]
       }
     };
 
@@ -2614,7 +2789,7 @@ export const createMyReseller = async (req, res) => {
     const profileData = {
       user_id: newUser.user.id,
       full_name,
-      role: 'reseller',
+      role: ['reseller'], // Array for TEXT[]
       phone: phone || null,
       country: country || null,
       city: city || null,
@@ -2652,7 +2827,7 @@ export const createMyReseller = async (req, res) => {
       email,
       full_name,
       password,
-      role: 'reseller'
+      role: ['reseller'] // Array for TEXT[]
     }).catch(emailError => {
       console.warn('⚠️ Failed to send welcome email:', emailError?.message);
     });
@@ -2687,7 +2862,7 @@ export const createMyReseller = async (req, res) => {
       id: newUser.user.id,
       email: newUser.user.email,
       full_name,
-      role: 'reseller',
+      role: ['reseller'], // Array for TEXT[]
       phone: phone || null,
       country: country || null,
       city: city || null,
@@ -2733,10 +2908,10 @@ export const deleteMyReseller = async (req, res) => {
     // 2. VERIFY OWNERSHIP (with timeout)
     // ========================================
     const checkPromise = supabase
-      .from('profiles')
+      .from('auth_role_with_profiles')
       .select('referred_by, role')
       .eq('user_id', id)
-      .eq('role', 'reseller')
+      .contains('role', ['reseller']) // Check if role array contains 'reseller'
       .single();
 
     const { data: reseller, error: checkError } = await executeWithTimeout(checkPromise);
@@ -2762,7 +2937,7 @@ export const deleteMyReseller = async (req, res) => {
     // 3. GET FULL DATA FOR LOGGING (with timeout)
     // ========================================
     const fullDataPromise = supabase
-      .from('profiles')
+      .from('auth_role_with_profiles')
       .select('*')
       .eq('user_id', id)
       .single();

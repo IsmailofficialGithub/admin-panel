@@ -166,15 +166,18 @@ export const requireAdmin = async (req, res, next) => {
       }
     }
 
+    // Handle role as array or string (for backward compatibility during migration)
+    const userRoles = Array.isArray(profile.role) ? profile.role : (profile.role ? [profile.role] : []);
+    
     // Check if admin account is deactivated (shouldn't happen, but safety check)
-    if (profile.role === 'admin' && profile.account_status === 'deactive') {
+    if (userRoles.includes('admin') && profile.account_status === 'deactive') {
       return res.status(403).json({
         error: 'Forbidden',
         message: 'Your account has been deactivated. Please contact the administrator.'
       });
     }
 
-    if (profile.role !== 'admin') {
+    if (!userRoles.includes('admin')) {
       return res.status(403).json({
         error: 'Forbidden',
         message: 'Admin access required'
@@ -235,7 +238,7 @@ export const loadUserProfile = async (req, res, next) => {
         user_id: req.user.id,
         email: req.user.email,
         full_name: req.user.email,
-        role: 'admin', // Default role
+        role: ['admin'], // Default role (array for TEXT[])
         account_status: 'active',
         is_systemadmin: false
       };
@@ -303,15 +306,22 @@ export const requireRole = (allowedRoles = []) => {
         }
       }
 
+      // Handle role as array or string (for backward compatibility during migration)
+      const userRoles = Array.isArray(req.userProfile.role) 
+        ? req.userProfile.role 
+        : (req.userProfile.role ? [req.userProfile.role] : []);
+      
       // Check if account is deactivated (for reseller and consumer roles)
-      if ((req.userProfile.role === 'reseller' || req.userProfile.role === 'consumer') && req.userProfile.account_status === 'deactive') {
+      if ((userRoles.includes('reseller') || userRoles.includes('consumer')) && req.userProfile.account_status === 'deactive') {
         return res.status(403).json({
           error: 'Forbidden',
           message: 'Your account has been deactivated. Please contact the administrator.'
         });
       }
 
-      if (!allowedRoles.includes(req.userProfile.role)) {
+      // Check if user has any of the allowed roles
+      const hasAllowedRole = allowedRoles.some(allowedRole => userRoles.includes(allowedRole));
+      if (!hasAllowedRole) {
         return res.status(403).json({
           error: 'Forbidden',
           message: `Required role: ${allowedRoles.join(' or ')}`

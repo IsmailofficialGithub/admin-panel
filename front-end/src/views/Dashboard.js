@@ -26,14 +26,16 @@ import {
 import { Container, Row, Col, Card } from 'react-bootstrap';
 import { useHistory } from 'react-router-dom';
 import { getDashboardStats, getResellerStats } from '../api/backend';
-import { getMyPermissions, checkUserPermission } from '../api/backend/permissions';
 import { useAuth } from '../hooks/useAuth';
+import { usePermissions } from '../hooks/usePermissions';
+import { hasRole } from '../utils/roleUtils';
 import toast from 'react-hot-toast';
 
 const Dashboard = () => {
   const history = useHistory();
   const { user, profile } = useAuth();
-  const [hasPermission, setHasPermission] = useState(null); // null = checking, true = has permission, false = no permission
+  const { hasPermission, isLoading: isLoadingPermissions } = usePermissions();
+  const [hasDashboardAccess, setHasDashboardAccess] = useState(null); // null = checking, true = has permission, false = no permission
   const [checkingPermission, setCheckingPermission] = useState(true);
   
   // Real data from API
@@ -58,84 +60,46 @@ const Dashboard = () => {
   const [resellerStats, setResellerStats] = useState([]);
   const [resellerStatsLoading, setResellerStatsLoading] = useState(true);
 
-  // Check permission on mount
+  // Check permission on mount using permissions hook
   useEffect(() => {
-    const checkPermission = async () => {
-      if (!user || !profile) {
-        setCheckingPermission(false);
-        setHasPermission(false);
-        return;
-      }
+    if (!user || !profile) {
+      setCheckingPermission(false);
+      setHasDashboardAccess(false);
+      return;
+    }
 
-      try {
-        setCheckingPermission(true);
-        
-        // Log user info for debugging
-        console.log('🔍 Dashboard: Checking permissions for user:', {
-          userId: user.id,
-          role: profile.role,
-          isSystemAdmin: profile.is_systemadmin,
-          accountStatus: profile.account_status
-        });
-        
-        // Check if user is systemadmin (has all permissions) - ONLY bypass if explicitly systemadmin
-        if (profile.is_systemadmin === true) {
-          console.log('⚠️ Dashboard: User is systemadmin - BYPASSING permission check (systemadmins have all permissions)');
-          console.log('💡 To test permission checks, set is_systemadmin = false for this user');
-          setHasPermission(true);
-          setCheckingPermission(false);
-          return;
-        }
+    // Wait for permissions to load
+    if (isLoadingPermissions) {
+      return;
+    }
 
-        console.log('🔍 Dashboard: User is NOT systemadmin, checking dashboard.view permission...');
-        
-        // First, get all user permissions to see what they have
-        const myPermissions = await getMyPermissions();
-        console.log('🔍 Dashboard: getMyPermissions response:', myPermissions);
-        
-        if (myPermissions && !myPermissions.error && Array.isArray(myPermissions)) {
-          const permissionNames = myPermissions.map(p => p.permission_name || p.name);
-          console.log('🔍 Dashboard: All user permissions:', permissionNames);
-          const hasPermissionInList = permissionNames.includes('dashboard.view');
-          console.log('🔍 Dashboard: dashboard.view in permissions list?', hasPermissionInList);
-          
-          // Also check using the API endpoint
-          const hasDashboardPermission = await checkUserPermission(user.id, 'dashboard.view');
-          console.log('🔍 Dashboard: checkUserPermission API result:', hasDashboardPermission);
-          
-          // Both checks must agree - if either says false, deny access
-          if (hasPermissionInList === true && hasDashboardPermission === true) {
-            console.log('✅ Dashboard: Permission confirmed by both checks, granting access');
-            setHasPermission(true);
-          } else {
-            console.log('❌ Dashboard: Permission check FAILED');
-            console.log('   - In permissions list:', hasPermissionInList);
-            console.log('   - API check result:', hasDashboardPermission);
-            setHasPermission(false);
-            toast.error('Access denied. You do not have permission to view the dashboard.');
-          }
-        } else {
-          // If getMyPermissions fails or returns error, deny access
-          console.log('❌ Dashboard: getMyPermissions failed or returned error:', myPermissions);
-          setHasPermission(false);
-          toast.error('Access denied. You do not have permission to view the dashboard.');
-        }
-      } catch (error) {
-        console.error('❌ Dashboard: Error checking permission:', error);
-        setHasPermission(false);
-        toast.error('Error checking permissions. Access denied.');
-      } finally {
-        setCheckingPermission(false);
-      }
-    };
+    // Admins and systemadmins always have access to dashboard
+    const isAdmin = hasRole(profile.role, 'admin');
+    const isSystemAdmin = profile.is_systemadmin === true;
+    
+    if (isAdmin || isSystemAdmin) {
+      console.log('✅ Dashboard: Admin/SystemAdmin access granted');
+      setHasDashboardAccess(true);
+      setCheckingPermission(false);
+      return;
+    }
 
-    checkPermission();
-  }, [user, profile]);
+    // For non-admin users, check dashboard.view permission
+    const hasViewPerm = hasPermission('dashboard.view');
+    setHasDashboardAccess(hasViewPerm);
+    setCheckingPermission(false);
+    
+    // Show error if no permission
+    if (!hasViewPerm) {
+      console.log('❌ Dashboard: No permission to view dashboard');
+      toast.error('Access denied. You do not have permission to view the dashboard.');
+    }
+  }, [user, profile, hasPermission, isLoadingPermissions]);
 
   // Redirect if no permission
   useEffect(() => {
     // Only redirect if permission check is complete (not checking) and user doesn't have permission
-    if (checkingPermission === false && hasPermission === false) {
+    if (checkingPermission === false && hasDashboardAccess === false) {
       console.log('🔄 Dashboard: No permission, redirecting to /admin/users');
       toast.error('Redirecting to Users page...');
       // Small delay to show the toast message
@@ -143,11 +107,11 @@ const Dashboard = () => {
         history.push('/admin/users');
       }, 500);
     }
-  }, [hasPermission, checkingPermission, history]);
+  }, [hasDashboardAccess, checkingPermission, history]);
 
   useEffect(() => {
     // Only fetch stats if user has permission
-    if (hasPermission !== true) {
+    if (hasDashboardAccess !== true) {
       return;
     }
 
@@ -231,7 +195,7 @@ const Dashboard = () => {
 
     fetchDashboardStats();
     fetchResellerStats();
-  }, [hasPermission]);
+  }, [hasDashboardAccess]);
 
   const StatCard = ({ title, value, icon: Icon, color, subtitle, trend }) => (
     <Card 
@@ -361,7 +325,7 @@ const Dashboard = () => {
   );
 
   // Show loading while checking permission
-  if (checkingPermission || hasPermission === null) {
+  if (checkingPermission || hasDashboardAccess === null) {
     return (
       <Container fluid style={{ padding: '24px', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
         <div style={{ textAlign: 'center' }}>
@@ -381,7 +345,7 @@ const Dashboard = () => {
   }
 
   // Show access denied if no permission
-  if (hasPermission === false) {
+  if (hasDashboardAccess === false) {
     return (
       <Container fluid style={{ padding: '24px', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
         <div style={{

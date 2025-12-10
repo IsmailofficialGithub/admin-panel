@@ -18,8 +18,9 @@
 import React, { useState, useEffect } from "react";
 import { useLocation, NavLink } from "react-router-dom";
 import { useAuth } from "hooks/useAuth";
-import { getMyPermissions, checkUserPermission } from "api/backend/permissions";
+import { getMyPermissions } from "api/backend/permissions";
 import toast from "react-hot-toast";
+import { hasRole } from "utils/roleUtils";
 
 import { Nav } from "react-bootstrap";
 
@@ -31,6 +32,7 @@ function Sidebar({ color, image, routes }) {
   const [hoveredSubmenu, setHoveredSubmenu] = useState(null);
   const { user, profile, signOut } = useAuth();
   const [hasDashboardPermission, setHasDashboardPermission] = useState(null); // null = checking, true/false = result
+  const [hasUsersViewPermission, setHasUsersViewPermission] = useState(null); // null = checking, true/false = result
   const [hasConsumersViewPermission, setHasConsumersViewPermission] = useState(null); // null = checking, true/false = result
   const [hasResellersViewPermission, setHasResellersViewPermission] = useState(null); // null = checking, true/false = result
   const [hasProductsViewPermission, setHasProductsViewPermission] = useState(null); // null = checking, true/false = result
@@ -39,12 +41,13 @@ function Sidebar({ color, image, routes }) {
   const [hasSettingsViewPermission, setHasSettingsViewPermission] = useState(null); // null = checking, true/false = result
   const [hasCustomerSupportViewPermission, setHasCustomerSupportViewPermission] = useState(null); // null = checking, true/false = result
   const [hasInvoicesViewPermission, setHasInvoicesViewPermission] = useState(null); // null = checking, true/false = result
+  const [myPermissions, setMyPermissions] = useState([]); // Store all permissions for efficient checking
 
   // Handle navigation click - check account status
   const handleNavClick = (e) => {
     if (profile) {
       // Check if reseller account is deactivated
-      if (profile.role === 'reseller' && profile.account_status === 'deactive') {
+      if (hasRole(profile.role, 'reseller') && profile.account_status === 'deactive') {
         e.preventDefault();
         e.stopPropagation();
         toast.error('Your account has been deactivated. Please contact the administrator.');
@@ -52,7 +55,7 @@ function Sidebar({ color, image, routes }) {
         return false;
       }
       // Check if consumer account is deactivated
-      if (profile.role === 'consumer' && profile.account_status === 'deactive') {
+      if (hasRole(profile.role, 'consumer') && profile.account_status === 'deactive') {
         e.preventDefault();
         e.stopPropagation();
         toast.error('Your account has been deactivated. Please contact the administrator.');
@@ -94,258 +97,90 @@ function Sidebar({ color, image, routes }) {
     }));
   };
 
-  // Check dashboard permission on mount
+  // Fetch all permissions at once for efficient checking
   useEffect(() => {
-    const checkDashboardPermission = async () => {
+    const fetchAllPermissions = async () => {
       if (!user || !profile) {
-        setHasDashboardPermission(false);
         return;
       }
 
       try {
-        // Systemadmins have all permissions - set immediately
+        // Systemadmins have all permissions - set all to true immediately
         if (profile.is_systemadmin === true) {
           setHasDashboardPermission(true);
-          return;
-        }
-
-        // For non-systemadmins, check permission
-        // Use checkUserPermission as primary check (it uses has_permission SQL function)
-        const hasPermission = await checkUserPermission(user.id, 'dashboard.view');
-        setHasDashboardPermission(hasPermission === true);
-      } catch (error) {
-        console.error('Error checking dashboard permission in Sidebar:', error);
-        // On error, default to false (hide dashboard)
-        setHasDashboardPermission(false);
-      }
-    };
-
-    checkDashboardPermission();
-  }, [user, profile]);
-
-  // Check consumers.view permission on mount
-  useEffect(() => {
-    const checkConsumersViewPermission = async () => {
-      if (!user || !profile) {
-        setHasConsumersViewPermission(false);
-        return;
-      }
-
-      try {
-        // Systemadmins have all permissions - set immediately
-        if (profile.is_systemadmin === true) {
+          setHasUsersViewPermission(true);
           setHasConsumersViewPermission(true);
-          return;
-        }
-
-        // For non-systemadmins, check permission
-        const hasPermission = await checkUserPermission(user.id, 'consumers.view');
-        setHasConsumersViewPermission(hasPermission === true);
-      } catch (error) {
-        console.error('Error checking consumers.view permission in Sidebar:', error);
-        // On error, default to false (hide consumers)
-        setHasConsumersViewPermission(false);
-      }
-    };
-
-    checkConsumersViewPermission();
-  }, [user, profile]);
-
-  // Check resellers.view permission on mount
-  useEffect(() => {
-    const checkResellersViewPermission = async () => {
-      if (!user || !profile) {
-        setHasResellersViewPermission(false);
-        return;
-      }
-
-      try {
-        // Systemadmins have all permissions - set immediately
-        if (profile.is_systemadmin === true) {
           setHasResellersViewPermission(true);
-          return;
-        }
-
-        // For non-systemadmins, check permission
-        const hasPermission = await checkUserPermission(user.id, 'resellers.view');
-        setHasResellersViewPermission(hasPermission === true);
-      } catch (error) {
-        console.error('Error checking resellers.view permission in Sidebar:', error);
-        // On error, default to false (hide resellers)
-        setHasResellersViewPermission(false);
-      }
-    };
-
-    checkResellersViewPermission();
-  }, [user, profile]);
-
-  // Check products.view permission on mount
-  useEffect(() => {
-    const checkProductsViewPermission = async () => {
-      if (!user || !profile) {
-        setHasProductsViewPermission(false);
-        return;
-      }
-
-      try {
-        // Systemadmins have all permissions - set immediately
-        if (profile.is_systemadmin === true) {
           setHasProductsViewPermission(true);
-          return;
-        }
-
-        // For non-systemadmins, check permission
-        const hasPermission = await checkUserPermission(user.id, 'products.view');
-        setHasProductsViewPermission(hasPermission === true);
-      } catch (error) {
-        console.error('Error checking products.view permission in Sidebar:', error);
-        // On error, default to false (hide products)
-        setHasProductsViewPermission(false);
-      }
-    };
-
-    checkProductsViewPermission();
-  }, [user, profile]);
-
-  // Check activity_logs.view permission on mount
-  useEffect(() => {
-    const checkActivityLogsViewPermission = async () => {
-      if (!user || !profile) {
-        setHasActivityLogsViewPermission(false);
-        return;
-      }
-
-      try {
-        // Systemadmins have all permissions - set immediately
-        if (profile.is_systemadmin === true) {
           setHasActivityLogsViewPermission(true);
-          return;
-        }
-
-        // For non-systemadmins, check permission
-        const hasPermission = await checkUserPermission(user.id, 'activity_logs.view');
-        setHasActivityLogsViewPermission(hasPermission === true);
-      } catch (error) {
-        console.error('Error checking activity_logs.view permission in Sidebar:', error);
-        // On error, default to false (hide activity logs)
-        setHasActivityLogsViewPermission(false);
-      }
-    };
-
-    checkActivityLogsViewPermission();
-  }, [user, profile]);
-
-  // Check offers.view permission on mount
-  useEffect(() => {
-    const checkOffersViewPermission = async () => {
-      if (!user || !profile) {
-        setHasOffersViewPermission(false);
-        return;
-      }
-
-      try {
-        // Systemadmins have all permissions - set immediately
-        if (profile.is_systemadmin === true) {
           setHasOffersViewPermission(true);
-          return;
-        }
-
-        // For non-systemadmins, check permission
-        const hasPermission = await checkUserPermission(user.id, 'offers.view');
-        setHasOffersViewPermission(hasPermission === true);
-      } catch (error) {
-        console.error('Error checking offers.view permission in Sidebar:', error);
-        // On error, default to false (hide offers)
-        setHasOffersViewPermission(false);
-      }
-    };
-
-    checkOffersViewPermission();
-  }, [user, profile]);
-
-  // Check settings.view permission on mount
-  useEffect(() => {
-    const checkSettingsViewPermission = async () => {
-      if (!user || !profile) {
-        setHasSettingsViewPermission(false);
-        return;
-      }
-
-      try {
-        // Systemadmins have all permissions - set immediately
-        if (profile.is_systemadmin === true) {
           setHasSettingsViewPermission(true);
-          return;
-        }
-
-        // For non-systemadmins, check permission
-        const hasPermission = await checkUserPermission(user.id, 'settings.view');
-        setHasSettingsViewPermission(hasPermission === true);
-      } catch (error) {
-        console.error('Error checking settings.view permission in Sidebar:', error);
-        // On error, default to false (hide settings)
-        setHasSettingsViewPermission(false);
-      }
-    };
-
-    checkSettingsViewPermission();
-  }, [user, profile]);
-
-  // Check customer_support.view permission on mount
-  useEffect(() => {
-    const checkCustomerSupportViewPermission = async () => {
-      if (!user || !profile) {
-        setHasCustomerSupportViewPermission(false);
-        return;
-      }
-
-      try {
-        // Systemadmins have all permissions - set immediately
-        if (profile.is_systemadmin === true) {
           setHasCustomerSupportViewPermission(true);
-          return;
-        }
-
-        // For non-systemadmins, check permission
-        const hasPermission = await checkUserPermission(user.id, 'customer_support.view');
-        setHasCustomerSupportViewPermission(hasPermission === true);
-      } catch (error) {
-        console.error('Error checking customer_support.view permission in Sidebar:', error);
-        // On error, default to false (hide customer support)
-        setHasCustomerSupportViewPermission(false);
-      }
-    };
-
-    checkCustomerSupportViewPermission();
-  }, [user, profile]);
-
-  // Check invoices.view permission on mount
-  useEffect(() => {
-    const checkInvoicesViewPermission = async () => {
-      if (!user || !profile) {
-        setHasInvoicesViewPermission(false);
-        return;
-      }
-
-      try {
-        // Systemadmins have all permissions - set immediately
-        if (profile.is_systemadmin === true) {
           setHasInvoicesViewPermission(true);
           return;
         }
 
-        // For non-systemadmins, check permission
-        const hasPermission = await checkUserPermission(user.id, 'invoices.view');
-        setHasInvoicesViewPermission(hasPermission === true);
+        // For non-systemadmins, fetch all permissions at once
+        const permissionsResult = await getMyPermissions();
+        
+        if (permissionsResult?.error) {
+          console.error('Error fetching permissions in Sidebar:', permissionsResult.error);
+          // On error, set all to false (hide all tabs)
+          setHasDashboardPermission(false);
+          setHasUsersViewPermission(false);
+          setHasConsumersViewPermission(false);
+          setHasResellersViewPermission(false);
+          setHasProductsViewPermission(false);
+          setHasActivityLogsViewPermission(false);
+          setHasOffersViewPermission(false);
+          setHasSettingsViewPermission(false);
+          setHasCustomerSupportViewPermission(false);
+          setHasInvoicesViewPermission(false);
+          return;
+        }
+
+        // permissionsResult is an array of { permission_name, granted }
+        const permissions = Array.isArray(permissionsResult) ? permissionsResult : (permissionsResult?.data || []);
+        setMyPermissions(permissions);
+
+        // Create a Set of granted permission names for fast lookup
+        const grantedPermissions = new Set(
+          permissions
+            .filter(p => p.granted === true)
+            .map(p => p.permission_name)
+        );
+
+        // Check each permission
+        setHasDashboardPermission(grantedPermissions.has('dashboard.view'));
+        setHasUsersViewPermission(grantedPermissions.has('users.view'));
+        setHasConsumersViewPermission(grantedPermissions.has('consumers.view'));
+        setHasResellersViewPermission(grantedPermissions.has('resellers.view'));
+        setHasProductsViewPermission(grantedPermissions.has('products.view'));
+        setHasActivityLogsViewPermission(grantedPermissions.has('activity_logs.view'));
+        setHasOffersViewPermission(grantedPermissions.has('offers.view'));
+        setHasSettingsViewPermission(grantedPermissions.has('settings.view'));
+        setHasCustomerSupportViewPermission(grantedPermissions.has('customer_support.view'));
+        setHasInvoicesViewPermission(grantedPermissions.has('invoices.view'));
       } catch (error) {
-        console.error('Error checking invoices.view permission in Sidebar:', error);
-        // On error, default to false (hide invoices)
+        console.error('Error fetching permissions in Sidebar:', error);
+        // On error, set all to false (hide all tabs)
+        setHasDashboardPermission(false);
+        setHasUsersViewPermission(false);
+        setHasConsumersViewPermission(false);
+        setHasResellersViewPermission(false);
+        setHasProductsViewPermission(false);
+        setHasActivityLogsViewPermission(false);
+        setHasOffersViewPermission(false);
+        setHasSettingsViewPermission(false);
+        setHasCustomerSupportViewPermission(false);
         setHasInvoicesViewPermission(false);
       }
     };
 
-    checkInvoicesViewPermission();
+    fetchAllPermissions();
   }, [user, profile]);
+
+  // All permission checks are now done in the single fetchAllPermissions useEffect above
 
   // Auto-expand menu if a submenu is active, close if no status
   React.useEffect(() => {
@@ -405,6 +240,14 @@ function Sidebar({ color, image, routes }) {
             if (prop.path === '/dashboard') {
               // Hide if still checking (null) or if permission denied (false)
               if (hasDashboardPermission !== true) {
+                return null;
+              }
+            }
+
+            // Filter out Users route if user doesn't have users.view permission
+            if (prop.path === '/users') {
+              // Hide if still checking (null) or if permission denied (false)
+              if (hasUsersViewPermission !== true) {
                 return null;
               }
             }

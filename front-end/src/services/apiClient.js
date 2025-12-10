@@ -303,9 +303,17 @@ const apiClient = {
      * Grant lifetime access to consumer
      */
     grantLifetimeAccess: (id) => {
-      return axiosInstance.patch(`/consumers/${id}/account-status`, {
-        account_status: 'active',
-        lifetime_access: true
+      return axiosInstance.post(`/consumers/${id}/grant-lifetime-access`);
+    },
+
+    /**
+     * Revoke lifetime access from consumer
+     * @param {string} id - Consumer ID
+     * @param {number} trialDays - Number of days for trial (1-365, optional)
+     */
+    revokeLifetimeAccess: (id, trialDays = null) => {
+      return axiosInstance.post(`/consumers/${id}/revoke-lifetime-access`, {
+        trial_days: trialDays
       });
     },
   },

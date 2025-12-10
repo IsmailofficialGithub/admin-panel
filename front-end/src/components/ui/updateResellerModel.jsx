@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Phone, Globe, MapPin, ChevronDown } from 'lucide-react';
+import { X, User, Phone, Globe, MapPin, ChevronDown, Shield } from 'lucide-react';
 import { countries, searchCountries } from '../../utils/countryData';
 
 const UpdateResellerModal = ({ isOpen, onClose, reseller, onUpdate }) => {
@@ -7,8 +7,15 @@ const UpdateResellerModal = ({ isOpen, onClose, reseller, onUpdate }) => {
     full_name: '',
     phone: '',
     country: '',
-    city: ''
+    city: '',
+    roles: ['reseller'] // Default to reseller, but allow consumer too
   });
+  
+  // Available roles for reseller form
+  const availableRoles = [
+    { value: 'reseller', label: 'Reseller' },
+    { value: 'consumer', label: 'Consumer' }
+  ];
 
   const [countrySearch, setCountrySearch] = useState('');
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
@@ -18,11 +25,17 @@ const UpdateResellerModal = ({ isOpen, onClose, reseller, onUpdate }) => {
   useEffect(() => {
     if (reseller) {
 
+      // Handle role - support both array and single value (backward compatibility)
+      const resellerRoles = Array.isArray(reseller.role) 
+        ? reseller.role 
+        : (reseller.role ? [reseller.role] : ['reseller']);
+      
       setFormData({
         full_name: reseller.full_name || reseller.name || '',
         phone: '',
         country: reseller.country || '',
-        city: reseller.city || ''
+        city: reseller.city || '',
+        roles: resellerRoles
       });
       
       // If reseller has a country, find and set it
@@ -86,6 +99,32 @@ const UpdateResellerModal = ({ isOpen, onClose, reseller, onUpdate }) => {
     if (errors.phone) {
       setErrors(prev => ({ ...prev, phone: '' }));
     }
+  };
+  
+  // Handle role change
+  const handleRoleChange = (roleValue) => {
+    setFormData(prev => {
+      const currentRoles = prev.roles || ['reseller'];
+      const isSelected = currentRoles.includes(roleValue);
+      
+      let newRoles;
+      if (isSelected) {
+        // Remove role if already selected
+        newRoles = currentRoles.filter(r => r !== roleValue);
+        // Ensure at least reseller is selected (since this is update reseller form)
+        if (newRoles.length === 0 || !newRoles.includes('reseller')) {
+          newRoles = ['reseller'];
+        }
+      } else {
+        // Add role
+        newRoles = [...currentRoles, roleValue];
+      }
+      
+      return {
+        ...prev,
+        roles: newRoles
+      };
+    });
   };
 
   const handleCountrySelect = (country) => {
@@ -169,7 +208,8 @@ const UpdateResellerModal = ({ isOpen, onClose, reseller, onUpdate }) => {
         full_name: formData.full_name.trim(),
         phone: fullPhone,
         country: formData.country.trim() || null,
-        city: formData.city.trim() || null
+        city: formData.city.trim() || null,
+        roles: formData.roles || ['reseller'] // Send roles array
       });
       onClose();
     }
@@ -343,6 +383,172 @@ const UpdateResellerModal = ({ isOpen, onClose, reseller, onUpdate }) => {
                 marginBottom: 0
               }}>
                 {errors.full_name}
+              </p>
+            )}
+          </div>
+
+          {/* Roles Field */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              Roles <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <div style={{
+              border: errors.roles ? '1px solid #ef4444' : '1px solid #d1d5db',
+              borderRadius: '8px',
+              padding: '12px',
+              backgroundColor: 'white',
+              minHeight: '80px'
+            }}>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px'
+              }}>
+                {availableRoles.map((role) => {
+                  const isChecked = formData.roles?.includes(role.value) || false;
+                  return (
+                    <label
+                      key={role.value}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        cursor: 'pointer',
+                        padding: '8px',
+                        borderRadius: '6px',
+                        transition: 'background-color 0.2s',
+                        backgroundColor: isChecked ? '#f3f4f6' : 'transparent'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#f9fafb';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isChecked) {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                        }
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => handleRoleChange(role.value)}
+                        style={{
+                          width: '18px',
+                          height: '18px',
+                          marginRight: '12px',
+                          cursor: 'pointer',
+                          accentColor: '#74317e'
+                        }}
+                      />
+                      <Shield size={16} style={{ marginRight: '8px', color: '#6b7280' }} />
+                      <span style={{
+                        fontSize: '14px',
+                        color: '#374151',
+                        fontWeight: isChecked ? '500' : '400'
+                      }}>
+                        {role.label}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            {formData.roles && formData.roles.length > 0 && (
+              <p style={{
+                color: '#6b7280',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                Selected: {formData.roles.join(', ')}
+              </p>
+            )}
+          </div>
+
+          {/* Roles Field */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              Roles <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <div style={{
+              border: errors.roles ? '1px solid #ef4444' : '1px solid #d1d5db',
+              borderRadius: '8px',
+              padding: '12px',
+              backgroundColor: 'white',
+              minHeight: '80px'
+            }}>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px'
+              }}>
+                {availableRoles.map((role) => {
+                  const isChecked = formData.roles?.includes(role.value) || false;
+                  return (
+                    <label
+                      key={role.value}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        cursor: 'pointer',
+                        padding: '8px',
+                        borderRadius: '6px',
+                        transition: 'background-color 0.2s',
+                        backgroundColor: isChecked ? '#f3f4f6' : 'transparent'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#f9fafb';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isChecked) {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                        }
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => handleRoleChange(role.value)}
+                        style={{
+                          width: '18px',
+                          height: '18px',
+                          marginRight: '12px',
+                          cursor: 'pointer',
+                          accentColor: '#74317e'
+                        }}
+                      />
+                      <Shield size={16} style={{ marginRight: '8px', color: '#6b7280' }} />
+                      <span style={{
+                        fontSize: '14px',
+                        color: '#374151',
+                        fontWeight: isChecked ? '500' : '400'
+                      }}>
+                        {role.label}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            {formData.roles && formData.roles.length > 0 && (
+              <p style={{
+                color: '#6b7280',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                Selected: {formData.roles.join(', ')}
               </p>
             )}
           </div>

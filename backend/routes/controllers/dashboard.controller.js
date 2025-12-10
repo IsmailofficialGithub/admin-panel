@@ -6,6 +6,7 @@ import {
   createRateLimitMiddleware,
   sanitizeInputMiddleware
 } from '../../utils/apiOptimization.js';
+import { hasRole } from '../../utils/roleUtils.js';
 
 // Cache configuration
 const CACHE_TTL = 600; // 10 minutes (increased for better cache hit rate)
@@ -39,7 +40,7 @@ export const getDashboardStats = async (req, res) => {
     const userRole = req.userProfile?.role;
 
     // Only admin can access dashboard stats
-    if (userRole !== 'admin') {
+    if (!hasRole(userRole, 'admin')) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',
@@ -127,7 +128,7 @@ export const getResellerStats = async (req, res) => {
     const userRole = req.userProfile?.role;
 
     // Only admin can access reseller stats
-    if (userRole !== 'admin') {
+    if (!hasRole(userRole, 'admin')) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',

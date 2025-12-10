@@ -56,12 +56,20 @@ root.render(
         <Route exact path="/calls" component={Calls} />
         <ProtectedRoute path="/admin" component={AdminLayout} allowedRoles={['admin']} />
         <ProtectedRoute path="/reseller" component={ResellerLayout} allowedRoles={['reseller']} />
-        {/* Consumer routes are blocked - consumers are redirected to external site */}
+        {/* Consumer routes - redirect resellers to /reseller, consumer-only to external site */}
         <Route path="/consumer" render={() => {
-          // Immediately redirect consumers to external site
-          toast.error('You are not authorized to access this page. Redirecting to external site...');
+          // This route is handled by ProtectedRoute, but as a fallback:
+          // If user has reseller role, redirect to reseller dashboard
+          // If user is ONLY consumer, redirect to external site
+          toast.error('You are not authorized to access this page. Redirecting...');
           setTimeout(() => {
-            window.location.href = 'https://social.duhanashrah.ai/';
+            // Check localStorage for role info (if available)
+            const profile = JSON.parse(localStorage.getItem('profile') || '{}');
+            if (profile?.role && Array.isArray(profile.role) && profile.role.includes('reseller')) {
+              window.location.href = '/reseller';
+            } else {
+              window.location.href = 'https://social.duhanashrah.ai/';
+            }
           }, 3000);
           return null;
         }} />

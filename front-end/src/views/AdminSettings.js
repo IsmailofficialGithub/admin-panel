@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../hooks/useAuth';
-import { checkUserPermission } from '../api/backend/permissions';
+import { usePermissions } from '../hooks/usePermissions';
 import { getDefaultCommission, updateDefaultCommission, getResellerSettings, updateResellerSettings } from '../api/backend';
 import { getAllProducts } from '../api/backend/products';
 import { 
@@ -39,6 +39,7 @@ import {
 
 const AdminSettings = () => {
   const { profile, user } = useAuth();
+  const { hasPermission, isLoading: isLoadingPermissions } = usePermissions();
   const location = useLocation();
   const history = useHistory();
   const [loading, setLoading] = useState(false);
@@ -63,53 +64,41 @@ const AdminSettings = () => {
 
   // Check settings.view permission first (required to access the page)
   useEffect(() => {
-    const checkViewPermission = async () => {
-      if (!user || !profile) {
-        setHasViewPermission(false);
-        setCheckingViewPermission(false);
-        return;
-      }
+    if (!user || !profile) {
+      setHasViewPermission(false);
+      setCheckingViewPermission(false);
+      return;
+    }
 
-      try {
-        // Systemadmins have all permissions
-        if (profile.is_systemadmin === true) {
-          setHasViewPermission(true);
-          setCheckingViewPermission(false);
-          // Also check update permission for systemadmins
-          setHasUpdatePermission(true);
-          return;
-        }
+    // Wait for permissions to load before checking (unless systemadmin)
+    if (isLoadingPermissions && !profile.is_systemadmin) {
+      setCheckingViewPermission(true);
+      return;
+    }
 
-        // Check if user has settings.view permission
-        const hasPermission = await checkUserPermission(user.id, 'settings.view');
-        setHasViewPermission(hasPermission === true);
-        
-        // Also check settings.update permission
-        const hasUpdate = await checkUserPermission(user.id, 'settings.update');
-        setHasUpdatePermission(hasUpdate === true);
-        
-        // Redirect if no view permission
-        if (!hasPermission) {
-          toast.error('You do not have permission to view settings.');
-          setTimeout(() => {
-            history.push('/admin/users');
-          }, 500);
-        }
-      } catch (error) {
-        console.error('Error checking settings.view permission:', error);
-        setHasViewPermission(false);
-        setHasUpdatePermission(false);
-        toast.error('Error checking permissions. Access denied.');
-        setTimeout(() => {
-          history.push('/admin/users');
-        }, 500);
-      } finally {
-        setCheckingViewPermission(false);
-      }
-    };
+    // Systemadmins have all permissions
+    if (profile.is_systemadmin === true) {
+      setHasViewPermission(true);
+      setHasUpdatePermission(true);
+      setCheckingViewPermission(false);
+      return;
+    }
 
-    checkViewPermission();
-  }, [user, profile, history]);
+    // Use permissions hook to check permissions (only after permissions are loaded)
+    const hasViewPerm = hasPermission('settings.view');
+    const hasUpdatePerm = hasPermission('settings.update');
+    setHasViewPermission(hasViewPerm);
+    setHasUpdatePermission(hasUpdatePerm);
+    setCheckingViewPermission(false);
+    
+    // Redirect if no view permission (only after permissions are loaded)
+    if (!hasViewPerm) {
+      toast.error('You do not have permission to view settings.');
+      setTimeout(() => {
+        history.push('/admin/users');
+      }, 500);
+    }
+  }, [user, profile, history, hasPermission, isLoadingPermissions]);
 
   // Check URL query parameter for tab on mount and when URL changes
   useEffect(() => {

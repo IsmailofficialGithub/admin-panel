@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useHistory } from 'react-router-dom';
-import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, CheckCircle, Search, Filter, FileText, Eye, Calendar } from 'lucide-react';
+import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, CheckCircle, Search, Filter, FileText, Eye, Calendar, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 // ✅ Using backend API instead of direct Supabase calls
 import { 
@@ -10,19 +10,23 @@ import {
   deleteConsumer,
   resetConsumerPassword,
   updateConsumerAccountStatus,
-  grantLifetimeAccess
+  grantLifetimeAccess,
+  revokeLifetimeAccess
 } from '../api/backend';
-import { checkUserPermissionsBulk, checkUserPermission } from '../api/backend/permissions';
+import { checkUserPermissionsBulk } from '../api/backend/permissions';
 import { useAuth } from '../hooks/useAuth';
+import { usePermissions } from '../hooks/usePermissions';
 import CreateConsumerModal from '../components/ui/createConsumerModel';
 import UpdateConsumerModal from '../components/ui/updateConsumerModel';
 import DeleteModal from '../components/ui/deleteModel';
 import CreateInvoiceModal from '../components/ui/createInvoiceModal';
+import { getRolesString } from '../utils/roleUtils';
 
 const Consumers = () => {
   const location = useLocation();
   const history = useHistory();
   const { user, profile } = useAuth();
+  const { hasPermission, isLoading: isLoadingPermissions } = usePermissions();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -50,12 +54,19 @@ const Consumers = () => {
   const [extendTrialData, setExtendTrialData] = useState(null);
   const [extendTrialDays, setExtendTrialDays] = useState('');
   const [isExtendingTrial, setIsExtendingTrial] = useState(false);
+  const [showRevokeLifetimeModal, setShowRevokeLifetimeModal] = useState(false);
+  const [revokeLifetimeData, setRevokeLifetimeData] = useState(null);
+  const [revokeTrialDays, setRevokeTrialDays] = useState('7');
+  const [isRevokingLifetime, setIsRevokingLifetime] = useState(false);
   const [permissions, setPermissions] = useState({
     create: false, // Start as false, update after checking
     delete: false,
     update: false,
     read: false,
     invoiceCreate: false,
+    grantLifetimeAccess: false,
+    revokeLifetimeAccess: false,
+    manageLifetimeAccess: false,
   });
   const [hasViewPermission, setHasViewPermission] = useState(false); // Start as false
   const [checkingViewPermission, setCheckingViewPermission] = useState(true);
@@ -84,95 +95,78 @@ const Consumers = () => {
 
   // Check consumers.view permission first (required to access the page)
   useEffect(() => {
-    const checkViewPermission = async () => {
-      if (!user || !profile) {
-        setHasViewPermission(false);
-        setCheckingViewPermission(false);
-        return;
-      }
-
-      try {
-        // Systemadmins have all permissions
-        if (profile.is_systemadmin === true) {
-          setHasViewPermission(true);
-          setCheckingViewPermission(false);
-          return;
-        }
-
-        // Check if user has consumers.view permission
-        const hasPermission = await checkUserPermission(user.id, 'consumers.view');
-        setHasViewPermission(hasPermission === true);
-        
-        // Redirect if no permission
-        if (!hasPermission) {
-          toast.error('You do not have permission to view consumers.');
-          setTimeout(() => {
-            history.push('/admin/users');
-          }, 500);
-        }
-      } catch (error) {
-        console.error('Error checking consumers.view permission:', error);
-        setHasViewPermission(false);
-        toast.error('Error checking permissions. Access denied.');
-        setTimeout(() => {
-          history.push('/admin/users');
-        }, 500);
-      } finally {
-        setCheckingViewPermission(false);
-      }
-    };
-
-    checkViewPermission();
-  }, [user, profile, history]);
-
-  // Check multiple permissions at once (optimized bulk check)
-  useEffect(() => {
-    // Only check other permissions if user has view permission
-    if (checkingViewPermission || !hasViewPermission) {
+    if (!user || !profile) {
+      setHasViewPermission(false);
+      setCheckingViewPermission(false);
       return;
     }
 
-    const checkPermissions = async () => {
-      setCheckingPermissions(true); // Start checking
-      if (!user || !profile) {
-        setPermissions({ create: false, delete: false, update: false, read: false, invoiceCreate: false });
-        setCheckingPermissions(false);
-        return;
-      }
+    // Wait for permissions to load before checking
+    if (isLoadingPermissions) {
+      setCheckingViewPermission(true);
+      return;
+    }
 
-      try {
-        // Systemadmins have all permissions
-        if (profile.is_systemadmin === true) {
-          setPermissions({ create: true, delete: true, update: true, read: true, invoiceCreate: true });
-          setCheckingPermissions(false);
-          return;
-        }
+    // Use permissions hook to check permission (only after permissions are loaded)
+    const hasViewPerm = hasPermission('consumers.view');
+    setHasViewPermission(hasViewPerm);
+    setCheckingViewPermission(false);
+    
+    // Redirect if no permission (only after permissions are loaded)
+    if (!hasViewPerm) {
+      toast.error('You do not have permission to view consumers.');
+      setTimeout(() => {
+        history.push('/admin/users');
+      }, 500);
+    }
+  }, [user, profile, history, hasPermission, isLoadingPermissions]);
 
-        // Check multiple permissions in a single optimized API call
-        const permissionResults = await checkUserPermissionsBulk(user.id, [
-          'consumers.create',
-          'consumers.delete',
-          'consumers.update',
-          'consumers.read',
-          'invoices.create'
-        ]);
+  // Check multiple permissions using the permissions hook (optimized - no API calls needed)
+  useEffect(() => {
+    // Only check other permissions if user has view permission and permissions are loaded
+    if (checkingViewPermission || !hasViewPermission || isLoadingPermissions) {
+      return;
+    }
+
+    setCheckingPermissions(true);
+    
+    // Systemadmins have all permissions
+    if (profile?.is_systemadmin === true) {
+      setPermissions({ 
+        create: true, 
+        delete: true, 
+        update: true, 
+        read: true, 
+        invoiceCreate: true,
+        grantLifetimeAccess: true,
+        revokeLifetimeAccess: true,
+        manageLifetimeAccess: true
+      });
+      setCheckingPermissions(false);
+      return;
+    }
+
+    // Use permissions hook to check all permissions (already fetched, no API calls)
+    try {
+
+        // Use permissions hook to check all permissions (already fetched, no API calls)
         setPermissions({
-          create: permissionResults['consumers.create'] === true,
-          delete: permissionResults['consumers.delete'] === true,
-          update: permissionResults['consumers.update'] === true,
-          read: permissionResults['consumers.read'] === true,
-          invoiceCreate: permissionResults['invoices.create'] === true
+          create: hasPermission('consumers.create'),
+          delete: hasPermission('consumers.delete'),
+          update: hasPermission('consumers.update'),
+          read: hasPermission('consumers.read'),
+          invoiceCreate: hasPermission('invoices.create'),
+          grantLifetimeAccess: hasPermission('consumers.grant_lifetime_access') || hasPermission('consumers.manage_lifetime_access'),
+          revokeLifetimeAccess: hasPermission('consumers.revoke_lifetime_access') || hasPermission('consumers.manage_lifetime_access'),
+          manageLifetimeAccess: hasPermission('consumers.manage_lifetime_access')
         });
-      } catch (error) {
-        console.error('Error checking consumer permissions:', error);
-        setPermissions({ create: false, delete: false, update: false, read: false, invoiceCreate: false });
-      } finally {
-        setCheckingPermissions(false); // Done checking
-      }
-    };
-
-    checkPermissions();
-  }, [user, profile, checkingViewPermission, hasViewPermission]);
+    } catch (error) {
+      console.error('Error checking consumer permissions:', error);
+      setPermissions({ create: false, delete: false, update: false, read: false, invoiceCreate: false, grantLifetimeAccess: false, revokeLifetimeAccess: false, manageLifetimeAccess: false });
+    } finally {
+      setCheckingPermissions(false);
+    }
+  }, [user, profile, checkingViewPermission, hasViewPermission, isLoadingPermissions, hasPermission]);
 
   // Fetch consumers from backend API with filters (only if user has view permission)
   useEffect(() => {
@@ -255,7 +249,8 @@ const Consumers = () => {
           trial_expiry: consumer.trial_expiry,
           trial_expiry_date: consumer.trial_expiry,
           created_at: consumer.created_at,
-          subscribed_products: consumer.subscribed_products || []
+          subscribed_products: consumer.subscribed_products || [],
+          role: consumer.role || ['consumer'] // Include role field from consumer data
         });
         setIsUpdateModalOpen(true);
       }
@@ -298,6 +293,12 @@ const Consumers = () => {
         setShowExtendTrialModal(true);
       }
     } else if (action === 'Grant Lifetime Access') {
+      // Check permission
+      if (!permissions.grantLifetimeAccess && !permissions.manageLifetimeAccess) {
+        toast.error('You do not have permission to grant lifetime access.');
+        return;
+      }
+      
       const consumer = users.find(u => u.user_id === userId);
       if (consumer) {
         // Check if already has lifetime access
@@ -336,6 +337,25 @@ const Consumers = () => {
             toast.error('Failed to grant lifetime access. Please try again.', { id: loadingToast });
           }
         }
+      }
+    } else if (action === 'Revoke Lifetime Access') {
+      // Check permission
+      if (!permissions.revokeLifetimeAccess && !permissions.manageLifetimeAccess) {
+        toast.error('You do not have permission to revoke lifetime access.');
+        return;
+      }
+      
+      const consumer = users.find(u => u.user_id === userId);
+      if (consumer) {
+        // Check if has lifetime access
+        if (consumer.lifetime_access !== true) {
+          toast.error('This consumer does not have lifetime access.');
+          return;
+        }
+        // Show modal to input trial days
+        setRevokeLifetimeData({ id: userId, name: userName, consumer });
+        setRevokeTrialDays('7'); // Default to 7 days
+        setShowRevokeLifetimeModal(true);
       }
     } else {
       toast(`${action} action clicked for consumer: ${userName}`);
@@ -403,7 +423,8 @@ const Consumers = () => {
         trial_expiry_date: updatedConsumer.trial_expiry_date,
         country: updatedConsumer.country,
         city: updatedConsumer.city,
-        subscribed_products: updatedConsumer.subscribed_products || []
+        subscribed_products: updatedConsumer.subscribed_products || [],
+        roles: updatedConsumer.roles || ['consumer'] // Include roles array
       });
       
       if (result.error) {
@@ -1247,7 +1268,7 @@ const Consumers = () => {
                         display: 'inline-block',
                         textTransform: 'capitalize'
                       }}>
-                        {user.role}
+                        {getRolesString(user.role)}
                       </span>
                     </td>
                     <td style={{ padding: '15px 24px' }}>
@@ -1510,6 +1531,7 @@ const Consumers = () => {
                             <Calendar size={16} />
                             Extend Trial
                           </button>
+                          {(permissions.grantLifetimeAccess || permissions.manageLifetimeAccess) && (
                           <button
                             onClick={() => handleAction('Grant Lifetime Access', userId, user.full_name)}
                             disabled={user.lifetime_access === true}
@@ -1539,6 +1561,38 @@ const Consumers = () => {
                             <CheckCircle size={16} />
                             Grant Lifetime Access
                           </button>
+                          )}
+                          {(permissions.revokeLifetimeAccess || permissions.manageLifetimeAccess) && (
+                            <button
+                              onClick={() => handleAction('Revoke Lifetime Access', userId, user.full_name)}
+                              disabled={user.lifetime_access !== true}
+                              style={{
+                                width: '100%',
+                                padding: '10px 16px',
+                                border: 'none',
+                                backgroundColor: 'transparent',
+                                textAlign: 'left',
+                                cursor: user.lifetime_access !== true ? 'not-allowed' : 'pointer',
+                                fontSize: '14px',
+                                color: user.lifetime_access !== true ? '#999' : '#dc3545',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                transition: 'background-color 0.2s',
+                                opacity: user.lifetime_access !== true ? 0.5 : 1,
+                                fontWeight: '500'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (user.lifetime_access === true) {
+                                  e.currentTarget.style.backgroundColor = '#fff5f5';
+                                }
+                              }}
+                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                            >
+                              <XCircle size={16} />
+                              Revoke Lifetime Access
+                            </button>
+                          )}
                             </>
                           )}
                           {permissions.delete && (
@@ -2302,6 +2356,252 @@ const Consumers = () => {
                   </>
                 ) : (
                   'Extend Trial'
+                )}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Revoke Lifetime Access Modal */}
+      {showRevokeLifetimeModal && revokeLifetimeData && (
+        <>
+          <div
+            onClick={() => {
+              if (!isRevokingLifetime) {
+                setShowRevokeLifetimeModal(false);
+                setRevokeLifetimeData(null);
+                setRevokeTrialDays('7');
+              }
+            }}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 9998,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}
+          />
+          <div style={{
+            position: 'fixed',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+            zIndex: 9999,
+            minWidth: '450px',
+            maxWidth: '550px',
+            maxHeight: '90vh',
+            overflow: 'auto'
+          }}>
+            <div style={{
+              padding: '24px',
+              borderBottom: '1px solid #e0e0e0'
+            }}>
+              <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '600', color: '#dc3545' }}>
+                Revoke Lifetime Access
+              </h3>
+              <p style={{ margin: '8px 0 0 0', fontSize: '14px', color: '#666' }}>
+                Revoke lifetime access from <strong>{revokeLifetimeData.name}</strong>
+              </p>
+              <p style={{ margin: '12px 0 0 0', fontSize: '13px', color: '#856404', backgroundColor: '#fff3cd', padding: '8px 12px', borderRadius: '6px', border: '1px solid #ffc107' }}>
+                ⚠️ After revoking, the consumer will need a trial period. Please specify the number of trial days below.
+              </p>
+            </div>
+            <div style={{ padding: '24px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '14px',
+                fontWeight: '500',
+                color: '#333',
+                marginBottom: '8px'
+              }}>
+                Trial Days (1-365):
+              </label>
+              <div style={{ marginBottom: '16px' }}>
+                <input
+                  type="number"
+                  min="1"
+                  max="365"
+                  value={revokeTrialDays}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === '' || (parseInt(value) >= 1 && parseInt(value) <= 365)) {
+                      setRevokeTrialDays(value);
+                    }
+                  }}
+                  disabled={isRevokingLifetime}
+                  placeholder="Enter number of days (1-365)"
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontSize: '14px',
+                    outline: 'none',
+                    cursor: isRevokingLifetime ? 'not-allowed' : 'text',
+                    backgroundColor: isRevokingLifetime ? '#f3f4f6' : 'white'
+                  }}
+                />
+                <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {[1, 3, 7, 14, 30].map(days => (
+                    <button
+                      key={days}
+                      onClick={() => !isRevokingLifetime && setRevokeTrialDays(days.toString())}
+                      disabled={isRevokingLifetime}
+                      style={{
+                        padding: '6px 12px',
+                        border: `1px solid ${revokeTrialDays === days.toString() ? '#74317e' : '#d1d5db'}`,
+                        borderRadius: '6px',
+                        backgroundColor: revokeTrialDays === days.toString() ? '#74317e' : 'white',
+                        color: revokeTrialDays === days.toString() ? 'white' : '#333',
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        cursor: isRevokingLifetime ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {days} {days === 1 ? 'Day' : 'Days'}
+                    </button>
+                  ))}
+                </div>
+                {revokeTrialDays && parseInt(revokeTrialDays) >= 1 && (
+                  <p style={{
+                    marginTop: '12px',
+                    marginBottom: 0,
+                    fontSize: '12px',
+                    color: '#666',
+                    backgroundColor: '#f3f4f6',
+                    padding: '8px 12px',
+                    borderRadius: '6px'
+                  }}>
+                    📅 New trial expiry: {(() => {
+                      const consumer = revokeLifetimeData.consumer;
+                      const createdAt = new Date(consumer.created_at);
+                      const newExpiry = new Date(createdAt);
+                      newExpiry.setDate(newExpiry.getDate() + parseInt(revokeTrialDays));
+                      return newExpiry.toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                      });
+                    })()}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div style={{
+              padding: '16px 24px',
+              borderTop: '1px solid #e0e0e0',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '12px'
+            }}>
+              <button
+                onClick={() => {
+                  if (!isRevokingLifetime) {
+                    setShowRevokeLifetimeModal(false);
+                    setRevokeLifetimeData(null);
+                    setRevokeTrialDays('7');
+                  }
+                }}
+                disabled={isRevokingLifetime}
+                style={{
+                  padding: '10px 24px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  backgroundColor: 'white',
+                  color: '#333',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: isRevokingLifetime ? 'not-allowed' : 'pointer',
+                  opacity: isRevokingLifetime ? 0.7 : 1
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!revokeTrialDays || parseInt(revokeTrialDays) < 1 || parseInt(revokeTrialDays) > 365) {
+                    toast.error('Please enter a valid number of days (1-365)');
+                    return;
+                  }
+
+                  setIsRevokingLifetime(true);
+                  const loadingToast = toast.loading(`Revoking lifetime access from ${revokeLifetimeData.name}...`);
+                  
+                  try {
+                    const result = await revokeLifetimeAccess(revokeLifetimeData.id, parseInt(revokeTrialDays));
+                    
+                    if (result.error) {
+                      toast.error(`Error: ${result.error}`, { id: loadingToast });
+                    } else {
+                      // Update consumer in local state
+                      setUsers(prevUsers => 
+                        prevUsers.map(user => {
+                          if (user.user_id === revokeLifetimeData.id) {
+                            return {
+                              ...user,
+                              lifetime_access: false,
+                              trial_expiry: result.data?.trial_expiry || user.trial_expiry
+                            };
+                          }
+                          return user;
+                        })
+                      );
+                      
+                      toast.success(`Lifetime access revoked from "${revokeLifetimeData.name}". Trial set to ${revokeTrialDays} days.`, { id: loadingToast });
+                      setShowRevokeLifetimeModal(false);
+                      setRevokeLifetimeData(null);
+                      setRevokeTrialDays('7');
+                    }
+                  } catch (error) {
+                    console.error('Error revoking lifetime access:', error);
+                    toast.error('Failed to revoke lifetime access. Please try again.', { id: loadingToast });
+                  } finally {
+                    setIsRevokingLifetime(false);
+                  }
+                }}
+                disabled={isRevokingLifetime || !revokeTrialDays || parseInt(revokeTrialDays) < 1 || parseInt(revokeTrialDays) > 365}
+                style={{
+                  padding: '10px 24px',
+                  border: 'none',
+                  borderRadius: '6px',
+                  backgroundColor: revokeTrialDays && parseInt(revokeTrialDays) >= 1 && parseInt(revokeTrialDays) <= 365 && !isRevokingLifetime ? '#dc3545' : '#9ca3af',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: revokeTrialDays && parseInt(revokeTrialDays) >= 1 && parseInt(revokeTrialDays) <= 365 && !isRevokingLifetime ? 'pointer' : 'not-allowed',
+                  opacity: isRevokingLifetime ? 0.7 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                {isRevokingLifetime ? (
+                  <>
+                    <div style={{
+                      width: '14px',
+                      height: '14px',
+                      border: '2px solid white',
+                      borderTop: '2px solid transparent',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite'
+                    }} />
+                    Revoking...
+                  </>
+                ) : (
+                  <>
+                    <XCircle size={16} />
+                    Revoke Lifetime Access
+                  </>
                 )}
               </button>
             </div>

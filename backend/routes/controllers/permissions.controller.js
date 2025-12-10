@@ -403,7 +403,7 @@ export const getRolePermissions = async (req, res) => {
             description
           )
         `)
-        .eq('role', role),
+        .eq('role', role), // role_permissions.role is TEXT, not TEXT[], so use .eq() not .contains()
       10000
     );
 

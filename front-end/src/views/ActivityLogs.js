@@ -3,13 +3,14 @@ import { Container, Row, Col, Card } from 'react-bootstrap';
 import { Activity, Search, Filter, ChevronLeft, ChevronRight, User, Calendar, Globe, Trash2, Edit2, Plus, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getActivityLogs } from '../api/backend';
-import { checkUserPermission } from '../api/backend/permissions';
 import { useAuth } from '../hooks/useAuth';
+import { usePermissions } from '../hooks/usePermissions';
 import { useHistory } from 'react-router-dom';
 
 const ActivityLogs = () => {
   const history = useHistory();
   const { user, profile } = useAuth();
+  const { hasPermission, isLoading: isLoadingPermissions } = usePermissions();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -27,46 +28,31 @@ const ActivityLogs = () => {
 
   // Check activity_logs.view permission first (required to access the page)
   useEffect(() => {
-    const checkViewPermission = async () => {
-      if (!user || !profile) {
-        setHasViewPermission(false);
-        setCheckingViewPermission(false);
-        return;
-      }
+    if (!user || !profile) {
+      setHasViewPermission(false);
+      setCheckingViewPermission(false);
+      return;
+    }
 
-      try {
-        // Systemadmins have all permissions
-        if (profile.is_systemadmin === true) {
-          setHasViewPermission(true);
-          setCheckingViewPermission(false);
-          return;
-        }
+    // Wait for permissions to load before checking
+    if (isLoadingPermissions) {
+      setCheckingViewPermission(true);
+      return;
+    }
 
-        // Check if user has activity_logs.view permission
-        const hasPermission = await checkUserPermission(user.id, 'activity_logs.view');
-        setHasViewPermission(hasPermission === true);
-        
-        // Redirect if no permission
-        if (!hasPermission) {
-          toast.error('You do not have permission to view activity logs.');
-          setTimeout(() => {
-            history.push('/admin/users');
-          }, 500);
-        }
-      } catch (error) {
-        console.error('Error checking activity_logs.view permission:', error);
-        setHasViewPermission(false);
-        toast.error('Error checking permissions. Access denied.');
-        setTimeout(() => {
-          history.push('/admin/users');
-        }, 500);
-      } finally {
-        setCheckingViewPermission(false);
-      }
-    };
-
-    checkViewPermission();
-  }, [user, profile, history]);
+    // Use permissions hook to check permission (only after permissions are loaded)
+    const hasViewPerm = hasPermission('activity_logs.view');
+    setHasViewPermission(hasViewPerm);
+    setCheckingViewPermission(false);
+    
+    // Redirect if no permission (only after permissions are loaded)
+    if (!hasViewPerm) {
+      toast.error('You do not have permission to view activity logs.');
+      setTimeout(() => {
+        history.push('/admin/users');
+      }, 500);
+    }
+  }, [user, profile, history, hasPermission, isLoadingPermissions]);
 
   useEffect(() => {
     // Only fetch if user has view permission
