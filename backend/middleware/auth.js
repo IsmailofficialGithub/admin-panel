@@ -116,7 +116,7 @@ export const authenticate = async (req, res, next) => {
 
 /**
  * Middleware to check if user has admin role
- * Note: This should be used after loadUserProfile middleware
+ * NOTE: Always fetches role from database (bypasses cache) to ensure fresh role data
  */
 export const requireAdmin = async (req, res, next) => {
   try {
@@ -127,64 +127,64 @@ export const requireAdmin = async (req, res, next) => {
       });
     }
 
-    // Use profile from loadUserProfile middleware if available, otherwise fetch it
-    let profile = req.userProfile;
-    if (!profile) {
-      try {
-        const profilePromise = supabase
-          .from('profiles')
-          .select('role, account_status')
-          .eq('user_id', req.user.id)
-          .single();
-          
+    // ALWAYS fetch role fresh from database (bypass cache)
+    // This ensures role changes are immediately reflected even when Redis is enabled
+    try {
+      const profilePromise = supabase
+        .from('profiles')
+        .select('role, account_status, is_systemadmin')
+        .eq('user_id', req.user.id)
+        .single();
         
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Query timeout')), 25000)
-        );
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Query timeout')), 25000)
+      );
 
-        const { data: profileData, error } = await Promise.race([
-          profilePromise,
-          timeoutPromise
-        ]);
+      const { data: profile, error } = await Promise.race([
+        profilePromise,
+        timeoutPromise
+      ]);
 
-        console.log("profileData", profileData);
-
-        if (error || !profileData) {
-          return res.status(403).json({
-            error: 'Forbidden',
-            message: 'User profile not found'
-          });
-        }
-        profile = profileData;
-        req.userProfile = profile;
-      } catch (timeoutError) {
-        console.error('❌ Profile fetch timeout:', timeoutError);
-        return res.status(503).json({
-          error: 'Service Unavailable',
-          message: 'Database service is temporarily unavailable. Please try again later.'
+      if (error || !profile) {
+        console.error('❌ Error fetching profile for admin check:', error);
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'User profile not found'
         });
       }
-    }
 
-    // Handle role as array or string (for backward compatibility during migration)
-    const userRoles = Array.isArray(profile.role) ? profile.role : (profile.role ? [profile.role] : []);
-    
-    // Check if admin account is deactivated (shouldn't happen, but safety check)
-    if (userRoles.includes('admin') && profile.account_status === 'deactive') {
-      return res.status(403).json({
-        error: 'Forbidden',
-        message: 'Your account has been deactivated. Please contact the administrator.'
+      // Update req.userProfile with fresh data
+      req.userProfile = profile;
+
+      // Handle role as array or string (for backward compatibility during migration)
+      const userRoles = Array.isArray(profile.role) ? profile.role : (profile.role ? [profile.role] : []);
+      
+      // Check if admin account is deactivated (shouldn't happen, but safety check)
+      if (userRoles.includes('admin') && profile.account_status === 'deactive') {
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'Your account has been deactivated. Please contact the administrator.'
+        });
+      }
+
+      // Check if user has admin role or is systemadmin
+      if (!userRoles.includes('admin') && profile.is_systemadmin !== true) {
+        console.log(`❌ Admin check failed. User roles: ${JSON.stringify(userRoles)}, is_systemadmin: ${profile.is_systemadmin}`);
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'Admin access required'
+        });
+      }
+
+      console.log(`✅ Admin check passed. User roles: ${JSON.stringify(userRoles)}, is_systemadmin: ${profile.is_systemadmin}`);
+      next();
+    } catch (timeoutError) {
+      console.error('❌ Profile fetch timeout:', timeoutError);
+      return res.status(503).json({
+        error: 'Service Unavailable',
+        message: 'Database service is temporarily unavailable. Please try again later.'
       });
     }
-
-    if (!userRoles.includes('admin')) {
-      return res.status(403).json({
-        error: 'Forbidden',
-        message: 'Admin access required'
-      });
-    }
-
-    next();
   } catch (err) {
     console.error('Admin check error:', err);
     return res.status(500).json({
@@ -259,6 +259,7 @@ export const loadUserProfile = async (req, res, next) => {
 /**
  * Middleware to check user role
  * @param {Array} allowedRoles - Array of allowed roles
+ * NOTE: Always fetches role from database (bypasses cache) to ensure fresh role data
  */
 export const requireRole = (allowedRoles = []) => {
   return async (req, res, next) => {
@@ -270,65 +271,67 @@ export const requireRole = (allowedRoles = []) => {
         });
       }
 
-      // Ensure userProfile is loaded
-      if (!req.userProfile) {
-        try {
-          // Load profile if not already loaded with timeout
-          const profilePromise = supabase
-            .from('profiles')
-            .select('role, account_status, is_systemadmin')
-            .eq('user_id', req.user.id)
-            .single();
-          
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Query timeout')), 25000)
-          );
+      // ALWAYS fetch role fresh from database (bypass cache)
+      // This ensures role changes are immediately reflected even when Redis is enabled
+      try {
+        const profilePromise = supabase
+          .from('profiles')
+          .select('role, account_status, is_systemadmin')
+          .eq('user_id', req.user.id)
+          .single();
+        
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Query timeout')), 25000)
+        );
 
-          const { data: profile, error } = await Promise.race([
-            profilePromise,
-            timeoutPromise
-          ]);
+        const { data: profile, error } = await Promise.race([
+          profilePromise,
+          timeoutPromise
+        ]);
 
-          if (error || !profile) {
-            return res.status(403).json({
-              error: 'Forbidden',
-              message: 'User profile not found'
-            });
-          }
-
-          req.userProfile = profile;
-        } catch (timeoutError) {
-          console.error('❌ Profile fetch timeout:', timeoutError);
-          return res.status(503).json({
-            error: 'Service Unavailable',
-            message: 'Database service is temporarily unavailable. Please try again later.'
+        if (error || !profile) {
+          console.error('❌ Error fetching profile for role check:', error);
+          return res.status(403).json({
+            error: 'Forbidden',
+            message: 'User profile not found'
           });
         }
-      }
 
-      // Handle role as array or string (for backward compatibility during migration)
-      const userRoles = Array.isArray(req.userProfile.role) 
-        ? req.userProfile.role 
-        : (req.userProfile.role ? [req.userProfile.role] : []);
-      
-      // Check if account is deactivated (for reseller and consumer roles)
-      if ((userRoles.includes('reseller') || userRoles.includes('consumer')) && req.userProfile.account_status === 'deactive') {
-        return res.status(403).json({
-          error: 'Forbidden',
-          message: 'Your account has been deactivated. Please contact the administrator.'
+        // Update req.userProfile with fresh data (but we'll use local profile for role check)
+        req.userProfile = profile;
+
+        // Handle role as array or string (for backward compatibility during migration)
+        const userRoles = Array.isArray(profile.role) 
+          ? profile.role 
+          : (profile.role ? [profile.role] : []);
+        
+        // Check if account is deactivated (for reseller and consumer roles)
+        if ((userRoles.includes('reseller') || userRoles.includes('consumer')) && profile.account_status === 'deactive') {
+          return res.status(403).json({
+            error: 'Forbidden',
+            message: 'Your account has been deactivated. Please contact the administrator.'
+          });
+        }
+
+        // Check if user has any of the allowed roles
+        const hasAllowedRole = allowedRoles.some(allowedRole => userRoles.includes(allowedRole));
+        if (!hasAllowedRole) {
+          console.log(`❌ Role check failed. User roles: ${JSON.stringify(userRoles)}, Required: ${JSON.stringify(allowedRoles)}`);
+          return res.status(403).json({
+            error: 'Forbidden',
+            message: `Required role: ${allowedRoles.join(' or ')}`
+          });
+        }
+
+        console.log(`✅ Role check passed. User roles: ${JSON.stringify(userRoles)}, Required: ${JSON.stringify(allowedRoles)}`);
+        next();
+      } catch (timeoutError) {
+        console.error('❌ Profile fetch timeout:', timeoutError);
+        return res.status(503).json({
+          error: 'Service Unavailable',
+          message: 'Database service is temporarily unavailable. Please try again later.'
         });
       }
-
-      // Check if user has any of the allowed roles
-      const hasAllowedRole = allowedRoles.some(allowedRole => userRoles.includes(allowedRole));
-      if (!hasAllowedRole) {
-        return res.status(403).json({
-          error: 'Forbidden',
-          message: `Required role: ${allowedRoles.join(' or ')}`
-        });
-      }
-
-      next();
     } catch (err) {
       console.error('Role check error:', err);
       return res.status(500).json({
