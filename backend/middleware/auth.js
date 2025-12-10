@@ -121,10 +121,11 @@ export const requireAdmin = async (req, res, next) => {
     }
 
     // ALWAYS fetch role fresh from database (bypass cache)
+    // Use auth_role_with_profiles view which properly exposes role as TEXT[]
     // This ensures role changes are immediately reflected even when Redis is enabled
     try {
       const profilePromise = supabase
-        .from('profiles')
+        .from('auth_role_with_profiles')
         .select('role, account_status, is_systemadmin')
         .eq('user_id', req.user.id)
         .single();
@@ -203,11 +204,12 @@ export const loadUserProfile = async (req, res, next) => {
     }
 
     // ALWAYS fetch user profile fresh from database (bypass cache)
+    // Use auth_role_with_profiles view which properly exposes role as TEXT[]
     // This ensures role changes are immediately reflected even when Redis is enabled
     let profile, error;
     try {
       const profilePromise = supabase
-        .from('profiles')
+        .from('auth_role_with_profiles')
         .select('user_id, email, full_name, role, account_status, is_systemadmin')
         .eq('user_id', req.user.id)
         .single();
@@ -220,11 +222,21 @@ export const loadUserProfile = async (req, res, next) => {
       profile = result.data;
       error = result.error;
       
+      // Log full response for debugging
+      console.log('📊 loadUserProfile: Full database response:', {
+        hasData: !!result.data,
+        hasError: !!result.error,
+        error: result.error,
+        dataKeys: result.data ? Object.keys(result.data) : [],
+        fullData: result.data
+      });
+      
       console.log('📊 loadUserProfile: Fetched fresh profile from DB:', {
         user_id: req.user.id,
         role: profile?.role,
         roleType: typeof profile?.role,
-        isArray: Array.isArray(profile?.role)
+        isArray: Array.isArray(profile?.role),
+        profileExists: !!profile
       });
     } catch (timeoutError) {
       console.error('❌ Profile fetch timeout:', timeoutError);
@@ -236,6 +248,11 @@ export const loadUserProfile = async (req, res, next) => {
 
     if (error || !profile) {
       // If profile doesn't exist, create a fallback profile from auth user
+      console.warn('⚠️ loadUserProfile: Profile not found or error:', {
+        error: error?.message || error,
+        hasProfile: !!profile,
+        userId: req.user.id
+      });
       req.userProfile = {
         user_id: req.user.id,
         email: req.user.email,
@@ -244,8 +261,19 @@ export const loadUserProfile = async (req, res, next) => {
         account_status: 'active',
         is_systemadmin: false
       };
-      console.warn('⚠️ loadUserProfile: Profile not found, using fallback admin role');
+      console.warn('⚠️ loadUserProfile: Using fallback admin role');
     } else {
+      // Check if role is missing or null
+      if (!profile.role || profile.role === null || profile.role === undefined) {
+        console.error('❌ loadUserProfile: Profile exists but role is missing/null!', {
+          userId: req.user.id,
+          profileKeys: Object.keys(profile),
+          profileData: profile
+        });
+        // Set a default role if missing
+        profile.role = ['admin'];
+        console.warn('⚠️ loadUserProfile: Set default admin role due to missing role field');
+      }
       req.userProfile = profile;
     }
 
@@ -275,10 +303,11 @@ export const requireRole = (allowedRoles = []) => {
       }
 
       // ALWAYS fetch role fresh from database (bypass cache)
+      // Use auth_role_with_profiles view which properly exposes role as TEXT[]
       // This ensures role changes are immediately reflected even when Redis is enabled
       try {
         const profilePromise = supabase
-          .from('profiles')
+          .from('auth_role_with_profiles')
           .select('role, account_status, is_systemadmin')
           .eq('user_id', req.user.id)
           .single();
