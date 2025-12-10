@@ -741,7 +741,6 @@ export const addMessage = async (req, res) => {
         message: "User profile not loaded",
       });
     }
-
     const isAdmin = hasRole(userProfile.role, "admin");
 
     // ========================================
@@ -749,7 +748,7 @@ export const addMessage = async (req, res) => {
     // ========================================
     const ticketPromise = supabase
       .from("support_tickets")
-      .select("id, user_id, status, ticket_number")
+      .select("id, user_id, status, ticket_number,user_email,user_name")
       .eq("id", ticketId)
       .single();
 
@@ -865,22 +864,12 @@ export const addMessage = async (req, res) => {
       // Send email asynchronously (don't block the response)
       (async () => {
         try {
-          // Get ticket owner information for email
-          const ownerPromise = supabase
-            .from("profiles")
-            .select("email, full_name")
-            .eq("user_id", ticket.user_id)
-            .single();
+          // Use ticket email directly (no need to fetch from database)
+          const ticketEmail = ticket.user_email;
+          const ticketUserName = ticket.user_name;
 
-          const { data: owner, error: ownerError } = await executeWithTimeout(ownerPromise, 5000);
-          
-          if (ownerError || !owner) {
-            console.warn("⚠️ Failed to fetch ticket owner for email:", ownerError?.message);
-            return;
-          }
-
-          if (!owner.email) {
-            console.warn("⚠️ Ticket owner has no email address");
+          if (!ticketEmail) {
+            console.warn("⚠️ Ticket has no email address (user_email is missing)");
             return;
           }
 
@@ -893,8 +882,8 @@ export const addMessage = async (req, res) => {
           }));
 
           const emailResult = await sendTicketReplyEmail({
-            email: owner.email,
-            full_name: owner.full_name || owner.email.split('@')[0],
+            email: ticketEmail,
+            full_name: ticketUserName || ticketEmail.split('@')[0],
             ticket_number: ticket.ticket_number || `TICKET-${ticketId.substring(0, 8).toUpperCase()}`,
             admin_name: userProfile.full_name || 'Support Team',
             message: messageText,
@@ -903,7 +892,7 @@ export const addMessage = async (req, res) => {
           });
 
           if (emailResult?.success) {
-            console.log("✅ Ticket reply email sent to:", owner.email);
+            console.log("✅ Ticket reply email sent to:", ticketEmail);
           } else {
             console.warn("⚠️ Failed to send ticket reply email:", emailResult?.error || 'Unknown error');
           }
