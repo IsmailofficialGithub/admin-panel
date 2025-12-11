@@ -65,6 +65,8 @@ const Consumers = () => {
   const [resellers, setResellers] = useState([]);
   const [loadingResellers, setLoadingResellers] = useState(false);
   const [selectedResellerId, setSelectedResellerId] = useState('');
+  const [resellerSearchTerm, setResellerSearchTerm] = useState('');
+  const [showResellerSuggestions, setShowResellerSuggestions] = useState(false);
   const [isReassigning, setIsReassigning] = useState(false);
   const [permissions, setPermissions] = useState({
     create: false, // Start as false, update after checking
@@ -379,9 +381,10 @@ const Consumers = () => {
       if (consumer) {
         setReassignData({ id: userId, name: userName, consumer });
         setSelectedResellerId('');
+        setResellerSearchTerm('');
+        setResellers([]);
+        setShowResellerSuggestions(false);
         setShowReassignModal(true);
-        // Fetch resellers when modal opens
-        fetchResellers();
       }
     } else {
       toast(`${action} action clicked for consumer: ${userName}`);
@@ -773,25 +776,43 @@ const Consumers = () => {
     history.push('/admin/consumers');
   };
 
-  const fetchResellers = async () => {
-    try {
-      setLoadingResellers(true);
-      const result = await getResellers({});
-      if (result?.error) {
-        console.error('Error fetching resellers:', result.error);
-        toast.error('Failed to load resellers');
-        setResellers([]);
-      } else {
-        setResellers(result || []);
-      }
-    } catch (error) {
-      console.error('Error fetching resellers:', error);
-      toast.error('Failed to load resellers');
+  // Search resellers when user types 2+ characters
+  useEffect(() => {
+    if (resellerSearchTerm.length >= 2) {
+      const fetchResellers = async () => {
+        setLoadingResellers(true);
+        try {
+          const result = await getResellers({ search: resellerSearchTerm });
+          if (result?.error) {
+            console.error('Error fetching resellers:', result.error);
+            setResellers([]);
+          } else {
+            // Filter out current reseller if exists
+            const filtered = (result || []).filter(
+              reseller => reseller.user_id !== reassignData?.consumer?.referred_by
+            );
+            setResellers(filtered);
+            setShowResellerSuggestions(true);
+          }
+        } catch (error) {
+          console.error('Error fetching resellers:', error);
+          setResellers([]);
+        } finally {
+          setLoadingResellers(false);
+        }
+      };
+
+      const debounceTimer = setTimeout(() => {
+        fetchResellers();
+      }, 300); // Debounce search
+
+      return () => clearTimeout(debounceTimer);
+    } else {
       setResellers([]);
-    } finally {
-      setLoadingResellers(false);
+      setShowResellerSuggestions(false);
+      setSelectedResellerId('');
     }
-  };
+  }, [resellerSearchTerm, reassignData?.consumer?.referred_by]);
 
   const handleReassign = async () => {
     if (!reassignData || !selectedResellerId) {
@@ -2793,29 +2814,26 @@ const Consumers = () => {
                 color: '#333',
                 marginBottom: '8px'
               }}>
-                Select Reseller:
+                Search Reseller:
               </label>
-              {loadingResellers ? (
-                <div style={{ textAlign: 'center', padding: '20px' }}>
-                  <div style={{
-                    width: '30px',
-                    height: '30px',
-                    border: '3px solid #f3f3f3',
-                    borderTop: '3px solid #74317e',
-                    borderRadius: '50%',
-                    animation: 'spin 1s linear infinite',
-                    margin: '0 auto'
-                  }} />
-                  <p style={{ marginTop: '12px', color: '#666', fontSize: '14px' }}>Loading resellers...</p>
-                </div>
-              ) : resellers.length === 0 ? (
-                <p style={{ color: '#dc3545', fontSize: '14px', padding: '12px', backgroundColor: '#fff5f5', borderRadius: '6px' }}>
-                  No resellers found. Please create a reseller first.
-                </p>
-              ) : (
-                <select
-                  value={selectedResellerId}
-                  onChange={(e) => setSelectedResellerId(e.target.value)}
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  value={resellerSearchTerm}
+                  onChange={(e) => {
+                    setResellerSearchTerm(e.target.value);
+                    setSelectedResellerId('');
+                  }}
+                  onFocus={() => {
+                    if (resellers.length > 0) {
+                      setShowResellerSuggestions(true);
+                    }
+                  }}
+                  onBlur={() => {
+                    // Delay hiding suggestions to allow click on suggestion
+                    setTimeout(() => setShowResellerSuggestions(false), 200);
+                  }}
+                  placeholder={resellerSearchTerm.length < 2 ? "Type at least 2 characters to search..." : "Search by name or email..."}
                   disabled={isReassigning}
                   style={{
                     width: '100%',
@@ -2824,21 +2842,100 @@ const Consumers = () => {
                     borderRadius: '6px',
                     fontSize: '14px',
                     outline: 'none',
-                    cursor: isReassigning ? 'not-allowed' : 'pointer',
                     backgroundColor: isReassigning ? '#f3f4f6' : 'white',
-                    color: selectedResellerId ? '#374151' : '#9ca3af'
+                    color: '#374151',
+                    boxSizing: 'border-box'
                   }}
-                >
-                  <option value="">Select a reseller...</option>
-                  {resellers
-                    .filter(reseller => reseller.user_id !== reassignData.consumer?.referred_by)
-                    .map(reseller => (
-                      <option key={reseller.user_id} value={reseller.user_id}>
-                        {reseller.full_name || reseller.email} {reseller.email ? `(${reseller.email})` : ''}
-                      </option>
+                />
+                
+                {/* Loading Text */}
+                {loadingResellers && (
+                  <div style={{
+                    marginTop: '8px',
+                    fontSize: '14px',
+                    color: '#6b7280',
+                    fontStyle: 'italic'
+                  }}>
+                    Loading...
+                  </div>
+                )}
+                
+                {/* Suggestions Dropdown */}
+                {showResellerSuggestions && resellers.length > 0 && !loadingResellers && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    marginTop: '4px',
+                    backgroundColor: 'white',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                    maxHeight: '200px',
+                    overflowY: 'auto',
+                    zIndex: 1000
+                  }}>
+                    {resellers.map(reseller => (
+                      <div
+                        key={reseller.user_id}
+                        onClick={() => {
+                          setSelectedResellerId(reseller.user_id);
+                          setResellerSearchTerm(reseller.full_name || reseller.email || '');
+                          setShowResellerSuggestions(false);
+                        }}
+                        style={{
+                          padding: '10px 12px',
+                          cursor: 'pointer',
+                          borderBottom: '1px solid #f3f4f6',
+                          backgroundColor: selectedResellerId === reseller.user_id ? '#f3f4f6' : 'white',
+                          transition: 'background-color 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (selectedResellerId !== reseller.user_id) {
+                            e.target.style.backgroundColor = '#f9fafb';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (selectedResellerId !== reseller.user_id) {
+                            e.target.style.backgroundColor = 'white';
+                          }
+                        }}
+                      >
+                        <div style={{ fontWeight: '500', color: '#374151', fontSize: '14px' }}>
+                          {reseller.full_name || reseller.email}
+                        </div>
+                        {reseller.email && reseller.full_name && (
+                          <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>
+                            {reseller.email}
+                          </div>
+                        )}
+                      </div>
                     ))}
-                </select>
-              )}
+                  </div>
+                )}
+                
+                {showResellerSuggestions && resellers.length === 0 && resellerSearchTerm.length >= 2 && !loadingResellers && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    marginTop: '4px',
+                    backgroundColor: 'white',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    padding: '12px',
+                    textAlign: 'center',
+                    color: '#6b7280',
+                    fontSize: '14px',
+                    zIndex: 1000
+                  }}>
+                    No resellers found matching "{resellerSearchTerm}"
+                  </div>
+                )}
+              </div>
+              
               {selectedResellerId && (
                 <p style={{
                   marginTop: '12px',
@@ -2855,6 +2952,17 @@ const Consumers = () => {
                   })()}
                 </p>
               )}
+              
+              {resellerSearchTerm.length > 0 && resellerSearchTerm.length < 2 && (
+                <p style={{
+                  marginTop: '8px',
+                  fontSize: '12px',
+                  color: '#6b7280',
+                  fontStyle: 'italic'
+                }}>
+                  Type at least 2 characters to search for resellers
+                </p>
+              )}
             </div>
             <div style={{
               padding: '16px 24px',
@@ -2869,6 +2977,9 @@ const Consumers = () => {
                     setShowReassignModal(false);
                     setReassignData(null);
                     setSelectedResellerId('');
+                    setResellerSearchTerm('');
+                    setResellers([]);
+                    setShowResellerSuggestions(false);
                   }
                 }}
                 disabled={isReassigning}
