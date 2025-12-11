@@ -10,6 +10,7 @@ import {
   updateConsumerAccountStatus,
   grantLifetimeAccess,
   revokeLifetimeAccess,
+  reassignConsumerToReseller,
   rateLimitMiddleware,
   sanitizeInputMiddleware
 } from './controllers/consumers.controller.js';
@@ -71,5 +72,12 @@ router.post('/:id/grant-lifetime-access', authenticate, requireAdmin, requireAny
  * @access  Private (Admin with consumers.revoke_lifetime_access or consumers.manage_lifetime_access permission)
  */
 router.post('/:id/revoke-lifetime-access', authenticate, requireAdmin, requireAnyPermission(['consumers.revoke_lifetime_access', 'consumers.manage_lifetime_access']), rateLimitMiddleware, sanitizeInputMiddleware, revokeLifetimeAccess);
+
+/**
+ * @route   POST /api/consumers/:id/reassign
+ * @desc    Reassign consumer to a different reseller (admin only, requires consumers.reassign permission)
+ * @access  Private (Admin with consumers.reassign permission)
+ */
+router.post('/:id/reassign', authenticate, requireAdmin, requirePermission('consumers.reassign'), rateLimitMiddleware, sanitizeInputMiddleware, reassignConsumerToReseller);
 
 export default router;

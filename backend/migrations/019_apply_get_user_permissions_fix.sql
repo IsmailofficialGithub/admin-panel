@@ -1,15 +1,15 @@
 -- =====================================================
--- Migration: Fix get_user_permissions function for array roles
--- Description: Ensures get_user_permissions correctly handles TEXT[] role column
+-- Migration: Apply get_user_permissions fix (URGENT)
+-- Description: Fixes the text = text[] error in get_user_permissions function
 -- Date: 2025-01-XX
 -- =====================================================
+-- This migration fixes the error: "operator does not exist: text = text[]"
+-- The issue occurs when the function tries to compare role_permissions.role (TEXT) 
+-- with profiles.role (TEXT[]) without using the ANY() operator
 
 -- =====================================================
 -- UPDATE get_user_permissions FUNCTION
 -- =====================================================
--- Fix to handle role arrays correctly
--- The role_permissions.role is TEXT, profiles.role is TEXT[]
--- We need to use ANY() to check if the role string is in the role array
 CREATE OR REPLACE FUNCTION get_user_permissions(p_user_id UUID)
 RETURNS TABLE(permission_name TEXT, granted BOOLEAN) AS $$
 BEGIN
@@ -25,6 +25,7 @@ BEGIN
     -- Get permissions for all roles in the user's role array
     -- role_permissions.role is TEXT, profiles.role is TEXT[]
     -- Use ANY() to check if role string is in the role array
+    -- COALESCE handles NULL roles gracefully
     SELECT DISTINCT p.name as perm_name
     FROM profiles prof
     JOIN role_permissions rp ON rp.role = ANY(COALESCE(prof.role, ARRAY[]::TEXT[]))
@@ -66,5 +67,6 @@ GRANT EXECUTE ON FUNCTION get_user_permissions(UUID) TO authenticated;
 DO $$
 BEGIN
   RAISE NOTICE '✅ get_user_permissions function updated to handle TEXT[] role arrays';
+  RAISE NOTICE '✅ Fixed: operator does not exist: text = text[]';
 END $$;
 

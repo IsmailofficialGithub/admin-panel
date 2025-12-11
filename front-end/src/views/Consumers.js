@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useHistory } from 'react-router-dom';
-import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, CheckCircle, Search, Filter, FileText, Eye, Calendar, XCircle } from 'lucide-react';
+import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, CheckCircle, Search, Filter, FileText, Eye, Calendar, XCircle, UserCog } from 'lucide-react';
 import toast from 'react-hot-toast';
 // ✅ Using backend API instead of direct Supabase calls
 import { 
@@ -11,8 +11,10 @@ import {
   resetConsumerPassword,
   updateConsumerAccountStatus,
   grantLifetimeAccess,
-  revokeLifetimeAccess
+  revokeLifetimeAccess,
+  reassignConsumerToReseller
 } from '../api/backend';
+import { getResellers } from '../api/backend';
 import { checkUserPermissionsBulk } from '../api/backend/permissions';
 import { useAuth } from '../hooks/useAuth';
 import { usePermissions } from '../hooks/usePermissions';
@@ -58,6 +60,12 @@ const Consumers = () => {
   const [revokeLifetimeData, setRevokeLifetimeData] = useState(null);
   const [revokeTrialDays, setRevokeTrialDays] = useState('7');
   const [isRevokingLifetime, setIsRevokingLifetime] = useState(false);
+  const [showReassignModal, setShowReassignModal] = useState(false);
+  const [reassignData, setReassignData] = useState(null);
+  const [resellers, setResellers] = useState([]);
+  const [loadingResellers, setLoadingResellers] = useState(false);
+  const [selectedResellerId, setSelectedResellerId] = useState('');
+  const [isReassigning, setIsReassigning] = useState(false);
   const [permissions, setPermissions] = useState({
     create: false, // Start as false, update after checking
     delete: false,
@@ -67,6 +75,7 @@ const Consumers = () => {
     grantLifetimeAccess: false,
     revokeLifetimeAccess: false,
     manageLifetimeAccess: false,
+    reassign: false,
   });
   const [hasViewPermission, setHasViewPermission] = useState(false); // Start as false
   const [checkingViewPermission, setCheckingViewPermission] = useState(true);
@@ -140,7 +149,8 @@ const Consumers = () => {
         invoiceCreate: true,
         grantLifetimeAccess: true,
         revokeLifetimeAccess: true,
-        manageLifetimeAccess: true
+        manageLifetimeAccess: true,
+        reassign: true
       });
           setCheckingPermissions(false);
           return;
@@ -158,11 +168,12 @@ const Consumers = () => {
           invoiceCreate: hasPermission('invoices.create'),
           grantLifetimeAccess: hasPermission('consumers.grant_lifetime_access') || hasPermission('consumers.manage_lifetime_access'),
           revokeLifetimeAccess: hasPermission('consumers.revoke_lifetime_access') || hasPermission('consumers.manage_lifetime_access'),
-          manageLifetimeAccess: hasPermission('consumers.manage_lifetime_access')
+          manageLifetimeAccess: hasPermission('consumers.manage_lifetime_access'),
+          reassign: hasPermission('consumers.reassign')
         });
       } catch (error) {
         console.error('Error checking consumer permissions:', error);
-      setPermissions({ create: false, delete: false, update: false, read: false, invoiceCreate: false, grantLifetimeAccess: false, revokeLifetimeAccess: false, manageLifetimeAccess: false });
+      setPermissions({ create: false, delete: false, update: false, read: false, invoiceCreate: false, grantLifetimeAccess: false, revokeLifetimeAccess: false, manageLifetimeAccess: false, reassign: false });
       } finally {
       setCheckingPermissions(false);
       }
@@ -356,6 +367,21 @@ const Consumers = () => {
         setRevokeLifetimeData({ id: userId, name: userName, consumer });
         setRevokeTrialDays('7'); // Default to 7 days
         setShowRevokeLifetimeModal(true);
+      }
+    } else if (action === 'Reassign to Reseller') {
+      // Check permission
+      if (!permissions.reassign) {
+        toast.error('You do not have permission to reassign consumers.');
+        return;
+      }
+      
+      const consumer = users.find(u => u.user_id === userId);
+      if (consumer) {
+        setReassignData({ id: userId, name: userName, consumer });
+        setSelectedResellerId('');
+        setShowReassignModal(true);
+        // Fetch resellers when modal opens
+        fetchResellers();
       }
     } else {
       toast(`${action} action clicked for consumer: ${userName}`);
@@ -745,6 +771,67 @@ const Consumers = () => {
     setSearchInput('');
     // Navigate to consumers page without status parameter to deselect submenu
     history.push('/admin/consumers');
+  };
+
+  const fetchResellers = async () => {
+    try {
+      setLoadingResellers(true);
+      const result = await getResellers({});
+      if (result?.error) {
+        console.error('Error fetching resellers:', result.error);
+        toast.error('Failed to load resellers');
+        setResellers([]);
+      } else {
+        setResellers(result || []);
+      }
+    } catch (error) {
+      console.error('Error fetching resellers:', error);
+      toast.error('Failed to load resellers');
+      setResellers([]);
+    } finally {
+      setLoadingResellers(false);
+    }
+  };
+
+  const handleReassign = async () => {
+    if (!reassignData || !selectedResellerId) {
+      toast.error('Please select a reseller');
+      return;
+    }
+
+    setIsReassigning(true);
+    const loadingToast = toast.loading(`Reassigning ${reassignData.name} to reseller...`);
+
+    try {
+      const result = await reassignConsumerToReseller(reassignData.id, selectedResellerId);
+      
+      if (result.error) {
+        toast.error(`Error: ${result.error}`, { id: loadingToast });
+      } else {
+        // Update consumer in local state
+        setUsers(prevUsers => 
+          prevUsers.map(user => {
+            if (user.user_id === reassignData.id) {
+              return {
+                ...user,
+                referred_by: selectedResellerId
+              };
+            }
+            return user;
+          })
+        );
+        
+        toast.success(result.message || `Consumer "${reassignData.name}" reassigned successfully!`, { id: loadingToast });
+        setShowReassignModal(false);
+        setReassignData(null);
+        setSelectedResellerId('');
+      }
+    } catch (error) {
+      console.error('Error reassigning consumer:', error);
+      toast.error('Failed to reassign consumer. Please try again.', { id: loadingToast });
+    } finally {
+      setIsReassigning(false);
+    }
   };
 
   // Calculate trial status
@@ -1593,6 +1680,38 @@ const Consumers = () => {
                               Revoke Lifetime Access
                             </button>
                           )}
+                            </>
+                          )}
+                          {permissions.reassign && (
+                            <>
+                              <div style={{ 
+                                height: '1px', 
+                                backgroundColor: '#e0e0e0', 
+                                margin: '4px 0' 
+                              }} />
+                              <button
+                                onClick={() => handleAction('Reassign to Reseller', userId, user.full_name)}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px 16px',
+                                  border: 'none',
+                                  backgroundColor: 'transparent',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  color: '#74317e',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  transition: 'background-color 0.2s',
+                                  fontWeight: '500'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f3e8ff'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                              >
+                                <UserCog size={16} />
+                                Reassign to Reseller
+                              </button>
                             </>
                           )}
                           {permissions.delete && (
@@ -2601,6 +2720,206 @@ const Consumers = () => {
                   <>
                     <XCircle size={16} />
                     Revoke Lifetime Access
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Reassign to Reseller Modal */}
+      {showReassignModal && reassignData && (
+        <>
+          <div
+            onClick={() => {
+              if (!isReassigning) {
+                setShowReassignModal(false);
+                setReassignData(null);
+                setSelectedResellerId('');
+              }
+            }}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 9998,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}
+          />
+          <div style={{
+            position: 'fixed',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+            zIndex: 9999,
+            minWidth: '450px',
+            maxWidth: '550px',
+            maxHeight: '90vh',
+            overflow: 'auto'
+          }}>
+            <div style={{
+              padding: '24px',
+              borderBottom: '1px solid #e0e0e0'
+            }}>
+              <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '600', color: '#74317e' }}>
+                Reassign Consumer to Reseller
+              </h3>
+              <p style={{ margin: '8px 0 0 0', fontSize: '14px', color: '#666' }}>
+                Select a reseller to reassign <strong>{reassignData.name}</strong> to
+              </p>
+              {reassignData.consumer?.referred_by && (
+                <p style={{ margin: '8px 0 0 0', fontSize: '13px', color: '#999' }}>
+                  Current reseller: {(() => {
+                    const currentReseller = resellers.find(r => r.user_id === reassignData.consumer.referred_by);
+                    return currentReseller ? currentReseller.full_name || currentReseller.email : 'Unknown';
+                  })()}
+                </p>
+              )}
+            </div>
+            <div style={{ padding: '24px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '14px',
+                fontWeight: '500',
+                color: '#333',
+                marginBottom: '8px'
+              }}>
+                Select Reseller:
+              </label>
+              {loadingResellers ? (
+                <div style={{ textAlign: 'center', padding: '20px' }}>
+                  <div style={{
+                    width: '30px',
+                    height: '30px',
+                    border: '3px solid #f3f3f3',
+                    borderTop: '3px solid #74317e',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite',
+                    margin: '0 auto'
+                  }} />
+                  <p style={{ marginTop: '12px', color: '#666', fontSize: '14px' }}>Loading resellers...</p>
+                </div>
+              ) : resellers.length === 0 ? (
+                <p style={{ color: '#dc3545', fontSize: '14px', padding: '12px', backgroundColor: '#fff5f5', borderRadius: '6px' }}>
+                  No resellers found. Please create a reseller first.
+                </p>
+              ) : (
+                <select
+                  value={selectedResellerId}
+                  onChange={(e) => setSelectedResellerId(e.target.value)}
+                  disabled={isReassigning}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontSize: '14px',
+                    outline: 'none',
+                    cursor: isReassigning ? 'not-allowed' : 'pointer',
+                    backgroundColor: isReassigning ? '#f3f4f6' : 'white',
+                    color: selectedResellerId ? '#374151' : '#9ca3af'
+                  }}
+                >
+                  <option value="">Select a reseller...</option>
+                  {resellers
+                    .filter(reseller => reseller.user_id !== reassignData.consumer?.referred_by)
+                    .map(reseller => (
+                      <option key={reseller.user_id} value={reseller.user_id}>
+                        {reseller.full_name || reseller.email} {reseller.email ? `(${reseller.email})` : ''}
+                      </option>
+                    ))}
+                </select>
+              )}
+              {selectedResellerId && (
+                <p style={{
+                  marginTop: '12px',
+                  marginBottom: 0,
+                  fontSize: '12px',
+                  color: '#666',
+                  backgroundColor: '#f3f4f6',
+                  padding: '8px 12px',
+                  borderRadius: '6px'
+                }}>
+                  ℹ️ Consumer will be reassigned to: {(() => {
+                    const selectedReseller = resellers.find(r => r.user_id === selectedResellerId);
+                    return selectedReseller ? (selectedReseller.full_name || selectedReseller.email) : 'Unknown';
+                  })()}
+                </p>
+              )}
+            </div>
+            <div style={{
+              padding: '16px 24px',
+              borderTop: '1px solid #e0e0e0',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '12px'
+            }}>
+              <button
+                onClick={() => {
+                  if (!isReassigning) {
+                    setShowReassignModal(false);
+                    setReassignData(null);
+                    setSelectedResellerId('');
+                  }
+                }}
+                disabled={isReassigning}
+                style={{
+                  padding: '10px 24px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  backgroundColor: 'white',
+                  color: '#333',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: isReassigning ? 'not-allowed' : 'pointer',
+                  opacity: isReassigning ? 0.7 : 1
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleReassign}
+                disabled={isReassigning || !selectedResellerId || loadingResellers}
+                style={{
+                  padding: '10px 24px',
+                  border: 'none',
+                  borderRadius: '6px',
+                  backgroundColor: selectedResellerId && !isReassigning && !loadingResellers ? '#74317e' : '#9ca3af',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: selectedResellerId && !isReassigning && !loadingResellers ? 'pointer' : 'not-allowed',
+                  opacity: isReassigning ? 0.7 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                {isReassigning ? (
+                  <>
+                    <div style={{
+                      width: '14px',
+                      height: '14px',
+                      border: '2px solid white',
+                      borderTop: '2px solid transparent',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite'
+                    }} />
+                    Reassigning...
+                  </>
+                ) : (
+                  <>
+                    <UserCog size={16} />
+                    Reassign
                   </>
                 )}
               </button>

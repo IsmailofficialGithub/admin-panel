@@ -47,8 +47,13 @@ export const createPaymentIntent = async (req, res) => {
     let paymentData;
     try {
       paymentData = decryptPaymentData(encryptedData);
+      console.log('✅ Payment data decrypted successfully');
+      console.log('   Invoice ID:', paymentData.invoice_id);
+      console.log('   User ID:', paymentData.user_id);
+      console.log('   Invoice Number:', paymentData.invoice_number);
+      console.log('   Amount:', paymentData.amount);
     } catch (decryptError) {
-      console.error('Decryption error:', decryptError);
+      console.error('❌ Decryption error:', decryptError);
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
@@ -92,25 +97,50 @@ export const createPaymentIntent = async (req, res) => {
     // ========================================
     // 2. QUERY TIMEOUT - Fetch invoice
     // ========================================
+    console.log('🔍 Looking for invoice:', invoice_id);
     const { data: invoice, error: invoiceError } = await executeWithTimeout(
       supabaseAdmin
         .from('invoices')
-        .select('id, status, total_amount, consumer_id')
+        .select('id, status, total_amount, receiver_id')
         .eq('id', invoice_id)
         .single(),
       5000 // 5 second timeout for invoice fetch
     );
 
-    if (invoiceError || !invoice) {
+    if (invoiceError) {
+      console.error('❌ Invoice query error:', invoiceError);
+      console.error('   Invoice ID:', invoice_id);
+      console.error('   Error code:', invoiceError.code);
+      console.error('   Error message:', invoiceError.message);
       return res.status(404).json({
         success: false,
         error: 'Not Found',
-        message: 'Invoice not found'
+        message: 'Invoice not found',
+        details: process.env.NODE_ENV === 'development' ? {
+          invoice_id,
+          error: invoiceError.message,
+          code: invoiceError.code
+        } : undefined
       });
     }
 
-    // Verify invoice belongs to user
-    // if (invoice.consumer_id !== user_id) {
+    if (!invoice) {
+      console.error('❌ Invoice not found in database');
+      console.error('   Invoice ID:', invoice_id);
+      return res.status(404).json({
+        success: false,
+        error: 'Not Found',
+        message: 'Invoice not found',
+        details: process.env.NODE_ENV === 'development' ? {
+          invoice_id
+        } : undefined
+      });
+    }
+
+    console.log('✅ Invoice found:', invoice.id, 'Status:', invoice.status);
+
+    // Verify invoice belongs to user (receiver_id is the consumer who should pay)
+    // if (invoice.receiver_id !== user_id) {
     //   return res.status(403).json({
     //     error: 'Forbidden',
     //     message: 'Invoice does not belong to this user'

@@ -25,11 +25,23 @@ const EarningsBreakdown = () => {
     try {
       // Fetch commission data
       const commissionResult = await getMyCommission();
+      let effectiveCommissionData = null;
+      
       if (commissionResult && commissionResult.success && commissionResult.data) {
         setCommissionData(commissionResult.data);
+        effectiveCommissionData = commissionResult.data;
       } else if (commissionResult && commissionResult.commissionRate !== undefined) {
         setCommissionData(commissionResult);
+        effectiveCommissionData = commissionResult;
+      } else if (commissionResult && commissionResult.data && commissionResult.data.commissionRate !== undefined) {
+        setCommissionData(commissionResult.data);
+        effectiveCommissionData = commissionResult.data;
       }
+
+      // Extract effective commission rate for calculations
+      const effectiveCommissionRate = effectiveCommissionData?.commissionRate || 
+                                     effectiveCommissionData?.defaultCommission || 
+                                     0;
 
       // Fetch paid invoices
       const invoicesResponse = await apiClient.invoices.getMyInvoices('?status=paid');
@@ -43,7 +55,13 @@ const EarningsBreakdown = () => {
 
         invoices.forEach(inv => {
           const invoiceAmount = parseFloat(inv.total_amount || inv.total || 0);
-          const commissionPercent = parseFloat(inv.reseller_commission_percentage || 0);
+          // Use reseller_commission_percentage from invoice, or fall back to effective commission rate
+          let commissionPercent = parseFloat(inv.reseller_commission_percentage || 0);
+          
+          // If commission percentage is 0 or null, use the effective commission rate
+          if (commissionPercent === 0 || !inv.reseller_commission_percentage) {
+            commissionPercent = parseFloat(effectiveCommissionRate);
+          }
           
           if (commissionPercent > 0 && invoiceAmount > 0) {
             const commissionAmount = (invoiceAmount * commissionPercent) / 100;

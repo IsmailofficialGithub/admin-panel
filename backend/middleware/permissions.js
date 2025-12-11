@@ -1,4 +1,5 @@
 import { supabase, supabaseAdmin } from "../config/database.js";
+import { hasRole } from "../utils/roleUtils.js";
 
 /**
  * Permission Middleware
@@ -66,6 +67,12 @@ export const requirePermission = (permissionName) => {
 
       // Check if user is systemadmin (has all permissions)
       if (req.userProfile.is_systemadmin === true) {
+        return next();
+      }
+
+      // Check if user has admin role (admins have all permissions by default)
+      const userRoles = Array.isArray(req.userProfile.role) ? req.userProfile.role : (req.userProfile.role ? [req.userProfile.role] : []);
+      if (hasRole(userRoles, 'admin')) {
         return next();
       }
 
@@ -166,6 +173,12 @@ export const requireAnyPermission = (permissionNames = []) => {
         return next();
       }
 
+      // Check if user has admin role (admins have all permissions by default)
+      const userRoles = Array.isArray(req.userProfile.role) ? req.userProfile.role : (req.userProfile.role ? [req.userProfile.role] : []);
+      if (hasRole(userRoles, 'admin')) {
+        return next();
+      }
+
       // Check each permission
       for (const permissionName of permissionNames) {
         const { data, error } = await supabase.rpc("has_permission", {
@@ -263,6 +276,12 @@ export const requireAllPermissions = (permissionNames = []) => {
 
       // Systemadmin has all permissions
       if (req.userProfile.is_systemadmin === true) {
+        return next();
+      }
+
+      // Check if user has admin role (admins have all permissions by default)
+      const userRoles = Array.isArray(req.userProfile.role) ? req.userProfile.role : (req.userProfile.role ? [req.userProfile.role] : []);
+      if (hasRole(userRoles, 'admin')) {
         return next();
       }
 

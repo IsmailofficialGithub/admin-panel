@@ -21,6 +21,7 @@ import {
   createRateLimitMiddleware,
   sanitizeInputMiddleware
 } from '../../utils/apiOptimization.js';
+import { hasRole } from '../../utils/roleUtils.js';
 
 // Export middleware for use in routes
 export const rateLimitMiddleware = createRateLimitMiddleware('consumers', 100);
@@ -1396,6 +1397,195 @@ export const revokeLifetimeAccess = async (req, res) => {
     });
   } catch (error) {
     return handleApiError(error, res, 'An error occurred while revoking lifetime access.');
+  }
+};
+
+/**
+ * Reassign consumer to a different reseller (admin only)
+ * @route   POST /api/consumers/:id/reassign
+ * @access  Private (Admin with consumers.reassign permission)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Query timeout (Performance)
+ * 3. Cache invalidation (Performance)
+ * 4. Secure error handling (Security)
+ * 5. Activity logging (Audit)
+ */
+export const reassignConsumerToReseller = async (req, res) => {
+  try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
+    const { id } = req.params;
+    const { reseller_id } = req.body;
+
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid consumer ID format'
+      });
+    }
+
+    if (!reseller_id || !isValidUUID(reseller_id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid reseller ID format. Please provide a valid reseller_id in the request body.'
+      });
+    }
+
+    // Cannot reassign to self
+    if (id === reseller_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Consumer cannot be reassigned to themselves'
+      });
+    }
+
+    // ========================================
+    // 2. VERIFY CONSUMER EXISTS (with timeout)
+    // ========================================
+    const consumerPromise = supabase
+      .from('auth_role_with_profiles')
+      .select('user_id, full_name, email, role, referred_by')
+      .eq('user_id', id)
+      .contains('role', ['consumer']) // Check if role array contains 'consumer'
+      .single();
+
+    const { data: consumer, error: consumerError } = await executeWithTimeout(consumerPromise);
+
+    if (consumerError || !consumer) {
+      console.error('❌ Error fetching consumer:', consumerError);
+      return res.status(404).json({
+        success: false,
+        error: 'Not Found',
+        message: 'Consumer not found'
+      });
+    }
+
+    // Verify consumer has consumer role
+    if (!hasRole(consumer.role, 'consumer')) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'User is not a consumer'
+      });
+    }
+
+    const oldResellerId = consumer.referred_by;
+
+    // ========================================
+    // 3. VERIFY RESELLER EXISTS (with timeout)
+    // ========================================
+    const resellerPromise = supabase
+      .from('auth_role_with_profiles')
+      .select('user_id, full_name, email, role')
+      .eq('user_id', reseller_id)
+      .single();
+
+    const { data: reseller, error: resellerError } = await executeWithTimeout(resellerPromise);
+
+    if (resellerError || !reseller) {
+      console.error('❌ Error fetching reseller:', resellerError);
+      return res.status(404).json({
+        success: false,
+        error: 'Not Found',
+        message: 'Reseller not found'
+      });
+    }
+
+    // Verify reseller has reseller role
+    if (!hasRole(reseller.role, 'reseller')) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Target user is not a reseller'
+      });
+    }
+
+    // Check if already assigned to this reseller
+    if (oldResellerId === reseller_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Consumer is already assigned to this reseller'
+      });
+    }
+
+    // ========================================
+    // 4. UPDATE REFERRED_BY (with timeout)
+    // ========================================
+    const updatePromise = supabase
+      .from('profiles')
+      .update({ referred_by: reseller_id })
+      .eq('user_id', id)
+      .select()
+      .maybeSingle();
+
+    const { data: updatedConsumer, error: updateError } = await executeWithTimeout(updatePromise);
+
+    if (updateError || !updatedConsumer) {
+      console.error('❌ Error updating consumer:', updateError);
+      return res.status(500).json({
+        success: false,
+        error: 'Database Error',
+        message: 'Failed to reassign consumer. Please try again.'
+      });
+    }
+
+    // ========================================
+    // 5. LOG ACTIVITY (non-blocking)
+    // ========================================
+    const { actorId, actorRole } = await getActorInfo(req);
+    await logActivity({
+      actorId,
+      actorRole,
+      targetId: id,
+      actionType: 'update',
+      tableName: 'profiles',
+      changedFields: {
+        referred_by: {
+          old: oldResellerId,
+          new: reseller_id,
+          oldResellerName: oldResellerId ? 'Previous Reseller' : 'None',
+          newResellerName: reseller.full_name || reseller.email
+        }
+      },
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
+    }).catch(logError => {
+      console.warn('⚠️ Failed to log activity:', logError?.message);
+    });
+
+    // ========================================
+    // 6. CACHE INVALIDATION
+    // ========================================
+    await cacheService.del(CACHE_KEYS.CONSUMER_BY_ID(id));
+    await cacheService.delByPattern('consumers:*');
+    // Also invalidate reseller cache since consumer count changed
+    await cacheService.delByPattern('resellers:*');
+    console.log('✅ Cache invalidated for consumer reassignment');
+
+    // ========================================
+    // 7. DATA SANITIZATION
+    // ========================================
+    const sanitizedConsumer = sanitizeObject(updatedConsumer);
+
+    res.json({
+      success: true,
+      message: `Consumer successfully reassigned from ${oldResellerId ? 'previous reseller' : 'no reseller'} to ${reseller.full_name || reseller.email}`,
+      data: {
+        ...sanitizedConsumer,
+        old_reseller_id: oldResellerId,
+        new_reseller_id: reseller_id,
+        new_reseller_name: reseller.full_name || reseller.email
+      }
+    });
+  } catch (error) {
+    return handleApiError(error, res, 'An error occurred while reassigning the consumer.');
   }
 };
 

@@ -316,6 +316,11 @@ const apiClient = {
         trial_days: trialDays
       });
     },
+
+    /**
+     * Reassign consumer to a different reseller
+     */
+    reassign: (id, data) => axiosInstance.post(`/consumers/${id}/reassign`, data),
   },
 
   // ==================== RESELLERS ====================

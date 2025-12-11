@@ -167,7 +167,7 @@ export const createPayPalOrder = async (req, res) => {
     const { data: invoice, error: invoiceError } = await executeWithTimeout(
       supabaseAdmin
         .from('invoices')
-        .select('id, status, total_amount, consumer_id')
+        .select('id, status, total_amount, receiver_id')
         .eq('id', invoice_id)
         .single(),
       5000 // 5 second timeout for invoice fetch

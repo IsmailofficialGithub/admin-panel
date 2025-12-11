@@ -175,7 +175,16 @@ export const createRateLimitMiddleware = (endpoint, maxRequests = 100) => {
     try {
       const userId = req.user?.id || req.ip;
       const rateLimitKey = `rate_limit:${endpoint}:${userId}`;
-      const requests = await cacheService.get(rateLimitKey) || 0;
+      
+      // Try to get current request count, but don't fail if Redis is unavailable
+      let requests = 0;
+      try {
+        const cached = await cacheService.get(rateLimitKey);
+        requests = cached || 0;
+      } catch (getError) {
+        // Redis unavailable - silently continue (fail open)
+        // Don't log error here to avoid spam
+      }
       
       if (requests >= maxRequests) {
         return res.status(429).json({
@@ -185,11 +194,18 @@ export const createRateLimitMiddleware = (endpoint, maxRequests = 100) => {
         });
       }
 
-      await cacheService.set(rateLimitKey, requests + 1, 60); // 60 seconds TTL
+      // Try to increment counter, but don't fail if Redis is unavailable
+      try {
+        await cacheService.set(rateLimitKey, requests + 1, 60); // 60 seconds TTL
+      } catch (setError) {
+        // Redis unavailable - silently continue (fail open)
+        // Don't log error here to avoid spam
+      }
+      
       next();
     } catch (error) {
-      // If rate limiting fails, allow request (fail open)
-      console.error('❌ Rate limit error:', error);
+      // If rate limiting fails completely, allow request (fail open)
+      // Don't log error to avoid spam when Redis is down
       next();
     }
   };

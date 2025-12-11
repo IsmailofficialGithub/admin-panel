@@ -169,14 +169,34 @@ function ResellerDetail() {
       }
 
       try {
+        // Try using getMyPermissions first (more reliable)
+        const { getMyPermissions } = await import('../api/backend/permissions');
+        const myPermissions = await getMyPermissions();
+        
+        if (myPermissions && !myPermissions.error && Array.isArray(myPermissions)) {
+          const hasResellersRead = myPermissions.some(
+            perm => perm.permission_name === 'resellers.read' && perm.granted === true
+          );
+          
+          if (hasResellersRead) {
+            setHasPermission(true);
+            setCheckingPermission(false);
+            return;
+          }
+        }
+        
+        // Fallback to checkUserPermission API call
         const hasPerm = await checkUserPermission(user.id, 'resellers.read');
-        setHasPermission(hasPerm);
+        setHasPermission(hasPerm === true);
+        
         if (!hasPerm) {
+          console.error('Permission check failed. User permissions:', myPermissions);
           toast.error('Access denied. You do not have permission to view reseller details.');
           history.push('/admin/resellers');
         }
       } catch (error) {
         console.error('Error checking resellers.read permission:', error);
+        console.error('Error details:', error.response || error);
         toast.error('Error checking permissions. Access denied.');
         setHasPermission(false);
         history.push('/admin/resellers');

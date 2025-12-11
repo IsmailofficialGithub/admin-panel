@@ -121,9 +121,24 @@ export const getRolePermissions = async (role) => {
 export const checkUserPermission = async (userId, permissionName) => {
   try {
     const response = await apiClient.permissions.check(userId, permissionName);
-    return response.data?.hasPermission || false;
+    // Response structure: { success: true, data: { userId, permissionName, hasPermission: true/false } }
+    // axios interceptor returns response.data, so response is already the backend response
+    if (response?.success && response?.data) {
+      return response.data.hasPermission === true;
+    }
+    // Fallback: check if response.data is the data object directly
+    if (response?.data?.hasPermission !== undefined) {
+      return response.data.hasPermission === true;
+    }
+    // Fallback: check if response itself has hasPermission
+    if (response?.hasPermission !== undefined) {
+      return response.hasPermission === true;
+    }
+    console.warn('checkUserPermission: Unexpected response structure', response);
+    return false;
   } catch (error) {
     console.error('checkUserPermission Error:', error);
+    console.error('Error response:', error.response?.data);
     return false;
   }
 };

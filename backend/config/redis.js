@@ -30,7 +30,10 @@ redis.on('ready', () => {
 });
 
 redis.on('error', (err) => {
-  console.error('❌ Redis connection error:', err.message);
+  // Only log error if it's not a connection error (to avoid spam)
+  if (!err.message.includes('Stream isn\'t writeable') && !err.message.includes('ECONNREFUSED')) {
+    console.error('❌ Redis connection error:', err.message);
+  }
 });
 
 redis.on('close', () => {

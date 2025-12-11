@@ -282,6 +282,31 @@ export const revokeLifetimeAccess = async (consumerId, trialDays = null) => {
   }
 };
 
+/**
+ * Reassign consumer to a different reseller
+ * @param {string} consumerId - Consumer ID
+ * @param {string} resellerId - New reseller ID
+ * @returns {Promise<Object>} Success status
+ */
+export const reassignConsumerToReseller = async (consumerId, resellerId) => {
+  try {
+    const response = await apiClient.consumers.reassign(consumerId, { reseller_id: resellerId });
+    
+    if (response.success) {
+      return {
+        success: true,
+        message: response.message || 'Consumer reassigned successfully',
+        data: response.data
+      };
+    }
+    
+    return { error: response.message || 'Failed to reassign consumer' };
+  } catch (error) {
+    console.error('reassignConsumerToReseller Error:', error);
+    return { error: error.message };
+  }
+};
+
 export default {
   getConsumers,
   getConsumerById,
@@ -291,6 +316,7 @@ export default {
   resetConsumerPassword,
   updateConsumerAccountStatus,
   grantLifetimeAccess,
-  revokeLifetimeAccess
+  revokeLifetimeAccess,
+  reassignConsumerToReseller
 };
 

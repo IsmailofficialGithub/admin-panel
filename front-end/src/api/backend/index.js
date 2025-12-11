@@ -22,7 +22,8 @@ export {
   resetConsumerPassword,
   updateConsumerAccountStatus,
   grantLifetimeAccess,
-  revokeLifetimeAccess
+  revokeLifetimeAccess,
+  reassignConsumerToReseller
 } from './consumers';
 
 export {
