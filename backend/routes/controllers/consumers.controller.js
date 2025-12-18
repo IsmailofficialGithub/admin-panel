@@ -327,13 +327,14 @@ export const updateConsumer = async (req, res) => {
       });
     }
 
-    let { full_name, phone, trial_expiry_date, country, city, subscribed_products, roles } = req.body;
+    let { full_name, phone, trial_expiry_date, country, city, subscribed_products, subscribed_packages, roles } = req.body;
     
     console.log('📝 Update consumer - received data:', { 
       roles, 
       rolesType: typeof roles, 
       isArray: Array.isArray(roles),
-      subscribed_products 
+      subscribed_products,
+      subscribed_packages 
     });
 
     // Validate required fields for update
@@ -398,10 +399,10 @@ export const updateConsumer = async (req, res) => {
         updateData.trial_expiry = null;
       }
     }
-    // Note: subscribed_products is NOT stored in profiles table anymore
-    // It's only stored in user_product_access table (see below)
+    // Note: subscribed_packages is stored in profiles.subscribed_packages array
+    // and also in user_package_access table (see below)
 
-    if (Object.keys(updateData).length === 0 && subscribed_products === undefined) {
+    if (Object.keys(updateData).length === 0 && subscribed_packages === undefined && subscribed_products === undefined) {
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
@@ -514,42 +515,63 @@ export const updateConsumer = async (req, res) => {
       userAgent: getUserAgent(req)
     });
 
-    // Update product access in user_product_access table
-    if (subscribed_products !== undefined) {
+    // Update package access - support both subscribed_packages (new) and subscribed_products (backward compatibility)
+    const packagesToStore = subscribed_packages !== undefined ? subscribed_packages : subscribed_products;
+    
+    if (packagesToStore !== undefined) {
       try {
-        // First, delete all existing product access for this user
+        // Validate package IDs
+        const validPackageIds = Array.isArray(packagesToStore) 
+          ? packagesToStore.filter(packageId => isValidUUID(packageId))
+          : [];
+
+        // Update profile with subscribed_packages array
+        if (validPackageIds.length > 0 || packagesToStore.length === 0) {
+          const { error: profileUpdateError } = await supabase
+            .from('profiles')
+            .update({ subscribed_packages: validPackageIds })
+            .eq('user_id', id);
+
+          if (profileUpdateError) {
+            console.error('Error updating profile with packages:', profileUpdateError);
+          } else {
+            console.log(`✅ Updated profile with ${validPackageIds.length} packages`);
+          }
+        }
+
+        // First, delete all existing package access for this user
         const { error: deleteError } = await supabase
-          .from('user_product_access')
+          .from('user_package_access')
           .delete()
           .eq('user_id', id);
 
         if (deleteError) {
-          console.error('Error deleting existing product access:', deleteError);
+          console.error('Error deleting existing package access:', deleteError);
         } else {
-          console.log('✅ Deleted existing product access records');
+          console.log('✅ Deleted existing package access records');
         }
 
-        // Then insert new product access records if any products are provided
-        if (Array.isArray(subscribed_products) && subscribed_products.length > 0) {
-          const productAccessRecords = subscribed_products.map(productId => ({
+        // Then insert new package access records if any packages are provided
+        if (validPackageIds.length > 0) {
+          const packageAccessRecords = validPackageIds.map(packageId => ({
             user_id: id,
-            product_id: productId
+            package_id: packageId
           }));
 
           const { error: insertError } = await supabase
-            .from('user_product_access')
-            .insert(productAccessRecords);
+            .from('user_package_access')
+            .insert(packageAccessRecords);
 
           if (insertError) {
-            console.error('Error inserting product access:', insertError);
+            console.error('Error inserting package access:', insertError);
             // Don't fail the request, just log the error
           } else {
-            console.log(`✅ Stored ${productAccessRecords.length} product access records`);
+            console.log(`✅ Stored ${packageAccessRecords.length} package access records`);
           }
         }
-      } catch (productAccessErr) {
-        console.error('Error updating product access:', productAccessErr);
-        // Don't fail the request if product access update fails
+      } catch (packageAccessErr) {
+        console.error('Error updating package access:', packageAccessErr);
+        // Don't fail the request if package access update fails
       }
     }
 

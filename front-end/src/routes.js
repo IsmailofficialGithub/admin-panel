@@ -9,6 +9,7 @@ import UserDetail from "views/UserDetail.js";
 import ConsumerDetail from "views/ConsumerDetail.js";
 import Account from "views/Account.js";
 import Products from "views/Products.js";
+import Packages from "views/Packages.js";
 import Invoices from "views/Invoices.js";
 import InvoicePaymentDetail from "views/InvoicePaymentDetail.js";
 import ActivityLogs from "views/ActivityLogs.js";
@@ -19,6 +20,9 @@ import Offers from "views/Offers.js";
 import ProductDetail from "views/ProductDetail.js";
 import Customers from "views/Customers.js";
 import Permissions from "views/Permissions.js";
+import Genie from "views/Genie.js";
+import CallDetail from "views/CallDetail.js";
+import LeadDetail from "views/LeadDetail.js";
 
 const dashboardRoutes = [
   // Hidden routes (not shown in sidebar)
@@ -74,6 +78,18 @@ const dashboardRoutes = [
   {
     path: "/invoices/:invoiceId/payments",
     component: InvoicePaymentDetail,
+    layout: "/admin",
+    invisible: true // This prevents it from showing in sidebar
+  },
+  {
+    path: "/genie/calls/:id",
+    component: CallDetail,
+    layout: "/admin",
+    invisible: true // This prevents it from showing in sidebar
+  },
+  {
+    path: "/genie/leads/:id",
+    component: LeadDetail,
     layout: "/admin",
     invisible: true // This prevents it from showing in sidebar
   },
@@ -140,6 +156,13 @@ const dashboardRoutes = [
     layout: "/admin"
   },
   {
+    path: "/packages",
+    name: "Packages",
+    icon: "nc-icon nc-chart-bar-32",
+    component: Packages,
+    layout: "/admin"
+  },
+  {
     path: "/invoices",
     name: "Invoices",
     icon: "nc-icon nc-single-copy-04",
@@ -166,6 +189,14 @@ const dashboardRoutes = [
     icon: "nc-icon nc-support-17",
     component: Customers,
     layout: "/admin"
+  },
+  {
+    path: "/genie",
+    name: "Genie",
+    icon: "nc-icon nc-headphones-2",
+    component: Genie,
+    layout: "/admin",
+    permission: "genie.view" // Permission-based visibility
   },
   {
     path: "/settings",

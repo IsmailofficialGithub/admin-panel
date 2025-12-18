@@ -11,6 +11,7 @@ import usersRoutes from './routes/users.routes.js';
 import consumersRoutes from './routes/consumers.routes.js';
 import resellersRoutes from './routes/resellers.routes.js';
 import productsRoutes from './routes/products.routes.js';
+import packagesRoutes from './routes/packages.routes.js';
 import invoicesRoutes from './routes/invoices.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import activityLogsRoutes from './routes/activityLogs.routes.js';
@@ -25,6 +26,7 @@ import customerSupportRoutes from './routes/customerSupport.routes.js';
 import publicSupportRoutes from './routes/publicSupport.routes.js';
 import permissionsRoutes from './routes/permissions.routes.js';
 import callLogsRoutes from './routes/callLogs.routes.js';
+import genieRoutes from './routes/genie.routes.js';
 import { testRedisConnection } from './config/redis.js';
 
 // Load environment variables
@@ -83,7 +85,8 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Cache-Control', 'Pragma'],
+  exposedHeaders: ['Content-Disposition', 'Content-Length', 'Content-Type'],
 };
 
 app.use(cors(corsOptions));
@@ -116,6 +119,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/consumers', consumersRoutes);
 app.use('/api/resellers', resellersRoutes);
 app.use('/api/products', productsRoutes);
+app.use('/api/packages', packagesRoutes);
 app.use('/api/invoices', invoicesRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/activity-logs', activityLogsRoutes);
@@ -130,6 +134,7 @@ app.use('/api/customer-support', customerSupportRoutes);
 app.use('/api/public/customer-support', publicSupportRoutes);
 app.use('/api/permissions', permissionsRoutes);
 app.use('/api/call-logs', callLogsRoutes);
+app.use('/api/genie', genieRoutes);
 
 // Debug: Log all registered routes
 ;
@@ -171,9 +176,7 @@ app.listen(PORT, () => {
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM signal received: closing HTTP server');
-  app.close(() => {
-    console.log('HTTP server closed');
-  });
+  process.exit(0);
 });
 
 export default app;

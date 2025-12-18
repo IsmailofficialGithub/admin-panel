@@ -17,11 +17,14 @@ import {
 
 // Cache configuration
 const CACHE_TTL = 300; // 5 minutes
+const ROLE_CACHE_TTL = 3600; // 1 hour for role permissions (more stable)
 const CACHE_KEYS = {
   ALL_PERMISSIONS: 'permissions:all',
   PERMISSIONS_BY_RESOURCE: (resource) => `permissions:resource:${resource}`,
   USER_PERMISSIONS: (userId) => `permissions:user:${userId}`,
   ROLE_PERMISSIONS: (role) => `permissions:role:${role}`,
+  ROLE_PERMISSIONS_VERSION: (role) => `permissions:role:${role}:version`,
+  ALL_ROLE_VERSIONS: 'permissions:role:versions', // Hash storing all role versions
 };
 
 /**
@@ -96,6 +99,60 @@ const clearPermissionCaches = async (options = {}) => {
   } catch (error) {
     console.error('❌ Error clearing permission caches:', error);
     // Don't throw - cache clearing failure shouldn't break the operation
+  }
+};
+
+/**
+ * Get the current cache version for a role
+ * @param {string} role - Role name
+ * @returns {Promise<number>} - Current version number
+ */
+const getRoleCacheVersion = async (role) => {
+  try {
+    const version = await cacheService.get(CACHE_KEYS.ROLE_PERMISSIONS_VERSION(role));
+    return version ? parseInt(version, 10) : 1;
+  } catch (error) {
+    console.error(`❌ Error getting cache version for role ${role}:`, error);
+    return 1;
+  }
+};
+
+/**
+ * Increment the cache version for a role (used when permissions change)
+ * @param {string} role - Role name
+ * @returns {Promise<number>} - New version number
+ */
+const incrementRoleCacheVersion = async (role) => {
+  try {
+    const currentVersion = await getRoleCacheVersion(role);
+    const newVersion = currentVersion + 1;
+    // Store version with very long TTL (7 days) - it just increments
+    await cacheService.set(CACHE_KEYS.ROLE_PERMISSIONS_VERSION(role), newVersion, 604800);
+    console.log(`🔄 Incremented cache version for role ${role}: ${currentVersion} -> ${newVersion}`);
+    return newVersion;
+  } catch (error) {
+    console.error(`❌ Error incrementing cache version for role ${role}:`, error);
+    return 1;
+  }
+};
+
+/**
+ * Get all role cache versions
+ * @returns {Promise<Object>} - Object with role names as keys and versions as values
+ */
+export const getAllRoleCacheVersions = async () => {
+  try {
+    const roles = ['admin', 'reseller', 'consumer', 'viewer'];
+    const versions = {};
+    
+    await Promise.all(roles.map(async (role) => {
+      versions[role] = await getRoleCacheVersion(role);
+    }));
+    
+    return versions;
+  } catch (error) {
+    console.error('❌ Error getting all role cache versions:', error);
+    return { admin: 1, reseller: 1, consumer: 1, viewer: 1 };
   }
 };
 
@@ -363,7 +420,7 @@ export const getMyPermissions = async (req, res) => {
 };
 
 /**
- * Get role permissions
+ * Get role permissions (admin/management use)
  * @route   GET /api/permissions/role/:role
  * @access  Private (permissions.view)
  */
@@ -412,16 +469,181 @@ export const getRolePermissions = async (req, res) => {
       return handleApiError(error, res, 'Failed to fetch role permissions');
     }
 
+    // Get version for this role
+    const version = await getRoleCacheVersion(role);
+
     const result = {
       success: true,
       data: sanitizeArray(data || []),
-      count: data?.length || 0
+      count: data?.length || 0,
+      version // Include version for frontend cache validation
     };
 
-    await cacheService.set(cacheKey, result, CACHE_TTL);
+    await cacheService.set(cacheKey, result, ROLE_CACHE_TTL);
     res.json(result);
   } catch (err) {
     return handleApiError(err, res, 'Failed to fetch role permissions');
+  }
+};
+
+/**
+ * Get role permissions for current user's role (optimized for frontend caching)
+ * This endpoint is designed for frequent frontend calls and returns:
+ * - Permission names as a simple array for easy hasPermission() checks
+ * - Cache version for frontend to validate local cache
+ * @route   GET /api/permissions/my-role
+ * @access  Private (any authenticated user)
+ */
+export const getMyRolePermissions = async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized',
+        message: 'User not authenticated'
+      });
+    }
+
+    // Get profile - use req.profile if available, otherwise fetch from DB
+    let profile = req.profile;
+    if (!profile) {
+      const { data: profileData, error: profileError } = await executeWithTimeout(
+        supabase
+          .from('profiles')
+          .select('user_id, role, is_systemadmin')
+          .eq('user_id', req.user.id)
+          .single(),
+        5000
+      );
+
+      if (profileError || !profileData) {
+        console.error('❌ Error fetching profile for my-role:', profileError);
+        return res.status(401).json({
+          success: false,
+          error: 'Unauthorized',
+          message: 'User profile not found'
+        });
+      }
+      profile = profileData;
+    }
+
+    // Get user's primary role - profile.role can be array or string
+    const userRoles = Array.isArray(profile.role) ? profile.role : (profile.roles || [profile.role || 'viewer']);
+    const primaryRole = userRoles[0] || 'viewer';
+    const validRoles = ['admin', 'reseller', 'consumer', 'viewer'];
+    
+    if (!validRoles.includes(primaryRole)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid user role'
+      });
+    }
+
+    // Check if user is system admin - they have all permissions
+    if (profile.is_systemadmin === true) {
+      // For system admins, return all permissions
+      const { data: allPerms, error: allPermsError } = await executeWithTimeout(
+        supabase.from('permissions').select('name'),
+        10000
+      );
+
+      if (allPermsError) {
+        console.error('❌ Get all permissions for sysadmin error:', allPermsError);
+        return handleApiError(allPermsError, res, 'Failed to fetch permissions');
+      }
+
+      return res.json({
+        success: true,
+        role: 'systemadmin',
+        permissions: (allPerms || []).map(p => p.name),
+        version: 0, // System admin doesn't need version tracking
+        isSystemAdmin: true
+      });
+    }
+
+    // Get role cache version
+    const version = await getRoleCacheVersion(primaryRole);
+
+    // Check if frontend sent a version - if it matches, just confirm no changes
+    const clientVersion = parseInt(req.query.v || '0', 10);
+    if (clientVersion > 0 && clientVersion === version) {
+      return res.json({
+        success: true,
+        role: primaryRole,
+        unchanged: true,
+        version
+      });
+    }
+
+    // Check cache for this role's simplified permissions
+    const simplifiedCacheKey = `${CACHE_KEYS.ROLE_PERMISSIONS(primaryRole)}:simplified`;
+    const cachedSimplified = await cacheService.get(simplifiedCacheKey);
+    if (cachedSimplified && cachedSimplified.version === version) {
+      console.log('✅ Cache HIT for simplified role permissions');
+      return res.json({
+        success: true,
+        role: primaryRole,
+        permissions: cachedSimplified.permissions,
+        version,
+        cached: true
+      });
+    }
+
+    // Fetch role permissions
+    const { data, error } = await executeWithTimeout(
+      supabase
+        .from('role_permissions')
+        .select(`
+          permissions (
+            name
+          )
+        `)
+        .eq('role', primaryRole),
+      10000
+    );
+
+    if (error) {
+      console.error('❌ Get my role permissions error:', error);
+      return handleApiError(error, res, 'Failed to fetch role permissions');
+    }
+
+    // Extract just the permission names for easy frontend use
+    const permissionNames = (data || [])
+      .map(rp => rp.permissions?.name)
+      .filter(Boolean);
+
+    // Cache the simplified result
+    await cacheService.set(simplifiedCacheKey, {
+      permissions: permissionNames,
+      version
+    }, ROLE_CACHE_TTL);
+
+    res.json({
+      success: true,
+      role: primaryRole,
+      permissions: permissionNames,
+      version
+    });
+  } catch (err) {
+    return handleApiError(err, res, 'Failed to fetch role permissions');
+  }
+};
+
+/**
+ * Get all role cache versions (for frontend to check if any role changed)
+ * @route   GET /api/permissions/role-versions
+ * @access  Private (any authenticated user)
+ */
+export const getRoleCacheVersions = async (req, res) => {
+  try {
+    const versions = await getAllRoleCacheVersions();
+    res.json({
+      success: true,
+      versions
+    });
+  } catch (err) {
+    return handleApiError(err, res, 'Failed to fetch role cache versions');
   }
 };
 
@@ -652,8 +874,11 @@ export const assignPermissionsToRole = async (req, res) => {
       return handleApiError(error, res, 'Failed to assign permissions to role');
     }
 
-    // Clear all related caches
+    // Clear all related caches and increment version
     await clearPermissionCaches({ role, clearAllPermissions: true });
+    
+    // Increment role cache version so frontends know to refresh
+    const newVersion = await incrementRoleCacheVersion(role);
 
     // Log activity (non-blocking)
     logActivity({
@@ -664,14 +889,16 @@ export const assignPermissionsToRole = async (req, res) => {
       details: {
         role,
         permissionIds: sanitizedIds,
-        count: sanitizedIds.length
+        count: sanitizedIds.length,
+        newCacheVersion: newVersion
       }
     }).catch(err => console.error('Error logging activity:', err));
 
     res.json({
       success: true,
       message: `Successfully assigned ${sanitizedIds.length} permission(s) to role ${role}`,
-      data: sanitizeArray(data || [])
+      data: sanitizeArray(data || []),
+      cacheVersion: newVersion
     });
   } catch (err) {
     return handleApiError(err, res, 'Failed to assign permissions to role');
@@ -733,8 +960,11 @@ export const removePermissionsFromRole = async (req, res) => {
       return handleApiError(error, res, 'Failed to remove permissions from role');
     }
 
-    // Clear all related caches
+    // Clear all related caches and increment version
     await clearPermissionCaches({ role, clearAllPermissions: true });
+    
+    // Increment role cache version so frontends know to refresh
+    const newVersion = await incrementRoleCacheVersion(role);
 
     // Log activity (non-blocking)
     logActivity({
@@ -745,13 +975,15 @@ export const removePermissionsFromRole = async (req, res) => {
       details: {
         role,
         permissionIds: sanitizedIds,
-        count: sanitizedIds.length
+        count: sanitizedIds.length,
+        newCacheVersion: newVersion
       }
     }).catch(err => console.error('Error logging activity:', err));
 
     res.json({
       success: true,
-      message: `Successfully removed ${sanitizedIds.length} permission(s) from role ${role}`
+      message: `Successfully removed ${sanitizedIds.length} permission(s) from role ${role}`,
+      cacheVersion: newVersion
     });
   } catch (err) {
     return handleApiError(err, res, 'Failed to remove permissions from role');

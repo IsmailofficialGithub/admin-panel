@@ -3,6 +3,7 @@ import { X, User, Mail, Lock, Phone, Calendar, CheckCircle, AlertCircle, MapPin,
 import { countries, searchCountries } from '../../utils/countryData';
 import { generatePassword } from '../../utils/passwordGenerator';
 import { getResellers, getProducts } from '../../api/backend';
+import { getAllPackages } from '../../api/backend/packages';
 import { useAuth } from '../../hooks/useAuth';
 
 const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
@@ -19,8 +20,11 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
     country: '',
     city: '',
     referred_by: '',
-    subscribed_products: []
+    subscribed_packages: []
   });
+  
+  // Separate state for products (for display/reference only)
+  const [selectedProducts, setSelectedProducts] = useState([]);
   
   // Available roles for consumer form
   const availableRoles = [
@@ -44,22 +48,26 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
   const [selectedReseller, setSelectedReseller] = useState(null);
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [packages, setPackages] = useState([]);
+  const [loadingPackages, setLoadingPackages] = useState(false);
+  const [showPackagesDropdown, setShowPackagesDropdown] = useState(false);
 
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState({ type: '', text: '' });
 
-  // Fetch products when modal opens and consumer role is selected
+  // Fetch products and packages when modal opens and consumer role is selected
   useEffect(() => {
     if (isOpen && isConsumerSelected) {
-      const fetchProducts = async () => {
+      const fetchData = async () => {
+        // Fetch products
         setLoadingProducts(true);
         try {
           const result = await getProducts();
-          console.log('Fetched products:', result); // Debug log
+          console.log('Fetched products:', result);
           if (result && result.success && result.data && Array.isArray(result.data)) {
             setProducts(result.data);
-            console.log('Products set:', result.data.length); // Debug log
+            console.log('Products set:', result.data.length);
           } else if (result && result.error) {
             console.error('Error from getProducts:', result.error);
           }
@@ -68,9 +76,26 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         } finally {
           setLoadingProducts(false);
         }
+
+        // Fetch packages
+        setLoadingPackages(true);
+        try {
+          const packagesResult = await getAllPackages();
+          console.log('Fetched packages:', packagesResult);
+          if (packagesResult && packagesResult.success && packagesResult.data && Array.isArray(packagesResult.data)) {
+            setPackages(packagesResult.data);
+            console.log('Packages set:', packagesResult.data.length);
+          } else if (packagesResult && packagesResult.error) {
+            console.error('Error from getAllPackages:', packagesResult.error);
+          }
+        } catch (error) {
+          console.error('Error fetching packages:', error);
+        } finally {
+          setLoadingPackages(false);
+        }
       };
 
-      fetchProducts();
+      fetchData();
     }
   }, [isOpen, isConsumerSelected]);
 
@@ -155,9 +180,20 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
     
     setFormData(prev => ({ ...prev, phone: numericValue }));
     
-    // Clear phone error
+    // Clear phone error when user starts typing
     if (errors.phone) {
       setErrors(prev => ({ ...prev, phone: '' }));
+    }
+    
+    // Real-time validation feedback (optional - can be removed if too intrusive)
+    if (selectedCountry && numericValue) {
+      const expectedNationalLength = selectedCountry.nationalLength;
+      const phoneDigits = numericValue.replace(/\D/g, '');
+      
+      if (phoneDigits.length > expectedNationalLength) {
+        // Don't set error here, just prevent further input
+        // The validation will catch it on submit
+      }
     }
   };
 
@@ -166,8 +202,8 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
     
     // Remove any existing country code from phone number
     let cleanPhone = formData.phone;
-    if (selectedCountry && formData.phone.startsWith(selectedCountry.phoneCode)) {
-      cleanPhone = formData.phone.substring(selectedCountry.phoneCode.length).trim();
+    if (selectedCountry && formData.phone && formData.phone.toString().startsWith(selectedCountry.phoneCode)) {
+      cleanPhone = formData.phone.toString().substring(selectedCountry.phoneCode.length).trim();
     }
     
     setFormData(prev => ({
@@ -179,6 +215,24 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
     setShowCountryDropdown(false);
     if (errors.country) {
       setErrors(prev => ({ ...prev, country: '' }));
+    }
+    
+    // Re-validate phone if it exists when country changes
+    if (formData.phone && formData.phone.toString().trim()) {
+      const phoneDigits = formData.phone.toString().replace(/\D/g, '');
+      const expectedNationalLength = country.nationalLength;
+      
+      if (phoneDigits.length !== expectedNationalLength) {
+        setErrors(prev => ({
+          ...prev,
+          phone: `Phone number must be exactly ${expectedNationalLength} digits for ${country.name} (currently ${phoneDigits.length} digits)`
+        }));
+      } else {
+        // Clear phone error if it's now valid
+        if (errors.phone) {
+          setErrors(prev => ({ ...prev, phone: '' }));
+        }
+      }
     }
   };
 
@@ -228,19 +282,33 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
     }
   };
 
-  // Handle product selection
+  // Handle product selection (for display/reference only)
   const handleProductToggle = (productId) => {
-    setFormData(prev => ({
-      ...prev,
-      subscribed_products: prev.subscribed_products.includes(productId)
-        ? prev.subscribed_products.filter(id => id !== productId)
-        : [...prev.subscribed_products, productId]
-    }));
+    setSelectedProducts(prev => 
+      prev.includes(productId)
+        ? prev.filter(id => id !== productId)
+        : [...prev, productId]
+    );
   };
 
   // Check if product is selected
   const isProductSelected = (productId) => {
-    return formData.subscribed_products.includes(productId);
+    return selectedProducts.includes(productId);
+  };
+
+  // Handle package selection
+  const handlePackageToggle = (packageId) => {
+    setFormData(prev => ({
+      ...prev,
+      subscribed_packages: prev.subscribed_packages.includes(packageId)
+        ? prev.subscribed_packages.filter(id => id !== packageId)
+        : [...prev.subscribed_packages, packageId]
+    }));
+  };
+
+  // Check if package is selected
+  const isPackageSelected = (packageId) => {
+    return formData.subscribed_packages.includes(packageId);
   };
   
   // Handle role change
@@ -272,7 +340,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         // Clear consumer-specific fields if consumer role is removed
         ...(wasConsumer && !isNowConsumer ? {
           referred_by: '',
-          subscribed_products: [],
+          subscribed_packages: [],
           trial_expiry_date: ''
         } : {})
       };
@@ -323,10 +391,8 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
       newErrors.country = 'Country is required';
     }
     
-    // City validation
-    if (!formData.city.trim()) {
-      newErrors.city = 'City is required';
-    }
+    // City validation (optional)
+    // No validation needed - city is optional
     
     // Roles validation
     if (!formData.roles || formData.roles.length === 0) {
@@ -340,14 +406,35 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         newErrors.trial_expiry_date = 'Trial period is required for consumers';
       }
     }
-    if (!formData.phone) {
-      newErrors.phone = 'Phone number is required';
-    }
-    
     
     // Phone validation (optional but must be valid if provided)
-    if (formData.phone && !/^[\d\s\-\+\(\)]+$/.test(formData.phone)) {
-      newErrors.phone = 'Please enter a valid phone number';
+    // Check if phone has any value (even if just whitespace, we'll validate it)
+    const phoneValue = formData.phone ? formData.phone.toString().trim() : '';
+    
+    if (phoneValue) {
+      // Get only digits from the entered phone number
+      const phoneDigits = phoneValue.replace(/\D/g, '');
+      
+      // Basic format validation - allow only digits, spaces, dashes, plus, parentheses
+      if (!/^[\d\s\-\+\(\)]+$/.test(phoneValue)) {
+        newErrors.phone = 'Please enter a valid phone number (only numbers allowed)';
+      } else if (selectedCountry) {
+        // Validate phone length based on country's nationalLength
+        const expectedNationalLength = selectedCountry.nationalLength;
+        
+        if (phoneDigits.length === 0) {
+          newErrors.phone = 'Phone number cannot be empty';
+        } else if (phoneDigits.length !== expectedNationalLength) {
+          newErrors.phone = `Phone number must be exactly ${expectedNationalLength} digits for ${selectedCountry.name} (you entered ${phoneDigits.length} digits)`;
+        }
+      } else {
+        // If no country selected but phone is provided, require country selection
+        if (phoneDigits.length > 0) {
+          newErrors.phone = 'Please select a country to validate phone number';
+        } else if (phoneDigits.length < 8) {
+          newErrors.phone = 'Phone number must be at least 8 digits';
+        }
+      }
     }
     
     setErrors(newErrors);
@@ -355,8 +442,10 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
   };
 
   const handleSubmit = async () => {
-    if (!validateForm()) {
+    const isValid = validateForm();
+    if (!isValid) {
       setSubmitMessage({ type: 'error', text: 'Please fix the errors above' });
+      console.log('Validation failed. Errors:', errors);
       return;
     }
 
@@ -404,7 +493,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         country: formData.country.trim() || null,
         city: formData.city.trim() || null,
         referred_by: referredBy,
-        subscribed_products: formData.subscribed_products
+        subscribed_packages: formData.subscribed_packages
       });
 
       if (result.success) {
@@ -422,8 +511,9 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
             country: '',
             city: '',
             referred_by: '',
-            subscribed_products: []
+            subscribed_packages: []
           });
+          setSelectedProducts([]);
           setSelectedReseller(null);
           setResellerSearchTerm('');
           setShowResellerSuggestions(false);
@@ -456,8 +546,9 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         country: '',
         city: '',
         referred_by: '',
-        subscribed_products: []
+        subscribed_packages: []
       });
+      setSelectedProducts([]);
       setSelectedCountry(null);
       setCountrySearch('');
       setShowPassword(false);
@@ -1219,7 +1310,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
               color: '#374151',
               marginBottom: '8px'
             }}>
-              City <span style={{ color: '#ef4444' }}>*</span>
+              City <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
             </label>
             <div style={{ position: 'relative' }}>
               <div style={{
@@ -1282,7 +1373,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
               color: '#374151',
               marginBottom: '8px'
             }}>
-              Phone Number <span style={{ color: '#ef4444' }}>*</span>
+              Phone Number <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
             </label>
             <div style={{ position: 'relative', display: 'flex', gap: '8px' }}>
               {selectedCountry && (
@@ -1320,6 +1411,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                   placeholder={selectedCountry ? "Enter phone number" : "Select country first"}
                   inputMode="numeric"
                   pattern="[0-9]*"
+                  maxLength={selectedCountry ? selectedCountry.nationalLength : undefined}
                   disabled={isSubmitting}
                   style={{
                     width: '100%',
@@ -1363,6 +1455,40 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 marginBottom: 0
               }}>
                 {errors.phone}
+              </p>
+            )}
+            {!errors.phone && selectedCountry && formData.phone && (
+              <p style={{
+                color: '#6b7280',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                {(() => {
+                  const expectedNationalLength = selectedCountry.nationalLength;
+                  const phoneDigits = formData.phone.replace(/\D/g, '');
+                  const remaining = expectedNationalLength - phoneDigits.length;
+                  if (remaining > 0) {
+                    return `${remaining} digit${remaining !== 1 ? 's' : ''} remaining`;
+                  } else if (remaining === 0) {
+                    return '✓ Valid length';
+                  } else {
+                    return `${Math.abs(remaining)} digit${Math.abs(remaining) !== 1 ? 's' : ''} too many`;
+                  }
+                })()}
+              </p>
+            )}
+            {!errors.phone && selectedCountry && !formData.phone && (
+              <p style={{
+                color: '#6b7280',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                {(() => {
+                  const expectedNationalLength = selectedCountry.nationalLength;
+                  return `Enter ${expectedNationalLength} digits`;
+                })()}
               </p>
             )}
           </div>
@@ -1538,7 +1664,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
             </div>
               )}
 
-              {/* Subscribed Products Field (Multi-select) */}
+              {/* Products Section (for reference/display only) */}
           <div style={{ marginBottom: '20px' }}>
             <label style={{
               display: 'flex',
@@ -1550,7 +1676,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
               marginBottom: '8px'
             }}>
               <Package size={16} style={{ color: '#6b7280' }} />
-              Subscribed Products <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+              Products <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional - for reference)</span>
             </label>
             <div style={{ position: 'relative' }}>
               <div
@@ -1584,10 +1710,10 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
               >
                 {loadingProducts ? (
                   <span style={{ color: '#9ca3af' }}>Loading products...</span>
-                ) : formData.subscribed_products.length === 0 ? (
-                  <span style={{ color: '#9ca3af' }}>Select products...</span>
+                ) : selectedProducts.length === 0 ? (
+                  <span style={{ color: '#9ca3af' }}>Select products (optional)...</span>
                 ) : (
-                  formData.subscribed_products.map(productId => {
+                  selectedProducts.map(productId => {
                     const product = products.find(p => p.id === productId);
                     return (
                       <span
@@ -1705,7 +1831,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 </div>
               )}
             </div>
-            {formData.subscribed_products.length > 0 && (
+            {selectedProducts.length > 0 && (
               <p style={{
                 color: '#6b7280',
                 fontSize: '12px',
@@ -1716,7 +1842,205 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 gap: '4px'
               }}>
                 <span style={{ fontSize: '16px' }}>ℹ️</span>
-                {formData.subscribed_products.length} product{formData.subscribed_products.length !== 1 ? 's' : ''} selected
+                {selectedProducts.length} product{selectedProducts.length !== 1 ? 's' : ''} selected (for reference only)
+              </p>
+            )}
+          </div>
+
+              {/* Packages Section (actual subscription) */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              <Package size={16} style={{ color: '#6b7280' }} />
+              Subscribed Packages <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+            </label>
+            <div style={{ position: 'relative' }}>
+              <div
+                onClick={() => !isSubmitting && setShowPackagesDropdown(!showPackagesDropdown)}
+                style={{
+                  width: '100%',
+                  minHeight: '42px',
+                  padding: '8px 40px 8px 12px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.2s',
+                  boxSizing: 'border-box',
+                  backgroundColor: 'white',
+                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '6px',
+                  alignItems: 'center',
+                  opacity: isSubmitting ? 0.6 : 1
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSubmitting) {
+                    e.currentTarget.style.borderColor = '#74317e';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#d1d5db';
+                }}
+              >
+                {loadingPackages ? (
+                  <span style={{ color: '#9ca3af' }}>Loading packages...</span>
+                ) : formData.subscribed_packages.length === 0 ? (
+                  <span style={{ color: '#9ca3af' }}>Select packages...</span>
+                ) : (
+                  formData.subscribed_packages.map(packageId => {
+                    const packageItem = packages.find(p => p.id === packageId);
+                    const product = packageItem ? products.find(prod => prod.id === packageItem.product_id) : null;
+                    return (
+                      <span
+                        key={packageId}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '4px 8px',
+                          backgroundColor: '#74317e',
+                          color: 'white',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          fontWeight: '500'
+                        }}
+                      >
+                        {packageItem?.name}{product ? ` (${product.name})` : ''}
+                        <X
+                          size={14}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!isSubmitting) handlePackageToggle(packageId);
+                          }}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      </span>
+                    );
+                  })
+                )}
+                <div style={{
+                  position: 'absolute',
+                  right: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  pointerEvents: 'none'
+                }}>
+                  <ChevronDown size={16} style={{ color: '#9ca3af' }} />
+                </div>
+              </div>
+
+              {/* Packages Dropdown */}
+              {showPackagesDropdown && !isSubmitting && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    marginTop: '4px',
+                    backgroundColor: 'white',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                    maxHeight: '200px',
+                    overflowY: 'auto',
+                    zIndex: 1000
+                  }}
+                >
+                  {loadingPackages ? (
+                    <div style={{ padding: '10px 12px', textAlign: 'center', color: '#9ca3af' }}>
+                      Loading packages...
+                    </div>
+                  ) : packages.length === 0 ? (
+                    <div style={{ padding: '10px 12px', textAlign: 'center', color: '#9ca3af' }}>
+                      No packages available
+                    </div>
+                  ) : (
+                    packages.map((packageItem) => {
+                      const product = products.find(p => p.id === packageItem.product_id);
+                      return (
+                        <div
+                          key={packageItem.id}
+                          onClick={() => handlePackageToggle(packageItem.id)}
+                          style={{
+                            padding: '10px 12px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            transition: 'background-color 0.2s',
+                            backgroundColor: isPackageSelected(packageItem.id) ? '#eff6ff' : 'white'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = isPackageSelected(packageItem.id) ? '#dbeafe' : '#f9fafb';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = isPackageSelected(packageItem.id) ? '#eff6ff' : 'white';
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: '18px',
+                              height: '18px',
+                              border: isPackageSelected(packageItem.id) ? '2px solid #74317e' : '2px solid #d1d5db',
+                              borderRadius: '4px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: isPackageSelected(packageItem.id) ? '#74317e' : 'white',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            {isPackageSelected(packageItem.id) && (
+                              <CheckCircle size={12} style={{ color: 'white' }} />
+                            )}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <span style={{
+                              fontSize: '14px',
+                              color: '#374151',
+                              fontWeight: isPackageSelected(packageItem.id) ? '500' : '400'
+                            }}>
+                              {packageItem.name}
+                            </span>
+                            {product && (
+                              <span style={{
+                                fontSize: '12px',
+                                color: '#6b7280',
+                                marginLeft: '8px'
+                              }}>
+                                ({product.name})
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+            {formData.subscribed_packages.length > 0 && (
+              <p style={{
+                color: '#6b7280',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}>
+                <span style={{ fontSize: '16px' }}>ℹ️</span>
+                {formData.subscribed_packages.length} package{formData.subscribed_packages.length !== 1 ? 's' : ''} selected
               </p>
             )}
           </div>

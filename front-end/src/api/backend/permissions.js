@@ -78,6 +78,36 @@ export const getMyPermissions = async () => {
 };
 
 /**
+ * Get current user's role permissions (optimized for frontend caching)
+ * Returns simplified permission names with cache version
+ * @param {number} clientVersion - Optional client version for cache validation
+ * @returns {Promise<Object>} { success, role, permissions, version, unchanged }
+ */
+export const getMyRolePermissions = async (clientVersion = 0) => {
+  try {
+    const response = await apiClient.permissions.getMyRolePermissions(clientVersion);
+    return response;
+  } catch (error) {
+    console.error('getMyRolePermissions Error:', error);
+    return { error: error.message };
+  }
+};
+
+/**
+ * Get all role cache versions
+ * @returns {Promise<Object>} { success, versions: { admin: number, reseller: number, ... } }
+ */
+export const getRoleCacheVersions = async () => {
+  try {
+    const response = await apiClient.permissions.getRoleCacheVersions();
+    return response;
+  } catch (error) {
+    console.error('getRoleCacheVersions Error:', error);
+    return { error: error.message };
+  }
+};
+
+/**
  * Get user permissions
  * @param {string} userId - User ID
  * @returns {Promise<Array>} List of user permissions
@@ -304,6 +334,8 @@ export default {
   getAllPermissions,
   getPermissionById,
   getMyPermissions,
+  getMyRolePermissions,
+  getRoleCacheVersions,
   getUserPermissions,
   getRolePermissions,
   checkUserPermission,

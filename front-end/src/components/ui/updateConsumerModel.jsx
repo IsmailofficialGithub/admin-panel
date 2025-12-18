@@ -150,24 +150,59 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
     
     setFormData(prev => ({ ...prev, phone: numericValue }));
     
-    // Clear phone error
+    // Clear phone error when user starts typing
     if (errors.phone) {
       setErrors(prev => ({ ...prev, phone: '' }));
+    }
+    
+    // Real-time validation feedback (optional - can be removed if too intrusive)
+    if (selectedCountry && numericValue) {
+      const expectedNationalLength = selectedCountry.nationalLength;
+      const phoneDigits = numericValue.replace(/\D/g, '');
+      
+      if (phoneDigits.length > expectedNationalLength) {
+        // Don't set error here, just prevent further input
+        // The validation will catch it on submit
+      }
     }
   };
 
   const handleCountrySelect = (country) => {
     setSelectedCountry(country);
+    
+    // Remove any existing country code from phone number
+    let cleanPhone = formData.phone;
+    if (selectedCountry && formData.phone && formData.phone.toString().startsWith(selectedCountry.phoneCode)) {
+      cleanPhone = formData.phone.toString().substring(selectedCountry.phoneCode.length).trim();
+    }
+    
     setFormData(prev => ({
       ...prev,
       country: country.name,
-      // Keep only the number part without any country code
-      phone: prev.phone ? prev.phone.replace(/^\+?\d+\s*/, '').trim() : ''
+      phone: cleanPhone // Just the local number without country code
     }));
     setCountrySearch('');
     setShowCountryDropdown(false);
     if (errors.country) {
       setErrors(prev => ({ ...prev, country: '' }));
+    }
+    
+    // Re-validate phone if it exists when country changes
+    if (formData.phone && formData.phone.toString().trim()) {
+      const phoneDigits = formData.phone.toString().replace(/\D/g, '');
+      const expectedNationalLength = country.nationalLength;
+      
+      if (phoneDigits.length !== expectedNationalLength) {
+        setErrors(prev => ({
+          ...prev,
+          phone: `Phone number must be exactly ${expectedNationalLength} digits for ${country.name} (currently ${phoneDigits.length} digits)`
+        }));
+      } else {
+        // Clear phone error if it's now valid
+        if (errors.phone) {
+          setErrors(prev => ({ ...prev, phone: '' }));
+        }
+      }
     }
   };
 
@@ -262,15 +297,37 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
       newErrors.country = 'Country is required';
     }
     
-    if (!formData.city.trim()) {
-      newErrors.city = 'City is required';
-    }
+    // City validation (optional)
+    // No validation needed - city is optional
     
-    // Phone validation - required
-    if (!formData.phone || formData.phone.trim() === '') {
-      newErrors.phone = 'Phone number is required';
-    } else if (!/^[\d\s\-\+\(\)]+$/.test(formData.phone)) {
-      newErrors.phone = 'Please enter a valid phone number';
+    // Phone validation (optional but must be valid if provided)
+    // Check if phone has any value (even if just whitespace, we'll validate it)
+    const phoneValue = formData.phone ? formData.phone.toString().trim() : '';
+    
+    if (phoneValue) {
+      // Get only digits from the entered phone number
+      const phoneDigits = phoneValue.replace(/\D/g, '');
+      
+      // Basic format validation - allow only digits, spaces, dashes, plus, parentheses
+      if (!/^[\d\s\-\+\(\)]+$/.test(phoneValue)) {
+        newErrors.phone = 'Please enter a valid phone number (only numbers allowed)';
+      } else if (selectedCountry) {
+        // Validate phone length based on country's nationalLength
+        const expectedNationalLength = selectedCountry.nationalLength;
+        
+        if (phoneDigits.length === 0) {
+          newErrors.phone = 'Phone number cannot be empty';
+        } else if (phoneDigits.length !== expectedNationalLength) {
+          newErrors.phone = `Phone number must be exactly ${expectedNationalLength} digits for ${selectedCountry.name} (you entered ${phoneDigits.length} digits)`;
+        }
+      } else {
+        // If no country selected but phone is provided, require country selection
+        if (phoneDigits.length > 0) {
+          newErrors.phone = 'Please select a country to validate phone number';
+        } else if (phoneDigits.length < 8) {
+          newErrors.phone = 'Phone number must be at least 8 digits';
+        }
+      }
     }
     
     setErrors(newErrors);
@@ -278,7 +335,13 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
   };
 
   const handleSubmit = () => {
-    if (validateForm()) {
+    const isValid = validateForm();
+    if (!isValid) {
+      console.log('Validation failed. Errors:', errors);
+      return;
+    }
+    
+    if (isValid) {
       // Combine country code with phone number
       const fullPhone = selectedCountry && formData.phone 
         ? `${selectedCountry.phoneCode} ${formData.phone.trim()}`
@@ -753,7 +816,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
               color: '#374151',
               marginBottom: '8px'
             }}>
-              City <span style={{ color: '#ef4444' }}>*</span>
+              City <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
             </label>
             <div style={{ position: 'relative' }}>
               <div style={{
@@ -814,7 +877,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
               color: '#374151',
               marginBottom: '8px'
             }}>
-              Phone Number <span style={{ color: '#ef4444' }}>*</span>
+              Phone Number <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
             </label>
             <div style={{ position: 'relative', display: 'flex', gap: '8px' }}>
               {selectedCountry && (
@@ -849,9 +912,10 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                   name="phone"
                   value={formData.phone}
                   onChange={handlePhoneChange}
-                  placeholder={selectedCountry ? "Enter phone number" : "Enter phone number"}
+                  placeholder={selectedCountry ? "Enter phone number" : "Select country first"}
                   inputMode="numeric"
                   pattern="[0-9]*"
+                  maxLength={selectedCountry ? selectedCountry.nationalLength : undefined}
                   style={{
                     width: '100%',
                     padding: '10px 12px 10px 40px',
@@ -892,6 +956,40 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                 marginBottom: 0
               }}>
                 {errors.phone}
+              </p>
+            )}
+            {!errors.phone && selectedCountry && formData.phone && (
+              <p style={{
+                color: '#6b7280',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                {(() => {
+                  const expectedNationalLength = selectedCountry.nationalLength;
+                  const phoneDigits = formData.phone.replace(/\D/g, '');
+                  const remaining = expectedNationalLength - phoneDigits.length;
+                  if (remaining > 0) {
+                    return `${remaining} digit${remaining !== 1 ? 's' : ''} remaining`;
+                  } else if (remaining === 0) {
+                    return '✓ Valid length';
+                  } else {
+                    return `${Math.abs(remaining)} digit${Math.abs(remaining) !== 1 ? 's' : ''} too many`;
+                  }
+                })()}
+              </p>
+            )}
+            {!errors.phone && selectedCountry && !formData.phone && (
+              <p style={{
+                color: '#6b7280',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                {(() => {
+                  const expectedNationalLength = selectedCountry.nationalLength;
+                  return `Enter ${expectedNationalLength} digits`;
+                })()}
               </p>
             )}
           </div>

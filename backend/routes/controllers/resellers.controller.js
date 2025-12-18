@@ -1166,7 +1166,7 @@ export const createMyConsumer = async (req, res) => {
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
     const resellerId = req.user.id;
-    let { email, password, full_name, phone, trial_expiry_date, country, city, subscribed_products, roles } = req.body;
+    let { email, password, full_name, phone, trial_expiry_date, country, city, subscribed_products, subscribed_packages, roles } = req.body;
 
     // Validate required fields
     if (!email || !password || !full_name) {
@@ -1352,24 +1352,39 @@ export const createMyConsumer = async (req, res) => {
     }
 
     // ========================================
-    // 5. STORE PRODUCT ACCESS (with timeout, non-blocking)
+    // 5. STORE PACKAGE ACCESS (with timeout, non-blocking)
     // ========================================
-    // Only store product access if consumer role is included
-    if (userRoles.includes('consumer') && subscribed_products && Array.isArray(subscribed_products) && subscribed_products.length > 0) {
-      const productAccessRecords = subscribed_products
-        .filter(productId => isValidUUID(productId))
-        .map(productId => ({
+    // Only store package access if consumer role is included
+    // Support both subscribed_packages (new) and subscribed_products (backward compatibility)
+    const packagesToStore = subscribed_packages || subscribed_products || [];
+    
+    if (userRoles.includes('consumer') && packagesToStore && Array.isArray(packagesToStore) && packagesToStore.length > 0) {
+      // Validate package IDs and store in profiles.subscribed_packages
+      const validPackageIds = packagesToStore.filter(packageId => isValidUUID(packageId));
+      
+      if (validPackageIds.length > 0) {
+        // Update profile with subscribed_packages array
+        const updateProfilePromise = supabaseAdmin
+          .from('profiles')
+          .update({ subscribed_packages: validPackageIds })
+          .eq('user_id', newUser.user.id);
+
+        executeWithTimeout(updateProfilePromise, 3000).catch(profileUpdateError => {
+          console.warn('⚠️ Failed to update profile with packages:', profileUpdateError?.message);
+        });
+
+        // Store package access records
+        const packageAccessRecords = validPackageIds.map(packageId => ({
           user_id: newUser.user.id,
-          product_id: productId
+          package_id: packageId
         }));
 
-      if (productAccessRecords.length > 0) {
-        const productAccessPromise = supabaseAdmin
-          .from('user_product_access')
-          .insert(productAccessRecords);
+        const packageAccessPromise = supabaseAdmin
+          .from('user_package_access')
+          .insert(packageAccessRecords);
 
-        executeWithTimeout(productAccessPromise, 3000).catch(productAccessError => {
-          console.warn('⚠️ Failed to store product access:', productAccessError?.message);
+        executeWithTimeout(packageAccessPromise, 3000).catch(packageAccessError => {
+          console.warn('⚠️ Failed to store package access:', packageAccessError?.message);
         });
       }
     }
@@ -1876,14 +1891,14 @@ export const createConsumerAdmin = async (req, res) => {
     // ========================================
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
-    let { email, password, full_name, phone, trial_expiry_date, country, city, referred_by, subscribed_products } = req.body;
+    let { email, password, full_name, phone, trial_expiry_date, country, city, referred_by, subscribed_products, subscribed_packages } = req.body;
 
     // Validate required fields
-    if (!email || !password || !full_name || !country || !city) {
+    if (!email || !password || !full_name) {
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
-        message: 'FullName, Email, password, country, city are required'
+        message: 'FullName, Email, password are required'
       });
     }
 
@@ -1917,8 +1932,8 @@ export const createConsumerAdmin = async (req, res) => {
     // Sanitize inputs
     email = email.toLowerCase().trim();
     full_name = sanitizeString(full_name, 255);
-    country = sanitizeString(country, 100);
-    city = sanitizeString(city, 100);
+    country = country ? sanitizeString(country, 100) : null;
+    city = city ? sanitizeString(city, 100) : null;
     phone = phone ? sanitizeString(phone, 20) : null;
 
     if (!supabaseAdmin) {
@@ -2061,23 +2076,38 @@ export const createConsumerAdmin = async (req, res) => {
     }
 
     // ========================================
-    // 6. STORE PRODUCT ACCESS (with timeout, non-blocking)
+    // 6. STORE PACKAGE ACCESS (with timeout, non-blocking)
     // ========================================
-    if (subscribed_products && Array.isArray(subscribed_products) && subscribed_products.length > 0) {
-      const productAccessRecords = subscribed_products
-        .filter(productId => isValidUUID(productId))
-        .map(productId => ({
+    // Support both subscribed_packages (new) and subscribed_products (backward compatibility)
+    const packagesToStore = subscribed_packages || subscribed_products || [];
+    
+    if (packagesToStore && Array.isArray(packagesToStore) && packagesToStore.length > 0) {
+      // Validate package IDs and store in profiles.subscribed_packages
+      const validPackageIds = packagesToStore.filter(packageId => isValidUUID(packageId));
+      
+      if (validPackageIds.length > 0) {
+        // Update profile with subscribed_packages array
+        const updateProfilePromise = supabaseAdmin
+          .from('profiles')
+          .update({ subscribed_packages: validPackageIds })
+          .eq('user_id', newUser.user.id);
+
+        executeWithTimeout(updateProfilePromise, 3000).catch(profileUpdateError => {
+          console.warn('⚠️ Failed to update profile with packages:', profileUpdateError?.message);
+        });
+
+        // Store package access records
+        const packageAccessRecords = validPackageIds.map(packageId => ({
           user_id: newUser.user.id,
-          product_id: productId
+          package_id: packageId
         }));
 
-      if (productAccessRecords.length > 0) {
-        const productAccessPromise = supabaseAdmin
-          .from('user_product_access')
-          .insert(productAccessRecords);
+        const packageAccessPromise = supabaseAdmin
+          .from('user_package_access')
+          .insert(packageAccessRecords);
 
-        executeWithTimeout(productAccessPromise, 3000).catch(productAccessError => {
-          console.warn('⚠️ Failed to store product access:', productAccessError?.message);
+        executeWithTimeout(packageAccessPromise, 3000).catch(packageAccessError => {
+          console.warn('⚠️ Failed to store package access:', packageAccessError?.message);
         });
       }
     }

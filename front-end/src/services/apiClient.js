@@ -755,6 +755,17 @@ const apiClient = {
     getRolePermissions: (role) => axiosInstance.get(`/permissions/role/${role}`),
 
     /**
+     * Get current user's role permissions (optimized for caching)
+     * @param {number} version - Optional client version for cache validation
+     */
+    getMyRolePermissions: (version = 0) => axiosInstance.get(`/permissions/my-role${version ? `?v=${version}` : ''}`),
+
+    /**
+     * Get all role cache versions
+     */
+    getRoleCacheVersions: () => axiosInstance.get('/permissions/role-versions'),
+
+    /**
      * Check if user has permission
      */
     check: (userId, permissionName) => axiosInstance.get(`/permissions/check/${userId}/${permissionName}`),
@@ -793,6 +804,109 @@ const apiClient = {
      * Get all users for permissions management
      */
     getAllUsers: (search = '') => axiosInstance.get(`/permissions/users${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+  },
+
+  // ==================== GENIE ====================
+  genie: {
+    // Calls
+    getAllCalls: (params = {}) => {
+      const queryParams = new URLSearchParams();
+      if (params.page) queryParams.append('page', params.page);
+      if (params.limit) queryParams.append('limit', params.limit);
+      if (params.botId) queryParams.append('botId', params.botId);
+      if (params.status) queryParams.append('status', params.status);
+      if (params.isLead !== undefined) queryParams.append('isLead', params.isLead);
+      if (params.startDate) queryParams.append('startDate', params.startDate);
+      if (params.endDate) queryParams.append('endDate', params.endDate);
+      if (params.search) queryParams.append('search', params.search);
+      const query = queryParams.toString();
+      return axiosInstance.get(`/genie/calls${query ? `?${query}` : ''}`);
+    },
+    getCallById: (id) => axiosInstance.get(`/genie/calls/${id}`),
+    getCallStats: (period = 'today') => axiosInstance.get(`/genie/calls/stats?period=${period}`),
+    updateCallLeadStatus: (id, isLead) => axiosInstance.patch(`/genie/calls/${id}/lead`, { isLead }),
+
+    // Campaigns
+    getAllCampaigns: (params = {}) => {
+      const queryParams = new URLSearchParams();
+      if (params.page) queryParams.append('page', params.page);
+      if (params.limit) queryParams.append('limit', params.limit);
+      if (params.status) queryParams.append('status', params.status);
+      const query = queryParams.toString();
+      return axiosInstance.get(`/genie/campaigns${query ? `?${query}` : ''}`);
+    },
+    getCampaignById: (id) => axiosInstance.get(`/genie/campaigns/${id}`),
+    createCampaign: (data) => axiosInstance.post('/genie/campaigns', data),
+    updateCampaign: (id, data) => axiosInstance.patch(`/genie/campaigns/${id}`, data),
+    cancelCampaign: (id) => axiosInstance.delete(`/genie/campaigns/${id}`),
+
+    // Leads
+    getAllLeads: (params = {}) => {
+      const queryParams = new URLSearchParams();
+      if (params.page) queryParams.append('page', params.page);
+      if (params.limit) queryParams.append('limit', params.limit);
+      if (params.botId) queryParams.append('botId', params.botId);
+      if (params.startDate) queryParams.append('startDate', params.startDate);
+      if (params.endDate) queryParams.append('endDate', params.endDate);
+      if (params.search) queryParams.append('search', params.search);
+      const query = queryParams.toString();
+      return axiosInstance.get(`/genie/leads${query ? `?${query}` : ''}`);
+    },
+    getLeadById: (id) => axiosInstance.get(`/genie/leads/${id}`),
+    updateLead: (id, data) => axiosInstance.patch(`/genie/leads/${id}`, data),
+    deleteLead: (id) => axiosInstance.delete(`/genie/leads/${id}`),
+    exportLeads: async (params = {}) => {
+      const queryParams = new URLSearchParams();
+      if (params.botId) queryParams.append('botId', params.botId);
+      if (params.startDate) queryParams.append('startDate', params.startDate);
+      if (params.endDate) queryParams.append('endDate', params.endDate);
+      // Add timestamp to prevent caching (304 responses)
+      queryParams.append('_t', Date.now());
+      const query = queryParams.toString();
+      
+      // Use fetch for file download (more reliable for blobs)
+      // Get token from Supabase session (same way as axiosInstance)
+      let token = cachedToken;
+      if (!token) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          token = session?.access_token;
+        } catch (e) {
+          console.error('Error getting session for export:', e);
+        }
+      }
+      
+      const baseURL = axiosInstance.defaults.baseURL || '';
+      const response = await fetch(`${baseURL}/genie/leads/export?${query}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Cache-Control': 'no-cache',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Export failed: ${response.status}`);
+      }
+      
+      const blob = await response.blob();
+      return { data: blob };
+    },
+
+    // Analytics
+    getCallAnalytics: (params = {}) => {
+      const queryParams = new URLSearchParams();
+      if (params.period) queryParams.append('period', params.period);
+      if (params.groupBy) queryParams.append('groupBy', params.groupBy);
+      const query = queryParams.toString();
+      return axiosInstance.get(`/genie/analytics/calls${query ? `?${query}` : ''}`);
+    },
+    getConversionMetrics: (period = 'month') => axiosInstance.get(`/genie/analytics/conversion?period=${period}`),
+    getBotPerformance: (period = 'month') => axiosInstance.get(`/genie/analytics/bots?period=${period}`),
+
+    // Supporting
+    getAllBots: () => axiosInstance.get('/genie/bots'),
+    getAllContactLists: () => axiosInstance.get('/genie/contact-lists'),
   },
 };
 

@@ -7,6 +7,8 @@ import {
   getUserPermissions,
   getMyPermissions,
   getRolePermissions,
+  getMyRolePermissions,
+  getRoleCacheVersions,
   checkUserPermission,
   checkUserPermissionsBulk,
   assignPermissionsToRole,
@@ -48,6 +50,36 @@ router.get(
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   getMyPermissions
+);
+
+/**
+ * @route   GET /api/permissions/my-role
+ * @desc    Get current user's role permissions (optimized for frontend caching)
+ *          Returns simplified permission names array with cache version
+ *          Frontend can pass ?v=<version> to check if cache is still valid
+ * @access  Private (any authenticated user)
+ */
+router.get(
+  '/my-role',
+  authenticate,
+  loadUserProfile,
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
+  getMyRolePermissions
+);
+
+/**
+ * @route   GET /api/permissions/role-versions
+ * @desc    Get all role cache versions (for frontend to check if any role changed)
+ * @access  Private (any authenticated user)
+ */
+router.get(
+  '/role-versions',
+  authenticate,
+  loadUserProfile,
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
+  getRoleCacheVersions
 );
 
 /**

@@ -60,7 +60,7 @@ export const getConsumerById = async (consumerId) => {
  * @param {string} consumerData.password - Consumer password
  * @param {string} consumerData.full_name - Consumer full name
  * @param {string} consumerData.country - Consumer country (required)
- * @param {string} consumerData.city - Consumer city (required)
+ * @param {string} consumerData.city - Consumer city (optional)
  * @param {string} consumerData.phone - Consumer phone (optional)
  * @param {string} consumerData.trial_expiry_date - Trial expiry date (optional)
  * @returns {Promise<Object>} Created consumer data
@@ -84,9 +84,11 @@ export const createConsumer = async (consumerData) => {
       requestData.referred_by = consumerData.referred_by;
     }
     
-    // Add subscribed_products if provided
-    if (consumerData.subscribed_products !== undefined) {
-      requestData.subscribed_products = consumerData.subscribed_products || [];
+    // Add subscribed_packages if provided (preferred) or subscribed_products (backward compatibility)
+    if (consumerData.subscribed_packages !== undefined) {
+      requestData.subscribed_packages = consumerData.subscribed_packages || [];
+    } else if (consumerData.subscribed_products !== undefined) {
+      requestData.subscribed_packages = consumerData.subscribed_products || [];
     }
     
     console.log('createConsumer sending data:', requestData);

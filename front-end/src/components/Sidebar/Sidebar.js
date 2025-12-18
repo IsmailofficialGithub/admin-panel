@@ -15,33 +15,23 @@
 * The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 */
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useLocation, NavLink } from "react-router-dom";
 import { useAuth } from "hooks/useAuth";
-import { getMyPermissions } from "api/backend/permissions";
+import { usePermissions } from "hooks/usePermissions";
 import toast from "react-hot-toast";
 import { hasRole } from "utils/roleUtils";
 
 import { Nav } from "react-bootstrap";
-
-import logo from "assets/img/reactlogo.png";
 
 function Sidebar({ color, image, routes }) {
   const location = useLocation();
   const [expandedMenus, setExpandedMenus] = useState({});
   const [hoveredSubmenu, setHoveredSubmenu] = useState(null);
   const { user, profile, signOut } = useAuth();
-  const [hasDashboardPermission, setHasDashboardPermission] = useState(null); // null = checking, true/false = result
-  const [hasUsersViewPermission, setHasUsersViewPermission] = useState(null); // null = checking, true/false = result
-  const [hasConsumersViewPermission, setHasConsumersViewPermission] = useState(null); // null = checking, true/false = result
-  const [hasResellersViewPermission, setHasResellersViewPermission] = useState(null); // null = checking, true/false = result
-  const [hasProductsViewPermission, setHasProductsViewPermission] = useState(null); // null = checking, true/false = result
-  const [hasActivityLogsViewPermission, setHasActivityLogsViewPermission] = useState(null); // null = checking, true/false = result
-  const [hasOffersViewPermission, setHasOffersViewPermission] = useState(null); // null = checking, true/false = result
-  const [hasSettingsViewPermission, setHasSettingsViewPermission] = useState(null); // null = checking, true/false = result
-  const [hasCustomerSupportViewPermission, setHasCustomerSupportViewPermission] = useState(null); // null = checking, true/false = result
-  const [hasInvoicesViewPermission, setHasInvoicesViewPermission] = useState(null); // null = checking, true/false = result
-  const [myPermissions, setMyPermissions] = useState([]); // Store all permissions for efficient checking
+  
+  // Use the cached permissions hook instead of direct API calls
+  const { hasPermission, isLoading: permissionsLoading, isSystemAdmin } = usePermissions();
 
   // Handle navigation click - check account status
   const handleNavClick = (e) => {
@@ -97,90 +87,46 @@ function Sidebar({ color, image, routes }) {
     }));
   };
 
-  // Fetch all permissions at once for efficient checking
-  useEffect(() => {
-    const fetchAllPermissions = async () => {
-      if (!user || !profile) {
-        return;
-      }
+  /**
+   * Check if user has permission for a specific route
+   * Uses the cached permissions from usePermissions hook
+   * System admins always have access
+   */
+  const hasRoutePermission = (routePath) => {
+    // System admins have all permissions
+    if (isSystemAdmin || (profile && profile.is_systemadmin === true)) {
+      return true;
+    }
 
-      try {
-        // Systemadmins have all permissions - set all to true immediately
-        if (profile.is_systemadmin === true) {
-          setHasDashboardPermission(true);
-          setHasUsersViewPermission(true);
-          setHasConsumersViewPermission(true);
-          setHasResellersViewPermission(true);
-          setHasProductsViewPermission(true);
-          setHasActivityLogsViewPermission(true);
-          setHasOffersViewPermission(true);
-          setHasSettingsViewPermission(true);
-          setHasCustomerSupportViewPermission(true);
-          setHasInvoicesViewPermission(true);
-          return;
-        }
+    // While loading, hide routes (safer)
+    if (permissionsLoading) {
+      return false;
+    }
 
-        // For non-systemadmins, fetch all permissions at once
-        const permissionsResult = await getMyPermissions();
-        
-        if (permissionsResult?.error) {
-          console.error('Error fetching permissions in Sidebar:', permissionsResult.error);
-          // On error, set all to false (hide all tabs)
-          setHasDashboardPermission(false);
-          setHasUsersViewPermission(false);
-          setHasConsumersViewPermission(false);
-          setHasResellersViewPermission(false);
-          setHasProductsViewPermission(false);
-          setHasActivityLogsViewPermission(false);
-          setHasOffersViewPermission(false);
-          setHasSettingsViewPermission(false);
-          setHasCustomerSupportViewPermission(false);
-          setHasInvoicesViewPermission(false);
-          return;
-        }
-
-        // permissionsResult is an array of { permission_name, granted }
-        const permissions = Array.isArray(permissionsResult) ? permissionsResult : (permissionsResult?.data || []);
-        setMyPermissions(permissions);
-
-        // Create a Set of granted permission names for fast lookup
-        const grantedPermissions = new Set(
-          permissions
-            .filter(p => p.granted === true)
-            .map(p => p.permission_name)
-        );
-
-        // Check each permission
-        setHasDashboardPermission(grantedPermissions.has('dashboard.view'));
-        setHasUsersViewPermission(grantedPermissions.has('users.view'));
-        setHasConsumersViewPermission(grantedPermissions.has('consumers.view'));
-        setHasResellersViewPermission(grantedPermissions.has('resellers.view'));
-        setHasProductsViewPermission(grantedPermissions.has('products.view'));
-        setHasActivityLogsViewPermission(grantedPermissions.has('activity_logs.view'));
-        setHasOffersViewPermission(grantedPermissions.has('offers.view'));
-        setHasSettingsViewPermission(grantedPermissions.has('settings.view'));
-        setHasCustomerSupportViewPermission(grantedPermissions.has('customer_support.view'));
-        setHasInvoicesViewPermission(grantedPermissions.has('invoices.view'));
-      } catch (error) {
-        console.error('Error fetching permissions in Sidebar:', error);
-        // On error, set all to false (hide all tabs)
-        setHasDashboardPermission(false);
-        setHasUsersViewPermission(false);
-        setHasConsumersViewPermission(false);
-        setHasResellersViewPermission(false);
-        setHasProductsViewPermission(false);
-        setHasActivityLogsViewPermission(false);
-        setHasOffersViewPermission(false);
-        setHasSettingsViewPermission(false);
-        setHasCustomerSupportViewPermission(false);
-        setHasInvoicesViewPermission(false);
-      }
+    // Map routes to their required permissions
+    const routePermissions = {
+      '/dashboard': 'dashboard.view',
+      '/users': 'users.view',
+      '/consumers': 'consumers.view',
+      '/resellers': 'resellers.view',
+      '/products': 'products.view',
+      '/packages': 'packages.view',
+      '/activity-logs': 'activity_logs.view',
+      '/offers': 'offers.view',
+      '/settings': 'settings.view',
+      '/customers': 'customer_support.view',
+      '/invoices': 'invoices.view',
+      '/genie': 'genie.view',
     };
 
-    fetchAllPermissions();
-  }, [user, profile]);
+    const requiredPermission = routePermissions[routePath];
+    if (!requiredPermission) {
+      // If no permission mapping, allow access (for routes without permission requirements)
+      return true;
+    }
 
-  // All permission checks are now done in the single fetchAllPermissions useEffect above
+    return hasPermission(requiredPermission);
+  };
 
   // Auto-expand menu if a submenu is active, close if no status
   React.useEffect(() => {
@@ -235,85 +181,9 @@ function Sidebar({ color, image, routes }) {
               return null;
             }
             
-            // Filter out Dashboard route if user doesn't have dashboard.view permission
-            // Hide while checking (null) or if explicitly denied (false), only show if confirmed (true)
-            if (prop.path === '/dashboard') {
-              // Hide if still checking (null) or if permission denied (false)
-              if (hasDashboardPermission !== true) {
-                return null;
-              }
-            }
-
-            // Filter out Users route if user doesn't have users.view permission
-            if (prop.path === '/users') {
-              // Hide if still checking (null) or if permission denied (false)
-              if (hasUsersViewPermission !== true) {
-                return null;
-              }
-            }
-
-            // Filter out Consumers route if user doesn't have consumers.view permission
-            if (prop.path === '/consumers') {
-              // Hide if still checking (null) or if permission denied (false)
-              if (hasConsumersViewPermission !== true) {
-                return null;
-              }
-            }
-
-            // Filter out Resellers route if user doesn't have resellers.view permission
-            if (prop.path === '/resellers') {
-              // Hide if still checking (null) or if permission denied (false)
-              if (hasResellersViewPermission !== true) {
-                return null;
-              }
-            }
-
-            // Filter out Products route if user doesn't have products.view permission
-            if (prop.path === '/products') {
-              // Hide if still checking (null) or if permission denied (false)
-              if (hasProductsViewPermission !== true) {
-                return null;
-              }
-            }
-
-            // Filter out Activity Logs route if user doesn't have activity_logs.view permission
-            if (prop.path === '/activity-logs') {
-              // Hide if still checking (null) or if permission denied (false)
-              if (hasActivityLogsViewPermission !== true) {
-                return null;
-              }
-            }
-
-            // Filter out Offers route if user doesn't have offers.view permission
-            if (prop.path === '/offers') {
-              // Hide if still checking (null) or if permission denied (false)
-              if (hasOffersViewPermission !== true) {
-                return null;
-              }
-            }
-
-            // Filter out Settings route if user doesn't have settings.view permission
-            if (prop.path === '/settings') {
-              // Hide if still checking (null) or if permission denied (false)
-              if (hasSettingsViewPermission !== true) {
-                return null;
-              }
-            }
-
-            // Filter out Customer Support route if user doesn't have customer_support.view permission
-            if (prop.path === '/customers') {
-              // Hide if still checking (null) or if permission denied (false)
-              if (hasCustomerSupportViewPermission !== true) {
-                return null;
-              }
-            }
-
-            // Filter out Invoices route if user doesn't have invoices.view permission
-            if (prop.path === '/invoices') {
-              // Hide if still checking (null) or if permission denied (false)
-              if (hasInvoicesViewPermission !== true) {
-                return null;
-              }
+            // Check route permissions using cached permissions
+            if (!hasRoutePermission(prop.path)) {
+              return null;
             }
             
             if (!prop.redirect && prop.name && !prop.upgrade && !prop.invisible) {
