@@ -3,6 +3,7 @@ import { authenticate, requireRole, loadUserProfile } from '../middleware/auth.j
 import { checkInvoiceAccess } from '../middleware/invoiceAccess.js';
 import {
   getConsumerProductsForInvoice,
+  getConsumerPackagesForInvoice,
   getAllInvoices,
   getMyInvoices,
   createInvoice,
@@ -42,6 +43,20 @@ router.get(
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   getConsumerProductsForInvoice
+);
+
+/**
+ * @route   GET /api/invoices/consumer/:consumerId/packages
+ * @desc    Get consumer's accessed packages with prices for invoice creation
+ * @access  Private (Admin or Reseller)
+ */
+router.get(
+  '/consumer/:consumerId/packages',
+  authenticate,
+  requireRole(['admin', 'reseller']),
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
+  getConsumerPackagesForInvoice
 );
 
 /**

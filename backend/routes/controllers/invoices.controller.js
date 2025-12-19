@@ -26,6 +26,7 @@ const CACHE_KEYS = {
   MY_INVOICES: (userId, page, limit) => `invoices:my:${userId}_page${page}_limit${limit}`,
   CONSUMER_INVOICES: (consumerId, page, limit) => `invoices:consumer:${consumerId}_page${page}_limit${limit}`,
   CONSUMER_PRODUCTS: (consumerId) => `invoices:consumer-products:${consumerId}`,
+  CONSUMER_PACKAGES: (consumerId) => `invoices:consumer-packages:${consumerId}`,
   INVOICE_BY_ID: (id) => `invoices:id:${id}`,
 };
 
@@ -212,6 +213,179 @@ export const getConsumerProductsForInvoice = async (req, res) => {
 };
 
 /**
+ * Get consumer's accessed packages with prices for invoice creation
+ * @route   GET /api/invoices/consumer/:consumerId/packages
+ * @access  Private (Admin or Reseller)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Query timeout (Performance)
+ * 3. Secure error handling (Security)
+ * 4. Redis caching (Performance)
+ */
+export const getConsumerPackagesForInvoice = async (req, res) => {
+  try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
+    const { consumerId } = req.params;
+    
+    if (!consumerId || !isValidUUID(consumerId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid consumer ID format'
+      });
+    }
+
+    console.log('🔍 getConsumerPackagesForInvoice called with consumerId:', consumerId);
+    
+    const senderId = req.user.id; // Admin or Reseller creating the invoice
+    const senderRole = req.userProfile?.role;
+    
+    console.log('🔍 Sender ID:', senderId, 'Role:', senderRole);
+
+    // ========================================
+    // 2. CACHE CHECK
+    // ========================================
+    const cacheKey = CACHE_KEYS.CONSUMER_PACKAGES(consumerId);
+    const cachedData = await cacheService.get(cacheKey);
+    if (cachedData) {
+      console.log(`✅ Cache HIT for consumer packages ${consumerId}`);
+      return res.json(cachedData);
+    }
+
+    console.log(`❌ Cache MISS for consumer packages ${consumerId} - fetching from database`);
+
+    // ========================================
+    // 3. VERIFY CONSUMER (with timeout)
+    // ========================================
+    const consumerPromise = supabase
+      .from('auth_role_with_profiles')
+      .select('user_id, full_name, email, role, referred_by')
+      .eq('user_id', consumerId)
+      .contains('role', ['consumer'])
+      .single();
+
+    const { data: consumer, error: consumerError } = await executeWithTimeout(consumerPromise);
+
+    // ========================================
+    // 4. ERROR HANDLING (Security)
+    // ========================================
+    if (consumerError || !consumer) {
+      console.error('❌ Consumer not found:', consumerError);
+      return res.status(404).json({
+        success: false,
+        error: 'Not Found',
+        message: 'Consumer not found'
+      });
+    }
+
+    // If reseller, verify this consumer is referred by them
+    if (senderRole === 'reseller') {
+      if (!consumer.referred_by || consumer.referred_by !== senderId) {
+        console.error('❌ Reseller permission denied');
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden',
+          message: 'You can only create invoices for your referred consumers'
+        });
+      }
+    }
+
+    // ========================================
+    // 5. GET PACKAGE ACCESS (with timeout)
+    // ========================================
+    const packageAccessPromise = supabaseAdmin
+      .from('user_package_access')
+      .select('package_id, granted_at')
+      .eq('user_id', consumerId);
+
+    const { data: packageAccess, error: accessError } = await executeWithTimeout(packageAccessPromise, 5000);
+
+    if (accessError) {
+      console.error('❌ Error fetching package access:', accessError);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Failed to fetch package access'
+      });
+    }
+
+    if (!packageAccess || packageAccess.length === 0) {
+      const response = {
+        success: true,
+        data: {
+          consumer: {
+            user_id: consumer.user_id,
+            full_name: consumer.full_name,
+            email: consumer.email
+          },
+          packages: []
+        }
+      };
+      await cacheService.set(cacheKey, response, CACHE_TTL);
+      return res.json(response);
+    }
+
+    // ========================================
+    // 6. GET PACKAGE DETAILS (with timeout)
+    // ========================================
+    const packageIds = packageAccess.map(pa => pa.package_id);
+    const packagesPromise = supabaseAdmin
+      .from('packages')
+      .select('id, name, price, description')
+      .in('id', packageIds);
+
+    const { data: packages, error: packagesError } = await executeWithTimeout(packagesPromise, 5000);
+
+    if (packagesError) {
+      console.error('❌ Error fetching packages:', packagesError);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Failed to fetch packages'
+      });
+    }
+
+    // ========================================
+    // 7. COMBINE DATA & SANITIZE
+    // ========================================
+    const packagesWithAccess = (packages || []).map(pkg => {
+      const access = packageAccess.find(pa => pa.package_id === pkg.id);
+      return {
+        package_id: pkg.id,
+        package_name: pkg.name,
+        price: parseFloat(pkg.price || 0),
+        description: pkg.description,
+        granted_at: access?.granted_at
+      };
+    });
+
+    const response = {
+      success: true,
+      data: {
+        consumer: {
+          user_id: consumer.user_id,
+          full_name: consumer.full_name,
+          email: consumer.email
+        },
+        packages: sanitizeArray(packagesWithAccess)
+      }
+    };
+
+    // ========================================
+    // 8. CACHE THE RESPONSE
+    // ========================================
+    await cacheService.set(cacheKey, response, CACHE_TTL);
+
+    return res.json(response);
+  } catch (error) {
+    return handleApiError(error, res, 'An error occurred while fetching consumer packages.');
+  }
+};
+
+/**
  * Get all invoices with pagination (admin only)
  * @route   GET /api/invoices?search=john&status=paid&page=1&limit=50
  * @access  Private (Admin)
@@ -292,11 +466,17 @@ export const getAllInvoices = async (req, res) => {
         receiver:profiles!invoices_receiver_id_fkey(user_id, full_name, role, referred_by),
         invoice_items (
           id,
+          package_id,
           product_id,
           quantity,
           unit_price,
           tax_rate,
           total_price,
+          packages (
+            id,
+            name,
+            price
+          ),
           products (
             id,
             name,
@@ -374,8 +554,8 @@ export const getAllInvoices = async (req, res) => {
       total: parseFloat(invoice.total_amount || 0).toFixed(2),
       status: invoice.status || 'unpaid',
       payment_date: invoice.status === 'paid' ? invoice.updated_at : null,
-      products: invoice.invoice_items?.map(item => ({
-        name: item.products?.name || 'Unknown Product',
+      packages: invoice.invoice_items?.map(item => ({
+        name: item.packages?.name || 'Unknown Package',
         quantity: item.quantity,
         price: parseFloat(item.unit_price || 0).toFixed(2),
         total: parseFloat(item.total_price || 0).toFixed(2)
@@ -522,11 +702,17 @@ export const getMyInvoices = async (req, res) => {
         receiver:profiles!invoices_receiver_id_fkey(user_id, full_name, role, referred_by),
         invoice_items (
           id,
+          package_id,
           product_id,
           quantity,
           unit_price,
           tax_rate,
           total_price,
+          packages (
+            id,
+            name,
+            price
+          ),
           products (
             id,
             name,
@@ -621,8 +807,8 @@ export const getMyInvoices = async (req, res) => {
           name: offer.name,
           commission_percentage: parseFloat(offer.commission_percentage)
         } : null,
-        products: invoice.invoice_items?.map(item => ({
-          name: item.products?.name || 'Unknown Product',
+        packages: invoice.invoice_items?.map(item => ({
+          name: item.packages?.name || item.products?.name || 'Unknown Package',
           quantity: item.quantity,
           price: parseFloat(item.unit_price || 0).toFixed(2),
           total: parseFloat(item.total_price || 0).toFixed(2)
@@ -793,11 +979,17 @@ export const getConsumerInvoices = async (req, res) => {
         sender:profiles!invoices_sender_id_fkey(user_id, full_name, role),
         invoice_items (
           id,
+          package_id,
           product_id,
           quantity,
           unit_price,
           tax_rate,
           total_price,
+          packages (
+            id,
+            name,
+            price
+          ),
           products (
             id,
             name,
@@ -889,8 +1081,8 @@ export const getConsumerInvoices = async (req, res) => {
           name: offer.name,
           commission_percentage: parseFloat(offer.commission_percentage)
         } : null,
-        products: invoice.invoice_items?.map(item => ({
-          name: item.products?.name || 'Unknown Product',
+        packages: invoice.invoice_items?.map(item => ({
+          name: item.packages?.name || item.products?.name || 'Unknown Package',
           quantity: item.quantity,
           price: parseFloat(item.unit_price || 0).toFixed(2),
           total: parseFloat(item.total_price || 0).toFixed(2)
@@ -1023,11 +1215,11 @@ export const createInvoice = async (req, res) => {
     // 3. VALIDATE ITEMS
     // ========================================
     for (const item of items) {
-      if (!item.product_id || !isValidUUID(item.product_id)) {
+      if (!item.package_id || !isValidUUID(item.package_id)) {
         return res.status(400).json({
           success: false,
           error: 'Bad Request',
-          message: 'Each item must have a valid product_id'
+          message: 'Each item must have a valid package_id'
         });
       }
       if (!item.quantity || item.quantity <= 0) {
@@ -1047,31 +1239,31 @@ export const createInvoice = async (req, res) => {
     }
 
     // ========================================
-    // 4. BATCH VERIFY PRODUCTS (with timeout)
+    // 4. BATCH VERIFY PACKAGES (with timeout)
     // ========================================
-    const productIds = items.map(item => item.product_id);
-    const productsPromise = supabase
-      .from('products')
+    const packageIds = items.map(item => item.package_id);
+    const packagesPromise = supabase
+      .from('packages')
       .select('id, name, price')
-      .in('id', productIds);
+      .in('id', packageIds);
 
-    const { data: products, error: productsError } = await executeWithTimeout(productsPromise);
+    const { data: packages, error: packagesError } = await executeWithTimeout(packagesPromise);
 
-    if (productsError || !products || products.length !== productIds.length) {
-      const foundIds = products?.map(p => p.id) || [];
-      const missingIds = productIds.filter(id => !foundIds.includes(id));
-      console.error('❌ Error fetching products:', productsError);
+    if (packagesError || !packages || packages.length !== packageIds.length) {
+      const foundIds = packages?.map(p => p.id) || [];
+      const missingIds = packageIds.filter(id => !foundIds.includes(id));
+      console.error('❌ Error fetching packages:', packagesError);
       return res.status(404).json({
         success: false,
         error: 'Not Found',
-        message: `Products not found: ${missingIds.join(', ')}`
+        message: `Packages not found: ${missingIds.join(', ')}`
       });
     }
 
-    // Create products map for quick lookup
-    const productsMap = new Map(products.map(p => [p.id, p]));
+    // Create packages map for quick lookup
+    const packagesMap = new Map(packages.map(p => [p.id, p]));
 
-    // Check if resellers can override product prices (only for resellers)
+    // Check if resellers can override package prices (only for resellers)
     const { getResellerSettings } = await import('../../utils/resellerSettings.js');
     const resellerSettings = await getResellerSettings();
     const allowPriceOverride = resellerSettings.allowResellerPriceOverride !== false; // Default to true
@@ -1082,27 +1274,27 @@ export const createInvoice = async (req, res) => {
     const validatedItems = [];
 
     for (const item of items) {
-      if (!productsMap.has(item.product_id)) {
+      if (!packagesMap.has(item.package_id)) {
         return res.status(404).json({
           error: 'Not Found',
-          message: `Product with id ${item.product_id} not found`
+          message: `Package with id ${item.package_id} not found`
         });
       }
 
-      const product = productsMap.get(item.product_id);
-      const originalPrice = parseFloat(product.price || 0);
+      const pkg = packagesMap.get(item.package_id);
+      const originalPrice = parseFloat(pkg.price || 0);
       const requestedPrice = parseFloat(item.unit_price || 0);
 
       // If reseller is creating invoice and price override is not allowed, use original price
       if (senderRole === 'reseller' && !allowPriceOverride) {
-        // Use original product price if override is not allowed
+        // Use original package price if override is not allowed
         item.unit_price = originalPrice;
       } else if (senderRole === 'reseller' && allowPriceOverride) {
         // If override is allowed, ensure price is >= original price
         if (requestedPrice < originalPrice) {
           return res.status(400).json({
             error: 'Bad Request',
-            message: `Price override not allowed. Product "${product.name}" has a minimum price of $${originalPrice.toFixed(2)}. You cannot set a price lower than the original.`
+            message: `Price override not allowed. Package "${pkg.name}" has a minimum price of $${originalPrice.toFixed(2)}. You cannot set a price lower than the original.`
           });
         }
       }
@@ -1114,7 +1306,7 @@ export const createInvoice = async (req, res) => {
       const itemTotalWithTax = itemTotal + itemTax;
 
       validatedItems.push({
-        product_id: item.product_id,
+        package_id: item.package_id,
         quantity: parseInt(item.quantity),
         unit_price: finalUnitPrice,
         tax_rate: parseFloat(itemTaxRate),
@@ -1315,7 +1507,7 @@ export const createInvoice = async (req, res) => {
     // ========================================
     const invoiceItems = validatedItems.map(item => ({
       invoice_id: invoice.id,
-      product_id: item.product_id,
+      package_id: item.package_id,
       quantity: item.quantity,
       unit_price: item.unit_price,
       tax_rate: item.tax_rate
@@ -1350,26 +1542,26 @@ export const createInvoice = async (req, res) => {
     // Build response with invoice data (we already have consumer data)
     const invoiceNumber = `INV-${(invoice.created_at || new Date().toISOString()).split('T')[0].replace(/-/g, '')}-${String(invoice.id).substring(0,8).toUpperCase()}`;
     
-    // Build items for response using products map
-    const invoiceItemsWithProducts = insertedItems.map(item => {
-      const product = productsMap.get(item.product_id);
+    // Build items for response using packages map
+    const invoiceItemsWithPackages = insertedItems.map(item => {
+      const pkg = packagesMap.get(item.package_id);
       return {
         ...item,
-        products: product ? { id: product.id, name: product.name, price: product.price } : null
+        packages: pkg ? { id: pkg.id, name: pkg.name, price: pkg.price } : null
       };
     });
 
     const completeInvoice = {
       ...invoice,
-      invoice_items: invoiceItemsWithProducts
+      invoice_items: invoiceItemsWithPackages
     };
 
     // Send invoice created email in background (non-blocking)
     // Use consumer data we already have instead of fetching again
     const emailItems = validatedItems.map((item, idx) => {
-      const product = productsMap.get(item.product_id);
+      const pkg = packagesMap.get(item.package_id);
       return {
-        name: product?.name || 'Product',
+        name: pkg?.name || 'Package',
         quantity: item.quantity,
         price: item.unit_price,
         total: item.total_price
@@ -1478,11 +1670,17 @@ export const resendInvoice = async (req, res) => {
         receiver:auth_role_with_profiles!invoices_receiver_id_fkey(user_id, full_name, email, role),
         invoice_items (
           id,
+          package_id,
           product_id,
           quantity,
           unit_price,
           tax_rate,
           total_price,
+          packages (
+            id,
+            name,
+            price
+          ),
           products (
             id,
             name,
@@ -1538,7 +1736,7 @@ export const resendInvoice = async (req, res) => {
 
     // Build items for email
     const emailItems = (invoice.invoice_items || []).map((it) => ({
-      name: it.products?.name || 'Product',
+      name: it.packages?.name || it.products?.name || 'Package',
       quantity: it.quantity,
       price: it.unit_price,
       total: it.total_price || (Number(it.unit_price) * Number(it.quantity))
@@ -1621,11 +1819,17 @@ export const downloadInvoicePDF = async (req, res) => {
         receiver:auth_role_with_profiles!invoices_receiver_id_fkey(user_id, full_name, email, role),
         invoice_items (
           id,
+          package_id,
           product_id,
           quantity,
           unit_price,
           tax_rate,
           total_price,
+          packages (
+            id,
+            name,
+            price
+          ),
           products (
             id,
             name,
@@ -1710,7 +1914,7 @@ export const downloadInvoicePDF = async (req, res) => {
     doc.fontSize(10).font('Helvetica');
     const invoiceItems = invoice.invoice_items || [];
     invoiceItems.forEach((item) => {
-      const itemName = item.products?.name || 'Unknown Product';
+      const itemName = item.packages?.name || item.products?.name || 'Unknown Package';
       const quantity = item.quantity || 0;
       const unitPrice = parseFloat(item.unit_price || 0).toFixed(2);
       const taxRate = parseFloat(item.tax_rate || 0).toFixed(2);

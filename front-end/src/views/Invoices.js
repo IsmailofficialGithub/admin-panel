@@ -1320,7 +1320,7 @@ const Invoices = () => {
                               flexWrap: 'wrap',
                               gap: '6px'
                             }}>
-                              {invoice.products && invoice.products.length > 0 ? invoice.products.map((product, idx) => (
+                              {invoice.packages && invoice.packages.length > 0 ? invoice.packages.map((pkg, idx) => (
                                 <span
                                   key={idx}
                                   style={{
@@ -1330,12 +1330,12 @@ const Invoices = () => {
                                     borderRadius: '4px',
                                     color: '#374151'
                                   }}
-                                  title={typeof product === 'object' ? `${product.name} (Qty: ${product.quantity})` : product}
+                                  title={typeof pkg === 'object' ? `${pkg.name} (Qty: ${pkg.quantity})` : pkg}
                                 >
-                                  {typeof product === 'object' ? product.name : product}
+                                  {typeof pkg === 'object' ? pkg.name : pkg}
                                 </span>
                               )) : (
-                                <span style={{ fontSize: '12px', color: '#9ca3af', fontStyle: 'italic' }}>No products</span>
+                                <span style={{ fontSize: '12px', color: '#9ca3af', fontStyle: 'italic' }}>No packages</span>
                               )}
                             </div>
                           </div>
@@ -2657,10 +2657,10 @@ const Invoices = () => {
                     </p>
                   </div>
 
-                  {/* Products/Services */}
+                  {/* Packages/Services */}
                   <div style={{ marginBottom: '24px' }}>
                     <h5 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: '600', color: '#374151' }}>
-                      Products/Services:
+                      Packages/Services:
                     </h5>
                     <div style={{
                       border: '1px solid #e5e7eb',
@@ -2671,7 +2671,7 @@ const Invoices = () => {
                         <thead style={{ backgroundColor: '#f9fafb' }}>
                           <tr>
                             <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#374151', borderBottom: '1px solid #e5e7eb' }}>
-                              Product
+                              Package
                             </th>
                             <th style={{ padding: '12px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#374151', borderBottom: '1px solid #e5e7eb' }}>
                               Amount
@@ -2679,13 +2679,13 @@ const Invoices = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {selectedInvoice.products && selectedInvoice.products.map((product, idx) => (
+                          {selectedInvoice.packages && selectedInvoice.packages.map((pkg, idx) => (
                             <tr key={idx}>
                               <td style={{ padding: '12px', fontSize: '14px', color: '#1f2937', borderBottom: '1px solid #f3f4f6' }}>
-                                {typeof product === 'object' ? product.name : String(product)}
+                                {typeof pkg === 'object' ? pkg.name : String(pkg)}
                               </td>
                               <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', color: '#1f2937', borderBottom: '1px solid #f3f4f6' }}>
-                                {typeof product === 'object' ? formatCurrency(product.total ?? (Number(product.price || 0) * Number(product.quantity || 1))) : formatCurrency(0)}
+                                {typeof pkg === 'object' ? formatCurrency(pkg.total ?? (Number(pkg.price || 0) * Number(pkg.quantity || 1))) : formatCurrency(0)}
                               </td>
                             </tr>
                           ))}

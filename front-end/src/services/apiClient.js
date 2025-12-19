@@ -576,6 +576,11 @@ const apiClient = {
     getConsumerProducts: (consumerId) => axiosInstance.get(`/invoices/consumer/${consumerId}/products`),
 
     /**
+     * Get consumer's accessed packages with prices for invoice creation
+     */
+    getConsumerPackages: (consumerId) => axiosInstance.get(`/invoices/consumer/${consumerId}/packages`),
+
+    /**
      * Get invoices for a specific consumer
      */
     getConsumerInvoices: (consumerId, params = {}) => {

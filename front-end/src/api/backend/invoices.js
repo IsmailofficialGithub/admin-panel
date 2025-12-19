@@ -21,6 +21,21 @@ export const getConsumerProductsForInvoice = async (consumerId) => {
 };
 
 /**
+ * Get consumer's accessed packages with prices for invoice creation
+ * @param {string} consumerId - Consumer user ID
+ * @returns {Promise<Object>} Consumer info and their accessed packages
+ */
+export const getConsumerPackagesForInvoice = async (consumerId) => {
+  try {
+    const response = await apiClient.invoices.getConsumerPackages(consumerId);
+    return response;
+  } catch (error) {
+    console.error('Error fetching consumer packages for invoice:', error);
+    throw error;
+  }
+};
+
+/**
  * Get all invoices (admin only)
  * @param {Object} filters - Filter options
  * @param {string} filters.search - Search term
@@ -98,7 +113,7 @@ export const getConsumerInvoices = async (consumerId) => {
  * @param {number} invoiceData.tax_rate - Tax rate percentage (default for all items)
  * @param {string} invoiceData.notes - Invoice notes
  * @param {Array} invoiceData.items - Array of invoice items
- * @param {string} invoiceData.items[].product_id - Product ID
+ * @param {string} invoiceData.items[].package_id - Package ID
  * @param {number} invoiceData.items[].quantity - Quantity
  * @param {number} invoiceData.items[].unit_price - Unit price
  * @param {number} invoiceData.items[].tax_rate - Tax rate for this item (optional)

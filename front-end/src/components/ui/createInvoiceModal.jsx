@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, FileText, Calendar, DollarSign, Package, User, Mail, AlertCircle, CheckCircle, Plus, Trash2, Loader } from 'lucide-react';
-import { getConsumerProductsForInvoice, createInvoice, getProducts } from '../../api/backend';
+import { getConsumerPackagesForInvoice, createInvoice, getAllPackages } from '../../api/backend';
 import { useAuth } from '../../hooks/useAuth';
 import toast from 'react-hot-toast';
 import { hasRole } from '../../utils/roleUtils';
@@ -16,14 +16,14 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
     invoice_date: new Date().toISOString().split('T')[0],
     due_date: '',
     billing_address: '',
-    products: [],
+    packages: [],
     tax_rate: 10,
     notes: ''
   });
 
-  const [availableProducts, setAvailableProducts] = useState([]); // Consumer's accessed products
-  const [allProducts, setAllProducts] = useState([]); // All products (for admin manual addition)
-  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [availablePackages, setAvailablePackages] = useState([]); // Consumer's accessed packages
+  const [allPackages, setAllPackages] = useState([]); // All packages (for admin manual addition)
+  const [loadingPackages, setLoadingPackages] = useState(false);
   const [generatingInvoice, setGeneratingInvoice] = useState(false);
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -39,17 +39,17 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
         consumer_name: consumer.full_name || '',
         consumer_email: consumer.email || '',
         billing_address: consumer.billing_address || `${consumer.city || ''}, ${consumer.country || ''}`.trim(),
-        products: [] // Reset products
+        packages: [] // Reset packages
       }));
 
-      // Fetch consumer's accessed products
-      const fetchConsumerProducts = async () => {
+      // Fetch consumer's accessed packages
+      const fetchConsumerPackages = async () => {
         setGeneratingInvoice(true);
-        setLoadingProducts(true);
+        setLoadingPackages(true);
         try {
-          const result = await getConsumerProductsForInvoice(consumerId);
+          const result = await getConsumerPackagesForInvoice(consumerId);
           if (result && result.success && result.data) {
-            const { consumer: consumerInfo, products } = result.data;
+            const { consumer: consumerInfo, packages } = result.data;
             
             // Update consumer info if needed
             if (consumerInfo) {
@@ -60,57 +60,57 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
               }));
             }
 
-            // Auto-populate products with their prices (if consumer has accessed products)
-            if (products && Array.isArray(products) && products.length > 0) {
-              const invoiceProducts = products.map(product => ({
-                product_id: product.product_id,
-                product_name: product.product_name,
+            // Auto-populate packages with their prices (if consumer has accessed packages)
+            if (packages && Array.isArray(packages) && packages.length > 0) {
+              const invoicePackages = packages.map(pkg => ({
+                package_id: pkg.package_id,
+                package_name: pkg.package_name,
                 quantity: 1,
-                price: product.price,
-                original_price: product.price, // Store original price for reseller validation
-                subtotal: product.price * 1
+                price: pkg.price,
+                original_price: pkg.price, // Store original price for reseller validation
+                subtotal: pkg.price * 1
               }));
               setFormData(prev => ({
                 ...prev,
-                products: invoiceProducts
+                packages: invoicePackages
               }));
-              setAvailableProducts(products);
-              toast.success(`Loaded ${products.length} product(s) for this consumer`);
+              setAvailablePackages(packages);
+              toast.success(`Loaded ${packages.length} package(s) for this consumer`);
             } else {
-              // Don't show error for resellers - they can still add all products
+              // Don't show error for resellers - they can still add all packages
               if (!isReseller) {
-                toast.error('This consumer has no accessed products');
+                toast.error('This consumer has no accessed packages');
               }
             }
 
-            // Fetch all products for admin and reseller (for manual addition)
+            // Fetch all packages for admin and reseller (for manual addition)
             if (isAdmin || isReseller) {
               try {
-                const allProductsResult = await getProducts();
-                if (allProductsResult && allProductsResult.success && allProductsResult.data && Array.isArray(allProductsResult.data)) {
-                  setAllProducts(allProductsResult.data);
+                const allPackagesResult = await getAllPackages();
+                if (allPackagesResult && allPackagesResult.success && allPackagesResult.data && Array.isArray(allPackagesResult.data)) {
+                  setAllPackages(allPackagesResult.data);
                 }
               } catch (error) {
-                console.error('Error fetching all products:', error);
+                console.error('Error fetching all packages:', error);
               }
             }
           }
         } catch (error) {
-          console.error('Error fetching consumer products:', error);
-          toast.error(error?.message || 'Failed to load consumer products');
+          console.error('Error fetching consumer packages:', error);
+          toast.error(error?.message || 'Failed to load consumer packages');
         } finally {
           setGeneratingInvoice(false);
-          setLoadingProducts(false);
+          setLoadingPackages(false);
         }
       };
 
-      fetchConsumerProducts();
+      fetchConsumerPackages();
     } else if (!isOpen) {
       // Reset when modal closes
-      setAvailableProducts([]);
-      setAllProducts([]);
+      setAvailablePackages([]);
+      setAllPackages([]);
       setGeneratingInvoice(false);
-      setLoadingProducts(false);
+      setLoadingPackages(false);
     }
   }, [isOpen, consumer]);
 
@@ -209,42 +209,42 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
     }
   };
 
-  const handleAddProduct = () => {
+  const handleAddPackage = () => {
     setFormData(prev => ({
       ...prev,
-      products: [...prev.products, { product_id: '', product_name: '', quantity: 1, price: 0, original_price: 0, subtotal: 0 }]
+      packages: [...prev.packages, { package_id: '', package_name: '', quantity: 1, price: 0, original_price: 0, subtotal: 0 }]
     }));
   };
 
-  const handleRemoveProduct = (index) => {
+  const handleRemovePackage = (index) => {
     setFormData(prev => ({
       ...prev,
-      products: prev.products.filter((_, i) => i !== index)
+      packages: prev.packages.filter((_, i) => i !== index)
     }));
   };
 
-  const handleProductChange = (index, field, value) => {
+  const handlePackageChange = (index, field, value) => {
     setFormData(prev => {
-      const newProducts = [...prev.products];
-      if (field === 'product_id') {
-        // Search in both availableProducts (consumer's products) and allProducts (for admin)
-        const product = availableProducts.find(p => p.product_id === value || p.id === value) 
-                     || allProducts.find(p => p.id === value);
-        const originalPrice = parseFloat(product?.price || 0);
-        newProducts[index] = {
-          ...newProducts[index],
-          product_id: value,
-          product_name: product?.product_name || product?.name || '',
+      const newPackages = [...prev.packages];
+      if (field === 'package_id') {
+        // Search in both availablePackages (consumer's packages) and allPackages (for admin)
+        const pkg = availablePackages.find(p => p.package_id === value || p.id === value) 
+                     || allPackages.find(p => p.id === value);
+        const originalPrice = parseFloat(pkg?.price || 0);
+        newPackages[index] = {
+          ...newPackages[index],
+          package_id: value,
+          package_name: pkg?.package_name || pkg?.name || '',
           price: originalPrice,
           original_price: originalPrice, // Store original price for validation
-          subtotal: originalPrice * (newProducts[index].quantity || 1)
+          subtotal: originalPrice * (newPackages[index].quantity || 1)
         };
       } else if (field === 'quantity') {
         const qty = parseFloat(value) || 0;
-        newProducts[index] = {
-          ...newProducts[index],
+        newPackages[index] = {
+          ...newPackages[index],
           quantity: qty,
-          subtotal: (newProducts[index].price || 0) * qty
+          subtotal: (newPackages[index].price || 0) * qty
         };
       } else if (field === 'price') {
         // Allow empty string and only parse when there's a value
@@ -252,13 +252,13 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
         const price = priceStr === '' ? '' : (isNaN(parseFloat(priceStr)) ? '' : parseFloat(priceStr));
         const priceNum = price === '' ? 0 : price;
         // Get original price BEFORE updating
-        const originalPrice = parseFloat(newProducts[index].original_price || 0);
+        const originalPrice = parseFloat(newPackages[index].original_price || 0);
         
-        // Update the product first
-        newProducts[index] = {
-          ...newProducts[index],
+        // Update the package first
+        newPackages[index] = {
+          ...newPackages[index],
           price: price, // Store as string or number, allow empty string
-          subtotal: priceNum * (newProducts[index].quantity || 1)
+          subtotal: priceNum * (newPackages[index].quantity || 1)
         };
         
         // For resellers: validate that price is equal to or greater than original price
@@ -279,13 +279,13 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
       }
       return {
         ...prev,
-        products: newProducts
+        packages: newPackages
       };
     });
   };
 
   const calculateTotals = () => {
-    const subtotal = formData.products.reduce((sum, item) => sum + (item.subtotal || 0), 0);
+    const subtotal = formData.packages.reduce((sum, item) => sum + (item.subtotal || 0), 0);
     const tax = subtotal * (formData.tax_rate / 100);
     const total = subtotal + tax;
     return { subtotal, tax, total };
@@ -322,20 +322,20 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
         }
       }
     }
-    if (formData.products.length === 0) {
-      newErrors.products = 'At least one product is required';
+    if (formData.packages.length === 0) {
+      newErrors.packages = 'At least one package is required';
     }
-    formData.products.forEach((product, index) => {
-      if (!product.product_id) {
-        newErrors[`product_${index}`] = 'Product selection is required';
+    formData.packages.forEach((pkg, index) => {
+      if (!pkg.package_id) {
+        newErrors[`package_${index}`] = 'Package selection is required';
       }
-      if (!product.quantity || product.quantity <= 0) {
+      if (!pkg.quantity || pkg.quantity <= 0) {
         newErrors[`quantity_${index}`] = 'Valid quantity is required';
       }
       // Validate price for resellers: must be equal to or greater than original price
-      if (isReseller && product.product_id && product.original_price) {
-        const currentPrice = parseFloat(product.price || 0);
-        const originalPrice = parseFloat(product.original_price || 0);
+      if (isReseller && pkg.package_id && pkg.original_price) {
+        const currentPrice = parseFloat(pkg.price || 0);
+        const originalPrice = parseFloat(pkg.original_price || 0);
         if (currentPrice > 0 && originalPrice > 0 && currentPrice < originalPrice) {
           newErrors[`price_${index}`] = 'Price must be equal to or greater than original price';
         }
@@ -359,10 +359,10 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
       const { subtotal, tax, total } = calculateTotals();
       
       // Prepare invoice items for backend
-      const invoiceItems = formData.products.map(product => ({
-        product_id: product.product_id,
-        quantity: parseInt(product.quantity),
-        unit_price: parseFloat(product.price),
+      const invoiceItems = formData.packages.map(pkg => ({
+        package_id: pkg.package_id,
+        quantity: parseInt(pkg.quantity),
+        unit_price: parseFloat(pkg.price),
         tax_rate: formData.tax_rate
       }));
       
@@ -396,7 +396,7 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
             invoice_date: new Date().toISOString().split('T')[0],
             due_date: '',
             billing_address: '',
-            products: [],
+            packages: [],
             tax_rate: 10,
             notes: ''
           });
@@ -424,13 +424,13 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
         consumer_id: '',
         consumer_name: '',
         consumer_email: '',
-        invoice_date: new Date().toISOString().split('T')[0],
-        due_date: '',
-        billing_address: '',
-        products: [],
-        tax_rate: 10,
-        notes: ''
-      });
+            invoice_date: new Date().toISOString().split('T')[0],
+            due_date: '',
+            billing_address: '',
+            packages: [],
+            tax_rate: 10,
+            notes: ''
+          });
       setErrors({});
       setSubmitMessage({ type: '', text: '' });
       onClose();
@@ -535,7 +535,7 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
                 animation: 'spin 1s linear infinite'
               }} />
               <p style={{ margin: 0, fontSize: '14px', color: '#0369a1', fontWeight: '500' }}>
-                Generating invoice... Loading consumer products...
+                Generating invoice... Loading consumer packages...
               </p>
             </div>
           )}
@@ -723,7 +723,7 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
             />
           </div>
 
-          {/* Products Section */}
+          {/* Packages Section */}
           <div style={{ marginBottom: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <label style={{
@@ -731,17 +731,17 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
                 fontWeight: '500',
                 color: '#374151'
               }}>
-                Subscribed Products <span style={{ color: '#ef4444' }}>*</span>
-                {formData.products.length > 0 && (
+                Subscribed Packages <span style={{ color: '#ef4444' }}>*</span>
+                {formData.packages.length > 0 && (
                   <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: '400', marginLeft: '8px' }}>
-                    ({formData.products.length} product{formData.products.length !== 1 ? 's' : ''})
+                    ({formData.packages.length} package{formData.packages.length !== 1 ? 's' : ''})
                   </span>
                 )}
               </label>
-              {(isAdmin || isReseller) && (availableProducts.length > 0 || allProducts.length > 0) && (
+              {(isAdmin || isReseller) && (availablePackages.length > 0 || allPackages.length > 0) && (
                 <button
                   type="button"
-                  onClick={handleAddProduct}
+                  onClick={handleAddPackage}
                   disabled={isSubmitting || generatingInvoice}
                   style={{
                     display: 'flex',
@@ -760,16 +760,16 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
                   }}
                 >
                   <Plus size={14} />
-                  {isAdmin ? 'Add Manual Product' : 'Add Product'}
+                  {isAdmin ? 'Add Manual Package' : 'Add Package'}
                 </button>
               )}
             </div>
-            {errors.products && (
+            {errors.packages && (
               <p style={{ color: '#ef4444', fontSize: '12px', marginBottom: '12px' }}>
-                {errors.products}
+                {errors.packages}
               </p>
             )}
-            {formData.products.map((product, index) => (
+            {formData.packages.map((pkg, index) => (
               <div key={index} style={{
                 marginBottom: '12px',
                 padding: '16px',
@@ -779,11 +779,11 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                   <span style={{ fontSize: '14px', fontWeight: '500', color: '#374151' }}>
-                    Product {index + 1}
+                    Package {index + 1}
                   </span>
                   <button
                     type="button"
-                    onClick={() => handleRemoveProduct(index)}
+                    onClick={() => handleRemovePackage(index)}
                     disabled={isSubmitting}
                     style={{
                       padding: '4px 8px',
@@ -804,47 +804,47 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
                 <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px' }}>
                   <div>
                     <label style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>
-                      Product
+                      Package
                     </label>
                     <select
-                      value={product.product_id}
-                      onChange={(e) => handleProductChange(index, 'product_id', e.target.value)}
-                      disabled={isSubmitting || loadingProducts}
+                      value={pkg.package_id}
+                      onChange={(e) => handlePackageChange(index, 'package_id', e.target.value)}
+                      disabled={isSubmitting || loadingPackages}
                       style={{
                         width: '100%',
                         padding: '8px 10px',
-                        border: errors[`product_${index}`] ? '1px solid #ef4444' : '1px solid #d1d5db',
+                        border: errors[`package_${index}`] ? '1px solid #ef4444' : '1px solid #d1d5db',
                         borderRadius: '6px',
                         fontSize: '13px',
                         outline: 'none'
                       }}
                     >
-                      <option value="">Select product...</option>
-                      {/* Show consumer's subscribed products (if any) */}
-                      {availableProducts.length > 0 && (
-                        <optgroup label="Consumer's Products">
-                          {availableProducts.map(p => (
-                            <option key={p.product_id || p.id} value={p.product_id || p.id}>
-                              {p.product_name || p.name} - ${parseFloat(p.price || 0).toFixed(2)}
+                      <option value="">Select package...</option>
+                      {/* Show consumer's subscribed packages (if any) */}
+                      {availablePackages.length > 0 && (
+                        <optgroup label="Consumer's Packages">
+                          {availablePackages.map(p => (
+                            <option key={p.package_id || p.id} value={p.package_id || p.id}>
+                              {p.package_name || p.name} - ${parseFloat(p.price || 0).toFixed(2)}
                             </option>
                           ))}
                         </optgroup>
                       )}
-                      {/* Show all products for admin and reseller */}
-                      {(isAdmin || isReseller) && allProducts.length > 0 && (
-                        <optgroup label={availableProducts.length > 0 ? "All Products" : "Products"}>
-                          {availableProducts.length > 0 ? (
-                            // Show products not in consumer's list
-                            allProducts
-                              .filter(p => !availableProducts.some(ap => (ap.product_id || ap.id) === p.id))
+                      {/* Show all packages for admin and reseller */}
+                      {(isAdmin || isReseller) && allPackages.length > 0 && (
+                        <optgroup label={availablePackages.length > 0 ? "All Packages" : "Packages"}>
+                          {availablePackages.length > 0 ? (
+                            // Show packages not in consumer's list
+                            allPackages
+                              .filter(p => !availablePackages.some(ap => (ap.package_id || ap.id) === p.id))
                               .map(p => (
                                 <option key={p.id} value={p.id}>
                                   {p.name} - ${parseFloat(p.price || 0).toFixed(2)}
                                 </option>
                               ))
                           ) : (
-                            // Show all products if consumer has no products
-                            allProducts.map(p => (
+                            // Show all packages if consumer has no packages
+                            allPackages.map(p => (
                               <option key={p.id} value={p.id}>
                                 {p.name} - ${parseFloat(p.price || 0).toFixed(2)}
                               </option>
@@ -861,8 +861,8 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
                     <input
                       type="number"
                       min="1"
-                      value={product.quantity}
-                      onChange={(e) => handleProductChange(index, 'quantity', e.target.value)}
+                      value={pkg.quantity}
+                      onChange={(e) => handlePackageChange(index, 'quantity', e.target.value)}
                       disabled={isSubmitting}
                       style={{
                         width: '100%',
@@ -876,26 +876,26 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
                   </div>
                   <div>
                     <label style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>
-                      Price {isAdmin ? '(Editable)' : isReseller ? '(Editable - Min: $' + (product.original_price || product.price || 0).toFixed(2) + ')' : '(Fixed)'}
+                      Price {isAdmin ? '(Editable)' : isReseller ? '(Editable - Min: $' + (pkg.original_price || pkg.price || 0).toFixed(2) + ')' : '(Fixed)'}
                     </label>
                     <input
                       type="text"
-                      value={product.price === 0 || product.price === '' || product.price === null || product.price === undefined ? '' : String(product.price)}
+                      value={pkg.price === 0 || pkg.price === '' || pkg.price === null || pkg.price === undefined ? '' : String(pkg.price)}
                       onChange={(e) => {
                         // Allow empty string and numeric input
                         const value = e.target.value;
                         // Allow empty string, numbers, decimals (no negative for price)
                         if (value === '' || /^\d*\.?\d*$/.test(value)) {
-                          handleProductChange(index, 'price', value);
+                          handlePackageChange(index, 'price', value);
                         }
                       }}
                       onBlur={(e) => {
                         // When user leaves the field, ensure valid number or empty
                         const value = e.target.value.trim();
                         if (value === '' || value === '-') {
-                          handleProductChange(index, 'price', '');
+                          handlePackageChange(index, 'price', '');
                         } else if (!isNaN(parseFloat(value))) {
-                          handleProductChange(index, 'price', value);
+                          handlePackageChange(index, 'price', value);
                         }
                       }}
                       placeholder="0.00"
@@ -911,7 +911,7 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
                         cursor: (isAdmin || isReseller) ? 'text' : 'not-allowed',
                         opacity: (isAdmin || isReseller) ? 1 : 0.7
                       }}
-                      title={!isAdmin && !isReseller ? 'Only admin and reseller can edit prices' : isReseller ? `Price must be equal to or greater than original price ($${(product.original_price || product.price || 0).toFixed(2)})` : 'Edit price'}
+                      title={!isAdmin && !isReseller ? 'Only admin and reseller can edit prices' : isReseller ? `Price must be equal to or greater than original price ($${(pkg.original_price || pkg.price || 0).toFixed(2)})` : 'Edit price'}
                     />
                     {errors[`price_${index}`] && (
                       <p style={{ color: '#ef4444', fontSize: '11px', marginTop: '4px', marginBottom: 0 }}>
@@ -923,7 +923,7 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
                 <div style={{ marginTop: '8px', textAlign: 'right' }}>
                   <span style={{ fontSize: '12px', color: '#6b7280' }}>Subtotal: </span>
                   <span style={{ fontSize: '14px', fontWeight: '600', color: '#74317e' }}>
-                    ${(product.subtotal || 0).toFixed(2)}
+                    ${(pkg.subtotal || 0).toFixed(2)}
                   </span>
                 </div>
               </div>

@@ -50,9 +50,19 @@ export {
 } from './products';
 
 export {
+  getAllPackages,
+  getPackageById,
+  getPackagesByProduct,
+  createPackage,
+  updatePackage,
+  deletePackage
+} from './packages';
+
+export {
   getAllInvoices,
   getMyInvoices,
   getConsumerProductsForInvoice,
+  getConsumerPackagesForInvoice,
   createInvoice
 } from './invoices';
 
