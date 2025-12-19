@@ -131,7 +131,7 @@ const User = () => {
         updatedUser.id, 
         {
           full_name: updatedUser.full_name,
-          role: updatedUser.role,
+          roles: updatedUser.roles || updatedUser.role ? (Array.isArray(updatedUser.roles) ? updatedUser.roles : [updatedUser.role]) : ['user'],
           country: updatedUser.country,
           city: updatedUser.city,
           phone: updatedUser.phone
@@ -154,7 +154,7 @@ const User = () => {
               name: updatedUser.full_name,
               full_name: updatedUser.full_name,
               email: updatedUser.email,
-              role: updatedUser.role,
+              role: updatedUser.roles || updatedUser.role || ['user'],
               country: updatedUser.country,
               city: updatedUser.city,
               phone: updatedUser.phone

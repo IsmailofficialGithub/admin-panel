@@ -282,7 +282,8 @@ const Resellers = () => {
         full_name: updatedReseller.full_name,
         phone: updatedReseller.phone,
         country: updatedReseller.country,
-        city: updatedReseller.city
+        city: updatedReseller.city,
+        roles: updatedReseller.roles || ['reseller']
       });
       
       if (result.error) {
@@ -299,6 +300,7 @@ const Resellers = () => {
               ...user,
               full_name: updatedReseller.full_name,
               phone: updatedReseller.phone || null,
+              role: updatedReseller.roles || user.role || ['reseller'],
               updated_at: new Date().toISOString()
             };
           }

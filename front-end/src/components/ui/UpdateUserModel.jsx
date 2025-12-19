@@ -5,11 +5,20 @@ import { countries, searchCountries } from '../../utils/countryData';
 const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
   const [formData, setFormData] = useState({
     name: '',
-    role: 'User',
+    roles: ['user'], // Default to user role
     country: '',
     city: '',
     phone: ''
   });
+
+  // Available roles for user form
+  const availableRoles = [
+    { value: 'user', label: 'User' },
+    { value: 'admin', label: 'Admin' },
+    { value: 'consumer', label: 'Consumer' },
+    { value: 'reseller', label: 'Reseller' },
+    { value: 'viewer', label: 'Viewer' }
+  ];
 
   const [countrySearch, setCountrySearch] = useState('');
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
@@ -18,10 +27,15 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
 
   useEffect(() => {
     if (user) {
+      // Handle role - support both array and single value (backward compatibility)
+      const userRoles = Array.isArray(user.role) 
+        ? user.role.map(r => String(r).toLowerCase())
+        : (user.role ? [String(user.role).toLowerCase()] : ['user']);
+      
       setFormData({
         name: user.full_name || user.name || '',
         email: user.email || '',
-        role: user.role || 'User',
+        roles: userRoles,
         country: user.country || '',
         city: user.city || '',
         phone: ''
@@ -101,6 +115,37 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
     }
   };
 
+  // Handle role change
+  const handleRoleChange = (roleValue) => {
+    setFormData(prev => {
+      const currentRoles = prev.roles || ['user'];
+      const isSelected = currentRoles.includes(roleValue);
+      
+      let newRoles;
+      if (isSelected) {
+        // Remove role if already selected
+        newRoles = currentRoles.filter(r => r !== roleValue);
+        // Ensure at least one role is selected
+        if (newRoles.length === 0) {
+          newRoles = ['user']; // Default to user if all roles are deselected
+        }
+      } else {
+        // Add role
+        newRoles = [...currentRoles, roleValue];
+      }
+      
+      return {
+        ...prev,
+        roles: newRoles
+      };
+    });
+    
+    // Clear roles error when user changes selection
+    if (errors.roles) {
+      setErrors(prev => ({ ...prev, roles: '' }));
+    }
+  };
+
   const handleCountrySelect = (country) => {
     setSelectedCountry(country);
     
@@ -173,8 +218,8 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
       newErrors.name = 'Name is required';
     }
     
-    if (!formData.role) {
-      newErrors.role = 'Role is required';
+    if (!formData.roles || formData.roles.length === 0) {
+      newErrors.roles = 'At least one role is required';
     }
     
     if (!formData.country.trim()) {
@@ -234,7 +279,7 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
       onUpdate({
         ...user,
         full_name: formData.name,  // Map 'name' to 'full_name'
-        role: formData.role,
+        roles: formData.roles || ['user'], // Send roles array (already lowercase)
         email: formData.email || null,
         country: formData.country.trim() || null,
         city: formData.city.trim() || null,
@@ -415,7 +460,7 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
             )}
           </div>
 
-          {/* Role Field */}
+          {/* Roles Field */}
           <div style={{ marginBottom: '20px' }}>
             <label style={{
               display: 'block',
@@ -424,64 +469,86 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
               color: '#374151',
               marginBottom: '8px'
             }}>
-              Role <span style={{ color: '#ef4444' }}>*</span>
+              Roles <span style={{ color: '#ef4444' }}>*</span>
             </label>
-            <div style={{ position: 'relative' }}>
+            <div style={{
+              border: errors.roles ? '1px solid #ef4444' : '1px solid #d1d5db',
+              borderRadius: '8px',
+              padding: '12px',
+              backgroundColor: 'white',
+              minHeight: '80px'
+            }}>
               <div style={{
-                position: 'absolute',
-                left: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: '#9ca3af',
-                pointerEvents: 'none'
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px'
               }}>
-                <Shield size={18} />
+                {availableRoles.map((role) => {
+                  const isChecked = formData.roles?.includes(role.value) || false;
+                  return (
+                    <label
+                      key={role.value}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        cursor: 'pointer',
+                        padding: '8px',
+                        borderRadius: '6px',
+                        transition: 'background-color 0.2s',
+                        backgroundColor: isChecked ? '#f3f4f6' : 'transparent'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#f9fafb';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isChecked) {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                        }
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => handleRoleChange(role.value)}
+                        style={{
+                          width: '18px',
+                          height: '18px',
+                          marginRight: '12px',
+                          cursor: 'pointer',
+                          accentColor: '#74317e'
+                        }}
+                      />
+                      <Shield size={16} style={{ marginRight: '8px', color: '#6b7280' }} />
+                      <span style={{
+                        fontSize: '14px',
+                        color: '#374151',
+                        fontWeight: isChecked ? '500' : '400'
+                      }}>
+                        {role.label}
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
-              <select
-                name="role"
-                value={formData.role}
-                onChange={handleChange}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px 10px 40px',
-                  border: errors.role ? '1px solid #ef4444' : '1px solid #d1d5db',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  outline: 'none',
-                  transition: 'all 0.2s',
-                  backgroundColor: 'white',
-                  cursor: 'pointer',
-                  boxSizing: 'border-box',
-                  appearance: 'none',
-                  backgroundImage: 'url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%236b7280\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3e%3cpolyline points=\'6 9 12 15 18 9\'%3e%3c/polyline%3e%3c/svg%3e")',
-                  backgroundRepeat: 'no-repeat',
-                  backgroundPosition: 'right 12px center',
-                  backgroundSize: '16px',
-                  paddingRight: '40px'
-                }}
-                onFocus={(e) => {
-                  if (!errors.role) {
-                    e.target.style.borderColor = '#74317e';
-                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                  }
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = errors.role ? '#ef4444' : '#d1d5db';
-                  e.target.style.boxShadow = 'none';
-                }}
-              >
-                <option value="Admin">Admin</option>
-                <option value="User">User</option>
-              </select>
             </div>
-            {errors.role && (
+            {errors.roles && (
               <p style={{
                 color: '#ef4444',
                 fontSize: '12px',
                 marginTop: '6px',
                 marginBottom: 0
               }}>
-                {errors.role}
+                {errors.roles}
+              </p>
+            )}
+            {formData.roles && formData.roles.length > 0 && (
+              <p style={{
+                color: '#6b7280',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                Selected: {formData.roles.map(r => availableRoles.find(ar => ar.value === r)?.label || r).join(', ')}
               </p>
             )}
           </div>
