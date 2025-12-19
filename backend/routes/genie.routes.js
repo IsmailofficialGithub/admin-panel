@@ -4,6 +4,7 @@ import { requirePermission } from '../middleware/permissions.js';
 import {
   // Calls
   getAllCalls,
+  getAllCallsByOwnerId,
   getCallById,
   getCallStats,
   updateCallLeadStatus,
@@ -66,6 +67,22 @@ router.get(
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   getAllCalls
+);
+
+/**
+ * @route   GET /api/genie/calls/owner/:ownerUserId
+ * @desc    Get all calls by owner user ID
+ * @access  Private (genie.calls.view)
+ * NOTE: Must be before /calls/:id to avoid route conflict
+ */
+router.get(
+  '/calls/owner/:ownerUserId',
+  authenticate,
+  loadUserProfile,
+  requirePermission('genie.calls.view'),
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
+  getAllCallsByOwnerId
 );
 
 /**

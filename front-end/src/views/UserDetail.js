@@ -129,14 +129,21 @@ function UserDetail() {
   };
 
   const getRoleBadge = (role) => {
+    // Handle role as array or string
+    const roleArray = Array.isArray(role) ? role : (role ? [role] : []);
+    const primaryRole = roleArray.length > 0 ? roleArray[0].toLowerCase() : null;
+    const roleString = roleArray.length > 0 ? roleArray.map(r => r.charAt(0).toUpperCase() + r.slice(1)).join(', ') : 'Unknown';
+    
     const roleColors = {
       admin: 'danger',
       user: 'primary',
-      viewer: 'info'
+      viewer: 'info',
+      reseller: 'warning',
+      consumer: 'success'
     };
     return (
-      <Badge bg={roleColors[role?.toLowerCase()] || 'secondary'}>
-        {role?.charAt(0).toUpperCase() + role?.slice(1) || 'Unknown'}
+      <Badge bg={roleColors[primaryRole] || 'secondary'}>
+        {roleString}
       </Badge>
     );
   };

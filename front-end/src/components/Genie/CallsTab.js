@@ -213,19 +213,19 @@ function CallsTab() {
           color: 'white'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
+              <div>
               <p style={{ margin: '0 0 4px 0', fontSize: '13px', opacity: 0.9 }}>Total Calls</p>
-              {statsLoading ? (
+                {statsLoading ? (
                 <div style={{ width: '24px', height: '24px', border: '2px solid white', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-              ) : (
+                ) : (
                 <h3 style={{ margin: 0, fontSize: '28px', fontWeight: '700' }}>{stats?.totalCalls || 0}</h3>
-              )}
-            </div>
+                )}
+              </div>
             <div style={{ width: '50px', height: '50px', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Phone size={24} />
             </div>
           </div>
-        </div>
+              </div>
 
         <div style={{
           background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
@@ -234,19 +234,19 @@ function CallsTab() {
           color: 'white'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
+              <div>
               <p style={{ margin: '0 0 4px 0', fontSize: '13px', opacity: 0.9 }}>Success Rate</p>
-              {statsLoading ? (
+                {statsLoading ? (
                 <div style={{ width: '24px', height: '24px', border: '2px solid white', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-              ) : (
+                ) : (
                 <h3 style={{ margin: 0, fontSize: '28px', fontWeight: '700' }}>{stats?.successRate || 0}%</h3>
-              )}
-            </div>
+                )}
+              </div>
             <div style={{ width: '50px', height: '50px', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <CheckCircle size={24} />
             </div>
           </div>
-        </div>
+              </div>
 
         <div style={{
           background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
@@ -255,19 +255,19 @@ function CallsTab() {
           color: 'white'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
+              <div>
               <p style={{ margin: '0 0 4px 0', fontSize: '13px', opacity: 0.9 }}>Avg Duration</p>
-              {statsLoading ? (
+                {statsLoading ? (
                 <div style={{ width: '24px', height: '24px', border: '2px solid white', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-              ) : (
+                ) : (
                 <h3 style={{ margin: 0, fontSize: '28px', fontWeight: '700' }}>{formatDuration(stats?.avgDuration)}</h3>
-              )}
-            </div>
+                )}
+              </div>
             <div style={{ width: '50px', height: '50px', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Clock size={24} />
             </div>
           </div>
-        </div>
+              </div>
 
         <div style={{
           background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
@@ -276,20 +276,20 @@ function CallsTab() {
           color: 'white'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
+              <div>
               <p style={{ margin: '0 0 4px 0', fontSize: '13px', opacity: 0.9 }}>Leads</p>
-              {statsLoading ? (
+                {statsLoading ? (
                 <div style={{ width: '24px', height: '24px', border: '2px solid white', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-              ) : (
+                ) : (
                 <h3 style={{ margin: 0, fontSize: '28px', fontWeight: '700' }}>{stats?.leadsGenerated || 0}</h3>
-              )}
-            </div>
+                )}
+              </div>
             <div style={{ width: '50px', height: '50px', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Users size={24} />
             </div>
           </div>
         </div>
-      </div>
+              </div>
 
       {/* Period Selector */}
       <div style={{ marginBottom: '16px' }}>
@@ -331,10 +331,10 @@ function CallsTab() {
               <div style={{ position: 'relative' }}>
                 <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
                 <input
-                  type="text"
-                  placeholder="Name or phone..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                    type="text"
+                    placeholder="Name or phone..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
                   style={{
                     width: '100%',
                     padding: '10px 12px 10px 40px',
@@ -346,11 +346,11 @@ function CallsTab() {
                   }}
                 />
               </div>
-            </div>
+                </div>
             <div style={{ flex: '0 1 150px' }}>
               <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>Bot</label>
               <select
-                value={selectedBot}
+                  value={selectedBot}
                 onChange={(e) => { setSelectedBot(e.target.value); setCurrentPage(1); }}
                 style={{
                   width: '100%',
@@ -361,18 +361,18 @@ function CallsTab() {
                   outline: 'none',
                   backgroundColor: 'white',
                   cursor: 'pointer'
-                }}
-              >
-                <option value="">All Bots</option>
-                {bots.map((bot) => (
-                  <option key={bot.id} value={bot.id}>{bot.name}</option>
-                ))}
+                  }}
+                >
+                  <option value="">All Bots</option>
+                  {bots.map((bot) => (
+                    <option key={bot.id} value={bot.id}>{bot.name}</option>
+                  ))}
               </select>
             </div>
             <div style={{ flex: '0 1 130px' }}>
               <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>Status</label>
               <select
-                value={selectedStatus}
+                  value={selectedStatus}
                 onChange={(e) => { setSelectedStatus(e.target.value); setCurrentPage(1); }}
                 style={{
                   width: '100%',
@@ -383,19 +383,19 @@ function CallsTab() {
                   outline: 'none',
                   backgroundColor: 'white',
                   cursor: 'pointer'
-                }}
-              >
-                <option value="">All</option>
-                <option value="pending">Pending</option>
-                <option value="in_progress">In Progress</option>
-                <option value="completed">Completed</option>
-                <option value="failed">Failed</option>
+                  }}
+                >
+                  <option value="">All</option>
+                  <option value="pending">Pending</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="completed">Completed</option>
+                  <option value="failed">Failed</option>
               </select>
             </div>
             <div style={{ flex: '0 1 130px' }}>
               <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>Lead</label>
               <select
-                value={selectedLeadFilter}
+                  value={selectedLeadFilter}
                 onChange={(e) => { setSelectedLeadFilter(e.target.value); setCurrentPage(1); }}
                 style={{
                   width: '100%',
@@ -406,11 +406,11 @@ function CallsTab() {
                   outline: 'none',
                   backgroundColor: 'white',
                   cursor: 'pointer'
-                }}
-              >
-                <option value="">All</option>
-                <option value="true">Leads Only</option>
-                <option value="false">Non-Leads</option>
+                  }}
+                >
+                  <option value="">All</option>
+                  <option value="true">Leads Only</option>
+                  <option value="false">Non-Leads</option>
               </select>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
@@ -514,17 +514,17 @@ function CallsTab() {
                               fontWeight: '600',
                               fontSize: '14px'
                             }}>
-                              {getInitials(call.name)}
-                            </div>
+                            {getInitials(call.name)}
+                          </div>
                             <div>
                               <div style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>{call.name || "Unknown"}</div>
                               <div style={{ color: '#64748b', fontSize: '13px' }}>{call.phone || "-"}</div>
-                            </div>
                           </div>
-                        </td>
+                        </div>
+                      </td>
                         <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '14px' }}>
                           {call.genie_bots?.name || "-"}
-                        </td>
+                      </td>
                         <td style={{ padding: '14px 16px' }}>
                           <span style={{
                             padding: '6px 12px',
@@ -535,23 +535,23 @@ function CallsTab() {
                             color: statusStyle.color
                           }}>
                             {statusStyle.text}
-                          </span>
-                        </td>
+                        </span>
+                      </td>
                         <td style={{ padding: '14px 16px', fontWeight: '600', fontSize: '14px', color: '#1e293b' }}>
                           {formatDuration(call.duration)}
-                        </td>
+                      </td>
                         <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '14px' }}>
                           {formatDate(call.created_at)}
-                        </td>
+                      </td>
                         <td style={{ padding: '14px 16px' }}>
-                          {canUpdate ? (
+                        {canUpdate ? (
                             <label style={{ position: 'relative', width: '44px', height: '24px', display: 'inline-block' }}>
-                              <input
-                                type="checkbox"
-                                checked={call.is_lead || false}
-                                onChange={() => handleToggleLead(call.id, call.is_lead)}
+                            <input
+                              type="checkbox"
+                              checked={call.is_lead || false}
+                              onChange={() => handleToggleLead(call.id, call.is_lead)}
                                 style={{ opacity: 0, width: 0, height: 0 }}
-                              />
+                            />
                               <span style={{
                                 position: 'absolute',
                                 cursor: 'pointer',
@@ -575,9 +575,9 @@ function CallsTab() {
                                   borderRadius: '50%'
                                 }} />
                               </span>
-                            </label>
-                          ) : (
-                            call.is_lead ? (
+                          </label>
+                        ) : (
+                          call.is_lead ? (
                               <span style={{
                                 padding: '6px 12px',
                                 borderRadius: '20px',
@@ -588,11 +588,11 @@ function CallsTab() {
                               }}>
                                 Lead
                               </span>
-                            ) : (
+                          ) : (
                               <span style={{ color: '#64748b' }}>-</span>
-                            )
-                          )}
-                        </td>
+                          )
+                        )}
+                      </td>
                         <td style={{ padding: '14px 16px', textAlign: 'center', position: 'relative' }}>
                           <button
                             onClick={() => setOpenDropdown(openDropdown === call.id ? null : call.id)}
@@ -624,7 +624,7 @@ function CallsTab() {
                               zIndex: 100,
                               minWidth: '160px'
                             }}>
-                              {canRead && (
+                            {canRead && (
                                 <button
                                   onClick={() => { history.push(`/admin/genie/calls/${call.id}`); setOpenDropdown(null); }}
                                   style={{
@@ -645,8 +645,8 @@ function CallsTab() {
                                 >
                                   <Eye size={16} /> View Details
                                 </button>
-                              )}
-                              {call.call_url && (
+                            )}
+                            {call.call_url && (
                                 <a
                                   href={call.call_url}
                                   target="_blank"
@@ -665,11 +665,11 @@ function CallsTab() {
                                 >
                                   <Play size={16} /> Play Recording
                                 </a>
-                              )}
+                            )}
                             </div>
                           )}
-                        </td>
-                      </tr>
+                      </td>
+                    </tr>
                     );
                   })}
                 </tbody>
@@ -682,8 +682,8 @@ function CallsTab() {
                 Showing {calls.length} of {totalCount} calls (Page {currentPage} of {totalPages})
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <button
-                  onClick={() => setCurrentPage(1)}
+                <button 
+                  onClick={() => setCurrentPage(1)} 
                   disabled={currentPage <= 1}
                   style={{
                     width: '36px',
@@ -700,8 +700,8 @@ function CallsTab() {
                 >
                   <ChevronsLeft size={16} />
                 </button>
-                <button
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                <button 
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
                   disabled={currentPage <= 1}
                   style={{
                     width: '36px',
@@ -733,8 +733,8 @@ function CallsTab() {
                 }}>
                   {currentPage}
                 </button>
-                <button
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                <button 
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
                   disabled={currentPage >= totalPages || totalPages <= 1}
                   style={{
                     width: '36px',
@@ -751,8 +751,8 @@ function CallsTab() {
                 >
                   <ChevronRight size={16} />
                 </button>
-                <button
-                  onClick={() => setCurrentPage(totalPages)}
+                <button 
+                  onClick={() => setCurrentPage(totalPages)} 
                   disabled={currentPage >= totalPages || totalPages <= 1}
                   style={{
                     width: '36px',

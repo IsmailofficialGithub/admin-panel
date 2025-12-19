@@ -1,12 +1,14 @@
 import express from 'express';
-import { authenticate, requireRole } from '../middleware/auth.js';
+import { authenticate, requireRole, loadUserProfile } from '../middleware/auth.js';
+import { checkInvoiceAccess } from '../middleware/invoiceAccess.js';
 import {
   getConsumerProductsForInvoice,
   getAllInvoices,
   getMyInvoices,
   createInvoice,
   getConsumerInvoices,
-  resendInvoice
+  resendInvoice,
+  downloadInvoicePDF
 } from './controllers/invoices.controller.js';
 import {
   submitPayment,
@@ -120,6 +122,21 @@ router.post(
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   resendInvoice
+);
+
+/**
+ * @route   GET /api/invoices/:id/download-pdf
+ * @desc    Download invoice as PDF
+ * @access  Private (Admin, Reseller, Consumer)
+ */
+router.get(
+  '/:id/download-pdf',
+  authenticate,
+  loadUserProfile,
+  checkInvoiceAccess,
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
+  downloadInvoicePDF
 );
 
 /**

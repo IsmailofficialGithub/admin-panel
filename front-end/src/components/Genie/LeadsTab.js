@@ -201,7 +201,7 @@ function LeadsTab() {
       // Cleanup
       setTimeout(() => {
         document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
+      window.URL.revokeObjectURL(url);
       }, 100);
 
       toast.success("Leads exported successfully");
@@ -322,10 +322,10 @@ function LeadsTab() {
               <div style={{ position: 'relative' }}>
                 <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
                 <input
-                  type="text"
-                  placeholder="Name, phone, email..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                    type="text"
+                    placeholder="Name, phone, email..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
                   style={{
                     width: '100%',
                     padding: '10px 12px 10px 40px',
@@ -337,11 +337,11 @@ function LeadsTab() {
                   }}
                 />
               </div>
-            </div>
+                </div>
             <div style={{ flex: '0 1 150px' }}>
               <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>Bot</label>
               <select
-                value={selectedBot}
+                  value={selectedBot}
                 onChange={(e) => { setSelectedBot(e.target.value); setCurrentPage(1); }}
                 style={{
                   width: '100%',
@@ -352,20 +352,20 @@ function LeadsTab() {
                   outline: 'none',
                   backgroundColor: 'white',
                   cursor: 'pointer'
-                }}
-              >
-                <option value="">All Bots</option>
-                {bots.map((bot) => (
-                  <option key={bot.id} value={bot.id}>{bot.name}</option>
-                ))}
+                  }}
+                >
+                  <option value="">All Bots</option>
+                  {bots.map((bot) => (
+                    <option key={bot.id} value={bot.id}>{bot.name}</option>
+                  ))}
               </select>
             </div>
             <div style={{ flex: '0 1 150px' }}>
               <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>From</label>
               <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
                 style={{
                   width: '100%',
                   padding: '10px 12px',
@@ -375,14 +375,14 @@ function LeadsTab() {
                   outline: 'none',
                   boxSizing: 'border-box'
                 }}
-              />
+                />
             </div>
             <div style={{ flex: '0 1 150px' }}>
               <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>To</label>
               <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
                 style={{
                   width: '100%',
                   padding: '10px 12px',
@@ -507,7 +507,7 @@ function LeadsTab() {
                         {lead.genie_bots?.name || "-"}
                       </td>
                       <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '13px' }}>
-                        {truncateText(lead.summary, 40)}
+                          {truncateText(lead.summary, 40)}
                       </td>
                       <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '14px' }}>
                         {formatDate(lead.created_at)}
@@ -625,8 +625,8 @@ function LeadsTab() {
                 Showing {leads.length} of {totalCount} leads (Page {currentPage} of {totalPages})
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <button
-                  onClick={() => setCurrentPage(1)}
+                <button 
+                  onClick={() => setCurrentPage(1)} 
                   disabled={currentPage <= 1}
                   style={{
                     width: '36px',
@@ -643,8 +643,8 @@ function LeadsTab() {
                 >
                   <ChevronsLeft size={16} />
                 </button>
-                <button
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                <button 
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
                   disabled={currentPage <= 1}
                   style={{
                     width: '36px',
@@ -676,8 +676,8 @@ function LeadsTab() {
                 }}>
                   {currentPage}
                 </button>
-                <button
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                <button 
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
                   disabled={currentPage >= totalPages || totalPages <= 1}
                   style={{
                     width: '36px',
@@ -694,8 +694,8 @@ function LeadsTab() {
                 >
                   <ChevronRight size={16} />
                 </button>
-                <button
-                  onClick={() => setCurrentPage(totalPages)}
+                <button 
+                  onClick={() => setCurrentPage(totalPages)} 
                   disabled={currentPage >= totalPages || totalPages <= 1}
                   style={{
                     width: '36px',

@@ -18,13 +18,17 @@ let cachedToken = null;
  */
 const getTokenFromStorage = () => {
   try {
-    // Debug: Log all localStorage keys
-    console.log('🔍 Searching localStorage, total keys:', localStorage.length);
+    // Only log in development mode
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔍 Searching localStorage, total keys:', localStorage.length);
+    }
     
     // Check all localStorage keys for Supabase auth data
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      console.log('🔑 LocalStorage key:', key);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔑 LocalStorage key:', key);
+      }
       
       // Look for Supabase auth keys (various formats)
       if (key && (key.includes('supabase') || key.includes('auth') || key.includes('sb-'))) {
@@ -32,7 +36,9 @@ const getTokenFromStorage = () => {
           const data = localStorage.getItem(key);
           if (data) {
             const parsed = JSON.parse(data);
-            console.log('📦 Parsed data from key:', key, parsed);
+            if (process.env.NODE_ENV === 'development') {
+              console.log('📦 Parsed data from key:', key, parsed);
+            }
             
             // Try different token paths in Supabase storage structure
             const token = parsed?.access_token || 
@@ -41,18 +47,25 @@ const getTokenFromStorage = () => {
                          parsed?.session?.access_token;
             
             if (token) {
-              console.log('✅ Found token in key:', key);
+              if (process.env.NODE_ENV === 'development') {
+                console.log('✅ Found token in key:', key);
+              }
               return token;
             }
           }
         } catch (e) {
           // Skip invalid JSON
-          console.warn('⚠️ Failed to parse key:', key);
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('⚠️ Failed to parse key:', key);
+          }
         }
       }
     }
-    console.log('❌ No token found in localStorage');
+    if (process.env.NODE_ENV === 'development') {
+      console.log('❌ No token found in localStorage');
+    }
   } catch (error) {
+    // Always log errors
     console.warn('⚠️ Error reading token from localStorage:', error);
   }
   return null;
@@ -60,7 +73,9 @@ const getTokenFromStorage = () => {
 
 // Initialize token from localStorage FIRST (synchronous)
 cachedToken = getTokenFromStorage();
-console.log('🔐 apiClient: Token from localStorage:', cachedToken ? 'Token found' : 'No token');
+if (process.env.NODE_ENV === 'development') {
+  console.log('🔐 apiClient: Token from localStorage:', cachedToken ? 'Token found' : 'No token');
+}
 
 /**
  * Then update with fresh session and listen for auth changes
@@ -70,15 +85,20 @@ const initializeAuth = async () => {
     // Get fresh session from Supabase
     const { data: { session } } = await supabase.auth.getSession();
     cachedToken = session?.access_token || null;
-    console.log('🔐 apiClient: Token updated from session:', cachedToken ? 'Token present' : 'No token');
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔐 apiClient: Token updated from session:', cachedToken ? 'Token present' : 'No token');
+    }
   } catch (error) {
+    // Always log errors
     console.error('❌ apiClient: Error getting session:', error);
   }
 
   // Listen for auth state changes
   supabase.auth.onAuthStateChange((event, session) => {
     cachedToken = session?.access_token || null;
-    console.log('🔐 apiClient: Token updated on auth change:', event, cachedToken ? 'Token present' : 'No token');
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔐 apiClient: Token updated on auth change:', event, cachedToken ? 'Token present' : 'No token');
+    }
   });
 };
 
@@ -101,7 +121,10 @@ const axiosInstance = axios.create({
  */
 axiosInstance.interceptors.request.use(
   async (config) => {
-    console.log('🔄 API Request:', config.method.toUpperCase(), config.url);
+    // Only log in development mode
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔄 API Request:', config.method.toUpperCase(), config.url);
+    }
     
     // For FormData, let the browser set Content-Type with boundary
     // Don't set Content-Type header for FormData
@@ -115,15 +138,23 @@ axiosInstance.interceptors.request.use(
       if (session?.access_token) {
         cachedToken = session.access_token;
         config.headers.Authorization = `Bearer ${cachedToken}`;
-        console.log('✅ Auth token added from session');
+        if (process.env.NODE_ENV === 'development') {
+          console.log('✅ Auth token added from session');
+        }
       } else if (cachedToken) {
         config.headers.Authorization = `Bearer ${cachedToken}`;
-        console.log('✅ Auth token added from cache');
+        if (process.env.NODE_ENV === 'development') {
+          console.log('✅ Auth token added from cache');
+        }
       } else {
-        console.warn('⚠️ No cached token available');
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('⚠️ No cached token available');
+        }
       }
     } catch (error) {
-      console.warn('⚠️ apiClient: Error getting token:', error);
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('⚠️ apiClient: Error getting token:', error);
+      }
       if (cachedToken) {
         config.headers.Authorization = `Bearer ${cachedToken}`;
       }
@@ -131,6 +162,7 @@ axiosInstance.interceptors.request.use(
     return config;
   },
   (error) => {
+    // Always log errors, even in production
     console.error('❌ Request interceptor error:', error);
     return Promise.reject(error);
   }
@@ -141,17 +173,26 @@ axiosInstance.interceptors.request.use(
  */
 axiosInstance.interceptors.response.use(
   (response) => {
-    console.log('✅ API Response:', response.config.url, response.data);
+    // Only log in development mode
+    if (process.env.NODE_ENV === 'development') {
+      console.log('✅ API Response:', response.config.url, response.data);
+    }
     return response.data;
   },
   async (error) => {
-    console.error('❌ API Error Details:', {
-      url: error.config?.url,
-      method: error.config?.method,
-      status: error.response?.status,
-      data: error.response?.data,
-      message: error.message
-    });
+    // Always log errors, but with less detail in production
+    if (process.env.NODE_ENV === 'development') {
+      console.error('❌ API Error Details:', {
+        url: error.config?.url,
+        method: error.config?.method,
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message
+      });
+    } else {
+      // In production, only log essential error info
+      console.error('❌ API Error:', error.response?.status, error.config?.url);
+    }
     
     // Handle 403 Forbidden errors (account deactivated)
     if (error.response?.status === 403) {
@@ -183,17 +224,58 @@ axiosInstance.interceptors.response.use(
     
     if (error.response) {
       // Server responded with error status
-      const message = error.response.data?.message || error.response.data?.error || 'Request failed';
-      console.error('API Error:', message);
+      const status = error.response.status;
+      const errorData = error.response.data || {};
+      
+      // Handle specific HTTP status codes with better error messages
+      let message = errorData.message || errorData.error || 'Request failed';
+      
+      switch (status) {
+        case 429:
+          // Too Many Requests - Rate limit exceeded
+          message = errorData.message || 'Too many requests. Please wait a moment and try again.';
+          break;
+        case 400:
+          // Bad Request
+          message = errorData.message || 'Invalid request. Please check your input and try again.';
+          break;
+        case 401:
+          // Unauthorized
+          message = errorData.message || 'Authentication required. Please log in again.';
+          break;
+        case 403:
+          // Forbidden (already handled above for deactivation, but catch other 403s)
+          if (!message.includes('deactivated') && !message.includes('account has been deactivated')) {
+            message = errorData.message || 'You do not have permission to perform this action.';
+          }
+          break;
+        case 404:
+          // Not Found
+          message = errorData.message || 'The requested resource was not found.';
+          break;
+        case 500:
+          // Internal Server Error
+          message = errorData.message || 'Server error. Please try again later or contact support.';
+          break;
+        case 503:
+          // Service Unavailable
+          message = errorData.message || 'Service temporarily unavailable. Please try again later.';
+          break;
+        default:
+          // Use the message from the response if available
+          message = errorData.message || errorData.error || `Request failed with status ${status}`;
+      }
+      
+      console.error('API Error:', { status, message, url: error.config?.url });
       throw new Error(message);
     } else if (error.request) {
       // Request made but no response
       console.error('Network Error: No response from server');
-      throw new Error('Network error. Please check if backend is running.');
+      throw new Error('Network error. Please check your connection and try again.');
     } else {
       // Something else happened
       console.error('Request Error:', error.message);
-      throw new Error(error.message);
+      throw new Error(error.message || 'An unexpected error occurred. Please try again.');
     }
   }
 );
@@ -550,6 +632,38 @@ const apiClient = {
         review_notes: reviewNotes
       });
     },
+
+    /**
+     * Download invoice as PDF
+     */
+    downloadInvoicePDF: async (invoiceId) => {
+      let token = cachedToken;
+      if (!token) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          token = session?.access_token;
+        } catch (e) {
+          console.error('Error getting session for PDF download:', e);
+        }
+      }
+
+      const baseURL = axiosInstance.defaults.baseURL || '';
+      const response = await fetch(`${baseURL}/invoices/${invoiceId}/download-pdf`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Cache-Control': 'no-cache',
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`PDF download failed: ${errorText}`);
+      }
+
+      const blob = await response.blob();
+      return { data: blob };
+    },
   },
 
   // ==================== DASHBOARD ====================
@@ -822,6 +936,19 @@ const apiClient = {
       const query = queryParams.toString();
       return axiosInstance.get(`/genie/calls${query ? `?${query}` : ''}`);
     },
+    getAllCallsByOwnerId: (ownerUserId, params = {}) => {
+      const queryParams = new URLSearchParams();
+      if (params.page) queryParams.append('page', params.page);
+      if (params.limit) queryParams.append('limit', params.limit);
+      if (params.botId) queryParams.append('botId', params.botId);
+      if (params.status) queryParams.append('status', params.status);
+      if (params.isLead !== undefined) queryParams.append('isLead', params.isLead);
+      if (params.startDate) queryParams.append('startDate', params.startDate);
+      if (params.endDate) queryParams.append('endDate', params.endDate);
+      if (params.search) queryParams.append('search', params.search);
+      const query = queryParams.toString();
+      return axiosInstance.get(`/genie/calls/owner/${ownerUserId}${query ? `?${query}` : ''}`);
+    },
     getCallById: (id) => axiosInstance.get(`/genie/calls/${id}`),
     getCallStats: (period = 'today') => axiosInstance.get(`/genie/calls/stats?period=${period}`),
     updateCallLeadStatus: (id, isLead) => axiosInstance.patch(`/genie/calls/${id}/lead`, { isLead }),
@@ -832,6 +959,7 @@ const apiClient = {
       if (params.page) queryParams.append('page', params.page);
       if (params.limit) queryParams.append('limit', params.limit);
       if (params.status) queryParams.append('status', params.status);
+      if (params.ownerUserId) queryParams.append('ownerUserId', params.ownerUserId);
       const query = queryParams.toString();
       return axiosInstance.get(`/genie/campaigns${query ? `?${query}` : ''}`);
     },
@@ -849,6 +977,7 @@ const apiClient = {
       if (params.startDate) queryParams.append('startDate', params.startDate);
       if (params.endDate) queryParams.append('endDate', params.endDate);
       if (params.search) queryParams.append('search', params.search);
+      if (params.ownerUserId) queryParams.append('ownerUserId', params.ownerUserId);
       const query = queryParams.toString();
       return axiosInstance.get(`/genie/leads${query ? `?${query}` : ''}`);
     },
@@ -860,6 +989,7 @@ const apiClient = {
       if (params.botId) queryParams.append('botId', params.botId);
       if (params.startDate) queryParams.append('startDate', params.startDate);
       if (params.endDate) queryParams.append('endDate', params.endDate);
+      if (params.ownerUserId) queryParams.append('ownerUserId', params.ownerUserId);
       // Add timestamp to prevent caching (304 responses)
       queryParams.append('_t', Date.now());
       const query = queryParams.toString();
@@ -905,8 +1035,18 @@ const apiClient = {
     getBotPerformance: (period = 'month') => axiosInstance.get(`/genie/analytics/bots?period=${period}`),
 
     // Supporting
-    getAllBots: () => axiosInstance.get('/genie/bots'),
-    getAllContactLists: () => axiosInstance.get('/genie/contact-lists'),
+    getAllBots: (params = {}) => {
+      const queryParams = new URLSearchParams();
+      if (params.ownerUserId) queryParams.append('ownerUserId', params.ownerUserId);
+      const query = queryParams.toString();
+      return axiosInstance.get(`/genie/bots${query ? `?${query}` : ''}`);
+    },
+    getAllContactLists: (params = {}) => {
+      const queryParams = new URLSearchParams();
+      if (params.ownerUserId) queryParams.append('ownerUserId', params.ownerUserId);
+      const query = queryParams.toString();
+      return axiosInstance.get(`/genie/contact-lists${query ? `?${query}` : ''}`);
+    },
   },
 };
 

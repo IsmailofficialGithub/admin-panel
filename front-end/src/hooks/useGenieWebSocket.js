@@ -99,8 +99,9 @@ export const useGenieWebSocket = () => {
         if (status === 'SUBSCRIBED') {
           setIsConnected(true);
           setConnectionError(null);
-        } else if (status === 'CHANNEL_ERROR') {
-          setConnectionError('Failed to connect to call logs channel');
+        } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT') {
+          setIsConnected(false);
+          setConnectionError('Connection error. Attempting to reconnect...');
         }
       });
 
@@ -144,6 +145,14 @@ export const useGenieWebSocket = () => {
       )
       .subscribe((status) => {
         console.log('📅 Campaigns channel status:', status);
+        // Update connection status based on campaigns channel too
+        if (status === 'SUBSCRIBED') {
+          setIsConnected(true);
+          setConnectionError(null);
+        } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT') {
+          setIsConnected(false);
+          setConnectionError('Connection error. Attempting to reconnect...');
+        }
       });
 
     // Subscribe to genie_leads changes for this user
@@ -178,6 +187,14 @@ export const useGenieWebSocket = () => {
       )
       .subscribe((status) => {
         console.log('🎯 Leads channel status:', status);
+        // Update connection status based on leads channel too
+        if (status === 'SUBSCRIBED') {
+          setIsConnected(true);
+          setConnectionError(null);
+        } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT') {
+          setIsConnected(false);
+          setConnectionError('Connection error. Attempting to reconnect...');
+        }
       });
 
     // Store channel refs for cleanup

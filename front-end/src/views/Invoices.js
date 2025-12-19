@@ -507,9 +507,46 @@ const Invoices = () => {
     setShowInvoiceModal(true);
   };
 
-  const handleDownloadInvoice = (invoice) => {
-    toast.success(`Downloading invoice ${invoice.invoice_number || invoice.id}...`);
-    // In real implementation, download PDF
+  const handleDownloadInvoice = async (invoice) => {
+    try {
+      const invoiceId = invoice.id || invoice.invoice_id || invoice.invoiceId;
+      if (!invoiceId) {
+        toast.error('Invoice ID not found');
+        return;
+      }
+
+      toast.loading(`Downloading invoice ${invoice.invoice_number || invoice.id}...`);
+      
+      const response = await apiClient.invoices.downloadInvoicePDF(invoiceId);
+      
+      if (!response?.data) {
+        toast.error('Failed to download invoice PDF');
+        return;
+      }
+
+      const blob = response.data;
+      if (blob.size < 100) {
+        toast.error('Downloaded file appears to be empty');
+        return;
+      }
+
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      const invoiceNumber = invoice.invoice_number || `INV-${invoice.id.substring(0, 8).toUpperCase()}`;
+      a.download = `invoice-${invoiceNumber}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(downloadUrl);
+
+      toast.dismiss();
+      toast.success('Invoice downloaded successfully');
+    } catch (error) {
+      console.error('Error downloading invoice:', error);
+      toast.dismiss();
+      toast.error(error.message || 'Failed to download invoice PDF');
+    }
   };
 
   const handleResendInvoice = async (invoice) => {

@@ -261,7 +261,7 @@ function AnalyticsTab() {
           color: 'white'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
+              <div>
               <p style={{ margin: '0 0 4px 0', fontSize: '13px', opacity: 0.9 }}>Completion Rate</p>
               <h3 style={{ margin: 0, fontSize: '32px', fontWeight: '700' }}>{conversionMetrics?.completionRate || 0}%</h3>
             </div>
@@ -276,8 +276,8 @@ function AnalyticsTab() {
             }}>
               <Check size={24} />
             </div>
-          </div>
-        </div>
+              </div>
+              </div>
 
         <div style={{
           background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
@@ -286,7 +286,7 @@ function AnalyticsTab() {
           color: 'white'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
+              <div>
               <p style={{ margin: '0 0 4px 0', fontSize: '13px', opacity: 0.9 }}>Lead Conversion</p>
               <h3 style={{ margin: 0, fontSize: '32px', fontWeight: '700' }}>{conversionMetrics?.conversionRate || 0}%</h3>
             </div>
@@ -301,8 +301,8 @@ function AnalyticsTab() {
             }}>
               <Star size={24} />
             </div>
-          </div>
-        </div>
+              </div>
+              </div>
 
         <div style={{
           background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
@@ -311,7 +311,7 @@ function AnalyticsTab() {
           color: 'white'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
+              <div>
               <p style={{ margin: '0 0 4px 0', fontSize: '13px', opacity: 0.9 }}>Total Leads ({getPeriodLabel()})</p>
               <h3 style={{ margin: 0, fontSize: '32px', fontWeight: '700' }}>{conversionMetrics?.funnel?.[2]?.count || 0}</h3>
             </div>
@@ -327,8 +327,8 @@ function AnalyticsTab() {
               <TrendingUp size={24} />
             </div>
           </div>
-        </div>
-      </div>
+              </div>
+              </div>
 
       {/* Charts Row */}
       <div style={{
@@ -354,12 +354,12 @@ function AnalyticsTab() {
             gap: '8px'
           }}>
             <Activity size={16} style={{ color: '#667eea' }} />
-            Call Volume Over Time
-          </h6>
-          <div style={{ height: '280px' }}>
-            {callAnalytics?.chartData?.length > 0 ? (
-              <Line data={callVolumeData} options={chartOptions} />
-            ) : (
+                Call Volume Over Time
+              </h6>
+              <div style={{ height: '280px' }}>
+                {callAnalytics?.chartData?.length > 0 ? (
+                  <Line data={callVolumeData} options={chartOptions} />
+                ) : (
               <div style={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -370,9 +370,9 @@ function AnalyticsTab() {
               }}>
                 <Activity size={48} style={{ opacity: 0.5, marginBottom: '12px' }} />
                 <p style={{ margin: 0, fontSize: '14px' }}>No data available for this period</p>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
         </div>
 
         {/* Conversion Funnel */}
@@ -392,24 +392,24 @@ function AnalyticsTab() {
             gap: '8px'
           }}>
             <Filter size={16} style={{ color: '#22c55e' }} />
-            Conversion Funnel
-          </h6>
+                Conversion Funnel
+              </h6>
           <div style={{ height: '280px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {conversionMetrics?.funnel?.some(f => f.count > 0) ? (
-              <Doughnut 
-                data={funnelData} 
-                options={{
-                  ...chartOptions,
-                  cutout: '65%',
-                  plugins: {
-                    legend: {
-                      position: 'bottom',
-                      labels: { padding: 15, usePointStyle: true }
-                    },
-                  },
-                }} 
-              />
-            ) : (
+                {conversionMetrics?.funnel?.some(f => f.count > 0) ? (
+                  <Doughnut 
+                    data={funnelData} 
+                    options={{
+                      ...chartOptions,
+                      cutout: '65%',
+                      plugins: {
+                        legend: {
+                          position: 'bottom',
+                          labels: { padding: 15, usePointStyle: true }
+                        },
+                      },
+                    }} 
+                  />
+                ) : (
               <div style={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -419,9 +419,9 @@ function AnalyticsTab() {
               }}>
                 <Filter size={48} style={{ opacity: 0.5, marginBottom: '12px' }} />
                 <p style={{ margin: 0, fontSize: '14px' }}>No data available</p>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
         </div>
       </div>
 
@@ -448,12 +448,12 @@ function AnalyticsTab() {
             gap: '8px'
           }}>
             <BarChart2 size={16} style={{ color: '#f59e0b' }} />
-            Bot Performance Comparison
-          </h6>
-          <div style={{ height: '280px' }}>
-            {botPerformance?.bots?.length > 0 ? (
-              <Bar data={botPerformanceData} options={chartOptions} />
-            ) : (
+                Bot Performance Comparison
+              </h6>
+              <div style={{ height: '280px' }}>
+                {botPerformance?.bots?.length > 0 ? (
+                  <Bar data={botPerformanceData} options={chartOptions} />
+                ) : (
               <div style={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -464,9 +464,9 @@ function AnalyticsTab() {
               }}>
                 <Bot size={48} style={{ opacity: 0.5, marginBottom: '12px' }} />
                 <p style={{ margin: 0, fontSize: '14px' }}>No bot performance data available</p>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
         </div>
 
         {/* Bot Stats Table */}
@@ -486,14 +486,14 @@ function AnalyticsTab() {
             gap: '8px'
           }}>
             <Bot size={16} style={{ color: '#667eea' }} />
-            Bot Statistics
-          </h6>
-          {botPerformance?.bots?.length > 0 ? (
-            <div style={{ maxHeight: '260px', overflowY: 'auto' }}>
-              {botPerformance.bots.map((bot, index) => (
-                <div 
-                  key={index} 
-                  style={{
+                Bot Statistics
+              </h6>
+              {botPerformance?.bots?.length > 0 ? (
+                <div style={{ maxHeight: '260px', overflowY: 'auto' }}>
+                  {botPerformance.bots.map((bot, index) => (
+                    <div 
+                      key={index} 
+                      style={{ 
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
@@ -501,41 +501,41 @@ function AnalyticsTab() {
                     marginBottom: '8px',
                     backgroundColor: '#f8fafc',
                     borderRadius: '10px',
-                    border: '1px solid #e2e8f0'
-                  }}
-                >
-                  <div>
+                        border: '1px solid #e2e8f0'
+                      }}
+                    >
+                      <div>
                     <div style={{ fontWeight: '600', fontSize: '14px', color: '#1e293b' }}>
-                      {bot.botName?.substring(0, 20)}{bot.botName?.length > 20 ? '...' : ''}
-                    </div>
+                          {bot.botName?.substring(0, 20)}{bot.botName?.length > 20 ? '...' : ''}
+                        </div>
                     <small style={{ color: '#64748b', fontSize: '12px' }}>{bot.totalCalls} calls</small>
-                  </div>
+                      </div>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <span style={{ 
                       backgroundColor: parseFloat(bot.successRate) >= 50 ? '#dcfce7' : '#fef3c7',
-                      color: parseFloat(bot.successRate) >= 50 ? '#166534' : '#92400e',
+                            color: parseFloat(bot.successRate) >= 50 ? '#166534' : '#92400e',
                       padding: '4px 10px',
                       borderRadius: '20px',
                       fontSize: '12px',
                       fontWeight: '600'
                     }}>
-                      {bot.successRate}%
+                          {bot.successRate}%
                     </span>
                     <span style={{ 
-                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                      color: 'white',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            color: 'white',
                       padding: '4px 10px',
                       borderRadius: '20px',
                       fontSize: '12px',
                       fontWeight: '600'
                     }}>
-                      {bot.leads} leads
+                          {bot.leads} leads
                     </span>
-                  </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          ) : (
+              ) : (
             <div style={{
               display: 'flex',
               flexDirection: 'column',
@@ -546,8 +546,8 @@ function AnalyticsTab() {
             }}>
               <Bot size={48} style={{ opacity: 0.5, marginBottom: '12px' }} />
               <p style={{ margin: 0, fontSize: '14px' }}>No bots data available</p>
-            </div>
-          )}
+                </div>
+              )}
         </div>
       </div>
 

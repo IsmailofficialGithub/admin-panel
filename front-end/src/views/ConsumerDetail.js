@@ -1,17 +1,27 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useHistory } from 'react-router-dom';
+import React, { useState, useEffect, lazy, Suspense, useRef } from 'react';
+import { useParams, useHistory, useLocation } from 'react-router-dom';
 import { Container, Row, Col, Card, Badge, Button, Table } from 'react-bootstrap';
-import { ArrowLeft, User, Mail, Phone, MapPin, Calendar, Package, Edit, Trash2, Key, FileText, DollarSign, Eye, Download, UserPlus, UserCog, History, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowLeft, User, Mail, Phone, MapPin, Calendar, Package, Edit, Trash2, Key, FileText, DollarSign, Eye, Download, UserPlus, UserCog, History, ChevronDown, ChevronUp, Bot, PhoneCall, Target, Users, List, BarChart2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { getConsumerById, resetConsumerPassword, deleteConsumer } from '../api/backend';
 import { checkUserPermission } from '../api/backend/permissions';
 import { useAuth } from '../hooks/useAuth';
+import { usePermissions } from '../hooks/usePermissions';
 import apiClient from '../services/apiClient';
+
+// Lazy load ConsumerGenie tab components
+const BotsTab = lazy(() => import('../components/ConsumerGenie/BotsTab'));
+const CallsTab = lazy(() => import('../components/ConsumerGenie/CallsTab'));
+const CampaignsTab = lazy(() => import('../components/ConsumerGenie/CampaignsTab'));
+const LeadsTab = lazy(() => import('../components/ConsumerGenie/LeadsTab'));
+const ListsTab = lazy(() => import('../components/ConsumerGenie/ListsTab'));
+const AnalyticsTab = lazy(() => import('../components/ConsumerGenie/AnalyticsTab'));
 
 function ConsumerDetail() {
   const { id } = useParams();
   const history = useHistory();
   const { isAdmin, isReseller, user, profile } = useAuth();
+  const { hasPermission: hasPermissionFromHook, isLoading: isLoadingPermissions } = usePermissions();
   const [consumer, setConsumer] = useState(null);
   const [checkingPermission, setCheckingPermission] = useState(true);
   const [hasPermission, setHasPermission] = useState(false);
@@ -29,6 +39,19 @@ function ConsumerDetail() {
   const [expandedLogs, setExpandedLogs] = useState(new Set());
   const invoicesPerPage = 10;
   const activityLogsPerPage = 10;
+  
+  // Get initial Genie tab from URL or default to 'bots'
+  const getInitialGenieTab = () => {
+    const params = new URLSearchParams(location.search);
+    const tabFromUrl = params.get('tab');
+    const validTabs = ['bots', 'calls', 'campaigns', 'leads', 'lists', 'analytics'];
+    return validTabs.includes(tabFromUrl) ? tabFromUrl : 'bots';
+  };
+
+  const initialGenieTab = getInitialGenieTab();
+  const [genieActiveTab, setGenieActiveTab] = useState(initialGenieTab);
+  const [loadedGenieTabs, setLoadedGenieTabs] = useState({ [initialGenieTab]: true }); // Track which tabs have been loaded, mark initial tab as loaded
+  const genieSectionRef = useRef(null); // Ref for scrolling to Genie section
 
   const toggleLogDetails = (logId) => {
     setExpandedLogs(prev => {
@@ -42,9 +65,58 @@ function ConsumerDetail() {
     });
   };
 
+  // Update URL when Genie tab changes
+  const handleGenieTabChange = (tab) => {
+    setGenieActiveTab(tab);
+    // Mark this tab as loaded so it stays mounted
+    if (!loadedGenieTabs[tab]) {
+      setLoadedGenieTabs(prev => ({ ...prev, [tab]: true }));
+    }
+    
+    // Update URL without full page reload
+    const params = new URLSearchParams(location.search);
+    params.set('tab', tab);
+    history.replace({ pathname: location.pathname, search: params.toString() });
+    
+    // Scroll to Genie section smoothly
+    setTimeout(() => {
+      if (genieSectionRef.current) {
+        genieSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
+  };
+
+  // Sync Genie tab from URL when browser back/forward is used
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tabFromUrl = params.get('tab');
+    const validTabs = ['bots', 'calls', 'campaigns', 'leads', 'lists', 'analytics'];
+    
+    if (tabFromUrl && validTabs.includes(tabFromUrl) && tabFromUrl !== genieActiveTab) {
+      setGenieActiveTab(tabFromUrl);
+      setLoadedGenieTabs(prev => ({ ...prev, [tabFromUrl]: true }));
+      // Scroll to Genie section when tab changes via URL
+      setTimeout(() => {
+        if (genieSectionRef.current) {
+          genieSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 100);
+    } else if (!tabFromUrl && isAdmin) {
+      // If no tab in URL and user is admin (Genie section is visible), set default tab in URL
+      params.set('tab', 'bots');
+      history.replace({ pathname: location.pathname, search: params.toString() });
+    }
+  }, [location.search, genieActiveTab, isAdmin, history, location.pathname]);
+
   // Check permission for consumers.read (admin only)
   useEffect(() => {
     const checkPermission = async () => {
+      // Wait for permissions to load
+      if (isLoadingPermissions) {
+        setCheckingPermission(true);
+        return;
+      }
+
       // Resellers have their own access control, skip permission check
       if (isReseller) {
         setHasPermission(true);
@@ -67,13 +139,31 @@ function ConsumerDetail() {
           return;
         }
 
-        // Check if user has consumers.read permission
-        const hasReadPermission = await checkUserPermission(user.id, 'consumers.read');
-        setHasPermission(hasReadPermission === true);
+        // Use permissions hook to check permission (more reliable)
+        const hasReadPermission = hasPermissionFromHook('consumers.read');
+        console.log('🔍 ConsumerDetail permission check:', {
+          userId: user.id,
+          isAdmin,
+          isSystemAdmin: profile.is_systemadmin,
+          hasReadPermission,
+          permissionName: 'consumers.read'
+        });
+        
+        if (hasReadPermission) {
+          setHasPermission(true);
+          setCheckingPermission(false);
+          return;
+        }
+
+        // Fallback: Check if user has consumers.read permission via API
+        const hasReadPermissionAPI = await checkUserPermission(user.id, 'consumers.read');
+        console.log('🔍 ConsumerDetail API permission check result:', hasReadPermissionAPI);
+        setHasPermission(hasReadPermissionAPI === true);
         
         // Redirect if no permission
-        if (!hasReadPermission) {
-          toast.error('You do not have permission to view consumer details.');
+        if (!hasReadPermissionAPI) {
+          console.error('❌ ConsumerDetail: Permission denied for user', user.id);
+          toast.error('You do not have permission to view consumer details. Please ensure you have the "consumers.read" permission assigned.');
           setTimeout(() => {
             history.push('/admin/consumers');
           }, 500);
@@ -91,7 +181,7 @@ function ConsumerDetail() {
     };
 
     checkPermission();
-  }, [isAdmin, isReseller, user, profile, history]);
+  }, [isAdmin, isReseller, user, profile, history, isLoadingPermissions, hasPermissionFromHook]);
 
   useEffect(() => {
     // Only fetch data if user has permission (or is reseller)
@@ -732,8 +822,40 @@ function ConsumerDetail() {
                                   <Eye size={12} />
                                 </button>
                                 <button
-                                  onClick={() => {
-                                    toast.success('Download invoice functionality coming soon');
+                                  onClick={async () => {
+                                    // Download invoice PDF
+                                    try {
+                                      toast.loading(`Downloading invoice...`);
+                                      const response = await apiClient.invoices.downloadInvoicePDF(invoice.id);
+                                      
+                                      if (!response?.data) {
+                                        toast.error('Failed to download invoice PDF');
+                                        return;
+                                      }
+
+                                      const blob = response.data;
+                                      if (blob.size < 100) {
+                                        toast.error('Downloaded file appears to be empty');
+                                        return;
+                                      }
+
+                                      const downloadUrl = window.URL.createObjectURL(blob);
+                                      const a = document.createElement('a');
+                                      a.href = downloadUrl;
+                                      const invoiceNumber = invoice.invoice_number || `INV-${invoice.id.substring(0, 8).toUpperCase()}`;
+                                      a.download = `invoice-${invoiceNumber}.pdf`;
+                                      document.body.appendChild(a);
+                                      a.click();
+                                      document.body.removeChild(a);
+                                      window.URL.revokeObjectURL(downloadUrl);
+
+                                      toast.dismiss();
+                                      toast.success('Invoice downloaded successfully');
+                                    } catch (error) {
+                                      console.error('Error downloading invoice:', error);
+                                      toast.dismiss();
+                                      toast.error(error.message || 'Failed to download invoice PDF');
+                                    }
                                   }}
                                   style={{
                                     padding: '4px 8px',
@@ -1129,6 +1251,123 @@ function ConsumerDetail() {
           )}
         </Col>
       </Row>
+
+      {/* Genie Agents & Activity - Admin Only - Full Width */}
+      {isAdmin && (
+        <Card ref={genieSectionRef} style={{ marginBottom: '24px' }}>
+          <Card.Header style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #e9ecef' }}>
+            <h5 style={{ margin: 0, fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Bot size={20} />
+              Genie Agents & Activity
+            </h5>
+          </Card.Header>
+          <Card.Body style={{ padding: 0 }}>
+            {/* Tabs */}
+            <div style={{
+              display: 'flex',
+              gap: '0',
+              borderBottom: '2px solid #e5e7eb',
+              padding: '0 24px',
+              backgroundColor: '#fafafa'
+            }}>
+              {['bots', 'calls', 'campaigns', 'leads', 'lists', 'analytics'].map((tab) => {
+                const icons = {
+                  bots: Bot,
+                  calls: PhoneCall,
+                  campaigns: Calendar,
+                  leads: Target,
+                  lists: List,
+                  analytics: BarChart2
+                };
+                const labels = {
+                  bots: 'Bots',
+                  calls: 'Calls',
+                  campaigns: 'Campaigns',
+                  leads: 'Leads',
+                  lists: 'Lists',
+                  analytics: 'Analytics'
+                };
+                const Icon = icons[tab];
+                const isActive = genieActiveTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => handleGenieTabChange(tab)}
+                    style={{
+                      padding: '16px 24px',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      color: isActive ? '#74317e' : '#6b7280',
+                      borderBottom: isActive ? '3px solid #74317e' : '3px solid transparent',
+                      marginBottom: '-2px',
+                      transition: 'all 0.2s',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}
+                  >
+                    <Icon size={18} />
+                    {labels[tab]}
+                  </button>
+                );
+              })}
+            </div>
+            
+            {/* Tab Content */}
+            <div style={{ padding: '24px' }}>
+              <Suspense fallback={
+                <div style={{ textAlign: 'center', padding: '40px' }}>
+                  <div style={{
+                    width: '40px',
+                    height: '40px',
+                    border: '4px solid #f3f3f3',
+                    borderTop: '4px solid #74317e',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite',
+                    margin: '0 auto'
+                  }} />
+                  <p style={{ marginTop: '16px', color: '#6c757d' }}>Loading...</p>
+                </div>
+              }>
+                {/* Keep tabs mounted once loaded, just hide them - this preserves state and prevents API re-calls */}
+                {(loadedGenieTabs.bots || genieActiveTab === 'bots') && (
+                  <div style={{ display: genieActiveTab === 'bots' ? 'block' : 'none' }}>
+                    <BotsTab consumerId={id} />
+                  </div>
+                )}
+                {(loadedGenieTabs.calls || genieActiveTab === 'calls') && (
+                  <div style={{ display: genieActiveTab === 'calls' ? 'block' : 'none' }}>
+                    <CallsTab consumerId={id} />
+                  </div>
+                )}
+                {(loadedGenieTabs.campaigns || genieActiveTab === 'campaigns') && (
+                  <div style={{ display: genieActiveTab === 'campaigns' ? 'block' : 'none' }}>
+                    <CampaignsTab consumerId={id} />
+                  </div>
+                )}
+                {(loadedGenieTabs.leads || genieActiveTab === 'leads') && (
+                  <div style={{ display: genieActiveTab === 'leads' ? 'block' : 'none' }}>
+                    <LeadsTab consumerId={id} />
+                  </div>
+                )}
+                {(loadedGenieTabs.lists || genieActiveTab === 'lists') && (
+                  <div style={{ display: genieActiveTab === 'lists' ? 'block' : 'none' }}>
+                    <ListsTab consumerId={id} />
+                  </div>
+                )}
+                {(loadedGenieTabs.analytics || genieActiveTab === 'analytics') && (
+                  <div style={{ display: genieActiveTab === 'analytics' ? 'block' : 'none' }}>
+                    <AnalyticsTab consumerId={id} />
+                  </div>
+                )}
+              </Suspense>
+            </div>
+          </Card.Body>
+        </Card>
+      )}
     </Container>
   );
 }

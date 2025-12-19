@@ -274,27 +274,27 @@ function CampaignsTab() {
             color: '#94a3b8'
           }}>
             <Calendar size={32} />
-          </div>
+            </div>
           <h5 style={{ margin: '0 0 8px 0', color: '#1e293b', fontWeight: '600' }}>No campaigns found</h5>
           <p style={{ margin: '0 0 20px 0', color: '#64748b', fontSize: '14px' }}>Schedule your first campaign to start automating calls</p>
-          {canCreate && (
+            {canCreate && (
             <button 
-              onClick={() => setShowCreateModal(true)}
-              style={{ 
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                border: 'none',
+                onClick={() => setShowCreateModal(true)}
+                style={{ 
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  border: 'none',
                 borderRadius: '8px',
                 padding: '12px 24px',
                 color: 'white',
                 fontSize: '14px',
                 fontWeight: '500',
                 cursor: 'pointer'
-              }}
-            >
-              Create Your First Campaign
+                }}
+              >
+                Create Your First Campaign
             </button>
-          )}
-        </div>
+            )}
+          </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
           {campaigns.map((campaign) => {
@@ -314,41 +314,41 @@ function CampaignsTab() {
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = '0 8px 25px rgba(0,0,0,0.12)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
-              >
+                >
                 {/* Card Header */}
                 <div style={{ padding: '16px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1 }}>
                     <h6 style={{ margin: '0 0 4px 0', fontWeight: '600', fontSize: '15px', color: '#1e293b' }}>
-                      {campaign.genie_bots?.name || "Unknown Bot"}
-                    </h6>
+                        {campaign.genie_bots?.name || "Unknown Bot"}
+                      </h6>
                     <small style={{ color: '#64748b', fontSize: '13px' }}>
-                      {campaign.genie_contact_lists?.name || "Unknown List"}
-                    </small>
-                  </div>
+                        {campaign.genie_contact_lists?.name || "Unknown List"}
+                      </small>
+                    </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ 
-                      background: statusConfig.bg,
-                      color: statusConfig.color,
-                      padding: '4px 10px',
+                          background: statusConfig.bg,
+                          color: statusConfig.color,
+                          padding: '4px 10px',
                       borderRadius: '20px',
                       fontSize: '12px',
                       fontWeight: '600',
-                      display: 'flex',
-                      alignItems: 'center',
+                          display: 'flex',
+                          alignItems: 'center',
                       gap: '6px'
                     }}>
-                      {statusConfig.pulse && (
+                        {statusConfig.pulse && (
                         <span style={{ 
                           width: '8px', 
                           height: '8px', 
-                          borderRadius: '50%', 
-                          background: statusConfig.color,
-                          animation: 'pulse 1.5s infinite'
+                              borderRadius: '50%', 
+                              background: statusConfig.color,
+                              animation: 'pulse 1.5s infinite'
                         }} />
-                      )}
-                      {statusConfig.label}
-                    </span>
-                    {campaign.status !== 'completed' && campaign.status !== 'cancelled' && canDelete && (
+                        )}
+                        {statusConfig.label}
+                      </span>
+                      {campaign.status !== 'completed' && campaign.status !== 'cancelled' && canDelete && (
                       <div style={{ position: 'relative' }}>
                         <button
                           onClick={() => setOpenDropdown(openDropdown === campaign.id ? null : campaign.id)}
@@ -431,7 +431,7 @@ function CampaignsTab() {
                     <div style={{ textAlign: 'center', flex: 1 }}>
                       <div style={{ fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>{campaign.contacts_count || 0}</div>
                       <div style={{ fontSize: '12px', color: '#64748b' }}>Contacts</div>
-                    </div>
+                      </div>
                     <div style={{ textAlign: 'center', flex: 1 }}>
                       <div style={{ fontSize: '20px', fontWeight: '700', color: '#22c55e' }}>{campaign.calls_completed || 0}</div>
                       <div style={{ fontSize: '12px', color: '#64748b' }}>Completed</div>
@@ -439,23 +439,23 @@ function CampaignsTab() {
                     <div style={{ textAlign: 'center', flex: 1 }}>
                       <div style={{ fontSize: '20px', fontWeight: '700', color: '#ef4444' }}>{campaign.calls_failed || 0}</div>
                       <div style={{ fontSize: '12px', color: '#64748b' }}>Failed</div>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Schedule Info */}
+                    {/* Schedule Info */}
                   <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #f1f5f9' }}>
                     <small style={{ color: '#64748b', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
                       <Clock size={14} />
-                      {formatDate(campaign.scheduled_at)}
-                    </small>
-                    {campaign.tz && (
+                        {formatDate(campaign.scheduled_at)}
+                      </small>
+                      {campaign.tz && (
                       <small style={{ color: '#64748b', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', fontSize: '13px' }}>
                         <Globe size={14} />
-                        {campaign.tz}
-                      </small>
-                    )}
+                          {campaign.tz}
+                        </small>
+                      )}
+                    </div>
                   </div>
-                </div>
               </div>
             );
           })}

@@ -466,6 +466,7 @@ const ActivityLogs = () => {
                               <div style={{ fontSize: '11px', color: '#6b7280', textAlign: 'right', whiteSpace: 'nowrap' }}>
                               {formatDate(log.created_at)}
                               </div>
+                           
                               <button
                                 onClick={() => toggleLogDetails(log.id)}
                                 style={{
@@ -504,6 +505,33 @@ const ActivityLogs = () => {
                                     Show Details
                                   </>
                                 )}
+                              </button>
+                              <button
+                                onClick={() => history.push(`/admin/activity-logs/${log.id}`)}
+                                style={{
+                                  padding: '6px 12px',
+                                  border: '1px solid #74317e',
+                                  borderRadius: '6px',
+                                  backgroundColor: '#74317e',
+                                  color: 'white',
+                                  cursor: 'pointer',
+                                  fontSize: '11px',
+                                  fontWeight: '500',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  transition: 'all 0.2s'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#5d2770';
+                                  e.currentTarget.style.borderColor = '#5d2770';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#74317e';
+                                  e.currentTarget.style.borderColor = '#74317e';
+                                }}
+                              >
+                                <Eye size={14} />
                               </button>
                             </div>
                           </div>

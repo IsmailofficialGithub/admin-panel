@@ -84,7 +84,7 @@ export const getAllCalls = async (req, res) => {
     const { pageNum, limitNum } = validatePagination(page, limit);
     const offset = (pageNum - 1) * limitNum;
     const userId = req.user.id;
-    const isSystemAdmin = req.profile?.is_systemadmin === true;
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
 
     // Validate botId if provided
     if (botId && !isValidUUID(botId)) {
@@ -97,7 +97,7 @@ export const getAllCalls = async (req, res) => {
 
     console.log('📞 Fetching calls with filters:', { page: pageNum, limit: limitNum, botId, status, isLead, isSystemAdmin });
 
-    // Build query - TEMPORARILY NO FILTERING to debug
+    // Build query
     let query = supabase
       .from('call_logs')
       .select(`
@@ -150,15 +150,6 @@ export const getAllCalls = async (req, res) => {
 
     const { data: calls, error, count } = await executeWithTimeout(query);
 
-    // DEBUG: Log what we got from database
-    console.log('📞 DEBUG - Calls query result:', {
-      dataCount: calls?.length || 0,
-      totalCount: count,
-      hasError: !!error,
-      error: error,
-      firstCall: calls?.[0] ? { id: calls[0].id, name: calls[0].name, call_status: calls[0].call_status } : null
-    });
-
     if (error) {
       console.error('❌ Error fetching calls:', error);
       return handleApiError(error, res, 'Failed to fetch calls');
@@ -174,6 +165,139 @@ export const getAllCalls = async (req, res) => {
     res.json(result);
   } catch (err) {
     return handleApiError(err, res, 'Failed to fetch calls');
+  }
+};
+
+/**
+ * Get all calls by owner user ID (consumer ID from URL)
+ * @route   GET /api/genie/calls/owner/:ownerUserId
+ * @access  Private (genie.calls.view)
+ * 
+ * Flow:
+ * - System admin logs in (req.user.id is the system admin)
+ * - System admin views consumer detail page (ownerUserId is the consumer ID from URL)
+ * - Filter calls where owner_user_id = consumer ID from URL
+ */
+export const getAllCallsByOwnerId = async (req, res) => {
+  try {
+    const { ownerUserId } = req.params; // This is the consumer ID from the URL
+    const { page, limit, botId, status, isLead, startDate, endDate, search } = req.query;
+    const { pageNum, limitNum } = validatePagination(page, limit);
+    const offset = (pageNum - 1) * limitNum;
+    const loggedInUserId = req.user.id; // The logged-in user (system admin)
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
+
+    // Validate ownerUserId (consumer ID from URL)
+    if (!ownerUserId || !isValidUUID(ownerUserId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid owner user ID format'
+      });
+    }
+
+    // Permission is already checked by middleware (genie.calls.view)
+    // System admins and users with genie.calls.view permission can access this endpoint
+    console.log('🔍 Permission check for getAllCallsByOwnerId:', {
+      loggedInUserId,
+      userProfile: req.userProfile,
+      isSystemAdmin,
+      is_systemadmin: req.userProfile?.is_systemadmin,
+      role: req.userProfile?.role,
+      ownerUserId
+    });
+
+    // Validate botId if provided
+    if (botId && !isValidUUID(botId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid bot ID format'
+      });
+    }
+
+    console.log('📞 Fetching calls by owner (consumer ID from URL):', { 
+      loggedInUserId, // The system admin who is logged in
+      isSystemAdmin, 
+      ownerUserId, // Consumer ID from URL - this is what we filter by
+      page: pageNum, 
+      limit: limitNum, 
+      botId, 
+      status, 
+      isLead 
+    });
+
+    // Build query - filter by owner_user_id (consumer ID from URL)
+    // This filters calls where owner_user_id equals the consumer ID from the URL
+    let query = supabase
+      .from('call_logs')
+      .select(`
+        id,
+        name,
+        phone,
+        call_url,
+        agent,
+        call_type,
+        call_status,
+        transcript,
+        duration,
+        end_reason,
+        started_at,
+        ended_at,
+        created_at,
+        is_lead,
+        bot_id,
+        contact_id,
+        list_id,
+        owner_user_id,
+        genie_bots (
+          id,
+          name
+        )
+      `, { count: 'exact' })
+      .eq('owner_user_id', ownerUserId) // Filter by consumer ID from URL (ownerUserId param)
+      .order('created_at', { ascending: false });
+
+    // Apply filters
+    if (botId) {
+      query = query.eq('bot_id', botId);
+    }
+    if (status) {
+      query = query.eq('call_status', sanitizeString(status, 50));
+    }
+    if (isLead !== undefined) {
+      query = query.eq('is_lead', isLead === 'true');
+    }
+    if (startDate) {
+      query = query.gte('created_at', startDate);
+    }
+    if (endDate) {
+      query = query.lte('created_at', endDate);
+    }
+    if (search) {
+      const searchTerm = sanitizeString(search, 100);
+      query = query.or(`name.ilike.%${searchTerm}%,phone.ilike.%${searchTerm}%`);
+    }
+
+    query = query.range(offset, offset + limitNum - 1);
+
+    const { data: calls, error, count } = await executeWithTimeout(query);
+
+    if (error) {
+      console.error('❌ Error fetching calls by owner:', error);
+      return handleApiError(error, res, 'Failed to fetch calls');
+    }
+
+    const result = createPaginatedResponse(
+      sanitizeArray(calls || []),
+      count || 0,
+      pageNum,
+      limitNum
+    );
+
+    res.json(result);
+  } catch (err) {
+    return handleApiError(err, res, 'Failed to fetch calls by owner');
   }
 };
 
@@ -264,7 +388,7 @@ export const getCallById = async (req, res) => {
 export const getCallStats = async (req, res) => {
   try {
     const userId = req.user.id;
-    const isSystemAdmin = req.profile?.is_systemadmin === true;
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
     const { period = 'today' } = req.query;
 
     // Calculate date range
@@ -413,15 +537,23 @@ export const updateCallLeadStatus = async (req, res) => {
  */
 export const getAllCampaigns = async (req, res) => {
   try {
-    const { page, limit, status } = req.query;
+    const { page, limit, status, ownerUserId } = req.query;
     const { pageNum, limitNum } = validatePagination(page, limit);
     const offset = (pageNum - 1) * limitNum;
     const userId = req.user.id;
-    const isSystemAdmin = req.profile?.is_systemadmin === true;
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
 
-    console.log('📅 Fetching campaigns:', { page: pageNum, limit: limitNum, status, isSystemAdmin });
+    // Validate ownerUserId if provided
+    if (ownerUserId && !isValidUUID(ownerUserId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid owner user ID format'
+      });
+    }
 
-    // TEMPORARILY NO FILTERING to debug
+    console.log('📅 Fetching campaigns:', { page: pageNum, limit: limitNum, status, isSystemAdmin, ownerUserId });
+
     let query = supabase
       .from('genie_scheduled_calls')
       .select(`
@@ -436,6 +568,7 @@ export const getAllCampaigns = async (req, res) => {
         updated_at,
         runtime_call_status,
         tz,
+        owner_user_id,
         genie_bots (
           id,
           name
@@ -446,6 +579,15 @@ export const getAllCampaigns = async (req, res) => {
         )
       `, { count: 'exact' })
       .order('scheduled_at', { ascending: false });
+
+    // Filter by owner_user_id if provided
+    if (ownerUserId) {
+      query = query.eq('owner_user_id', ownerUserId);
+      console.log(`✅ Filtering campaigns by owner_user_id: ${ownerUserId}`);
+    } else if (!isSystemAdmin) {
+      // Non-admin users only see their own campaigns (when not filtering by specific owner)
+      query = query.eq('owner_user_id', userId);
+    }
 
     if (status) {
       query = query.eq('status', sanitizeString(status, 50));
@@ -774,15 +916,23 @@ export const cancelCampaign = async (req, res) => {
  */
 export const getAllLeads = async (req, res) => {
   try {
-    const { page, limit, botId, startDate, endDate, search } = req.query;
+    const { page, limit, botId, startDate, endDate, search, ownerUserId } = req.query;
     const { pageNum, limitNum } = validatePagination(page, limit);
     const offset = (pageNum - 1) * limitNum;
-    const userId = req.user.id;
-    const isSystemAdmin = req.profile?.is_systemadmin === true;
+    const loggedInUserId = req.user.id;
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
 
-    console.log('🎯 Fetching leads:', { page: pageNum, limit: limitNum, isSystemAdmin });
+    // Validate ownerUserId if provided
+    if (ownerUserId && !isValidUUID(ownerUserId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid owner user ID format'
+      });
+    }
 
-    // TEMPORARILY NO FILTERING to debug
+    console.log('🎯 Fetching leads:', { page: pageNum, limit: limitNum, isSystemAdmin, ownerUserId, loggedInUserId });
+
     let query = supabase
       .from('genie_leads')
       .select(`
@@ -803,10 +953,30 @@ export const getAllLeads = async (req, res) => {
         metadata,
         genie_bots (
           id,
-          name
+          name,
+          owner_user_id
         )
       `, { count: 'exact' })
       .order('created_at', { ascending: false });
+
+    // Filter by owner_user_id via bot relationship if provided
+    if (ownerUserId) {
+      // First get all bot IDs for this owner
+      const { data: ownerBots } = await supabase
+        .from('genie_bots')
+        .select('id')
+        .eq('owner_user_id', ownerUserId);
+      
+      if (ownerBots && ownerBots.length > 0) {
+        const botIds = ownerBots.map(b => b.id);
+        query = query.in('bot_id', botIds);
+        console.log(`✅ Filtering leads by ${botIds.length} bot(s) for owner ${ownerUserId}`);
+      } else {
+        // No bots found for this owner, return empty result
+        query = query.eq('bot_id', '00000000-0000-0000-0000-000000000000'); // Non-existent ID
+        console.log(`ℹ️ No bots found for owner ${ownerUserId}, returning empty leads result`);
+      }
+    }
 
     if (botId && isValidUUID(botId)) {
       query = query.eq('bot_id', botId);
@@ -1012,11 +1182,20 @@ export const deleteLead = async (req, res) => {
  */
 export const exportLeads = async (req, res) => {
   try {
-    const { startDate, endDate, botId } = req.query;
+    const { startDate, endDate, botId, ownerUserId } = req.query;
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
 
-    console.log('📤 Exporting leads with filters:', { startDate, endDate, botId });
+    // Validate ownerUserId if provided
+    if (ownerUserId && !isValidUUID(ownerUserId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid owner user ID format'
+      });
+    }
 
-    // TEMPORARILY NO FILTERING to match getAllLeads behavior
+    console.log('📤 Exporting leads with filters:', { startDate, endDate, botId, ownerUserId });
+
     let query = supabase
       .from('genie_leads')
       .select(`
@@ -1025,9 +1204,27 @@ export const exportLeads = async (req, res) => {
         email,
         summary,
         created_at,
-        genie_bots (name)
+        bot_id,
+        genie_bots (name, owner_user_id)
       `)
       .order('created_at', { ascending: false });
+
+    // Filter by owner_user_id via bot relationship if provided and user is system admin
+    if (ownerUserId && isSystemAdmin) {
+      // First get all bot IDs for this owner
+      const { data: ownerBots } = await supabase
+        .from('genie_bots')
+        .select('id')
+        .eq('owner_user_id', ownerUserId);
+      
+      if (ownerBots && ownerBots.length > 0) {
+        const botIds = ownerBots.map(b => b.id);
+        query = query.in('bot_id', botIds);
+      } else {
+        // No bots found for this owner, return empty result
+        query = query.eq('bot_id', '00000000-0000-0000-0000-000000000000'); // Non-existent ID
+      }
+    }
 
     if (botId && isValidUUID(botId)) {
       query = query.eq('bot_id', botId);
@@ -1090,7 +1287,7 @@ export const getCallAnalytics = async (req, res) => {
   try {
     const { period = 'week', groupBy = 'day' } = req.query;
     const userId = req.user.id;
-    const isSystemAdmin = req.profile?.is_systemadmin === true;
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
 
     // Calculate date range
     let startDate = new Date();
@@ -1176,7 +1373,7 @@ export const getConversionMetrics = async (req, res) => {
   try {
     const { period = 'month' } = req.query;
     const userId = req.user.id;
-    const isSystemAdmin = req.profile?.is_systemadmin === true;
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
 
     // Calculate date range
     let startDate = new Date();
@@ -1264,7 +1461,7 @@ export const getBotPerformance = async (req, res) => {
   try {
     const { period = 'month' } = req.query;
     const userId = req.user.id;
-    const isSystemAdmin = req.profile?.is_systemadmin === true;
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
 
     // Calculate date range
     let startDate = new Date();
@@ -1364,30 +1561,34 @@ export const getBotPerformance = async (req, res) => {
 export const getAllBots = async (req, res) => {
   try {
     const userId = req.user.id;
-    const isSystemAdmin = req.profile?.is_systemadmin === true;
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
+    const { ownerUserId } = req.query;
 
-    // Check cache
-    const cacheKey = CACHE_KEYS.BOTS_LIST(isSystemAdmin ? 'admin' : userId);
-    const cachedData = await cacheService.get(cacheKey);
-    if (cachedData) {
-      return res.json(cachedData);
+    // Check cache (skip cache if filtering by ownerUserId)
+    if (!ownerUserId) {
+      const cacheKey = CACHE_KEYS.BOTS_LIST(isSystemAdmin ? 'admin' : userId);
+      const cachedData = await cacheService.get(cacheKey);
+      if (cachedData) {
+        return res.json(cachedData);
+      }
     }
 
-    // TEMPORARILY NO FILTERING to debug
-    const { data: bots, error } = await executeWithTimeout(
-      supabase
-        .from('genie_bots')
-        .select('id, name, company_name, goal, voice, language, created_at')
-        .order('name', { ascending: true })
-    );
+    // Build query
+    let query = supabase
+      .from('genie_bots')
+      .select('id, name, company_name, goal, voice, language, created_at, owner_user_id')
+      .order('name', { ascending: true });
 
-    // DEBUG: Log what we got from database
-    console.log('🤖 DEBUG - Bots query result:', {
-      dataCount: bots?.length || 0,
-      hasError: !!error,
-      error: error,
-      firstBot: bots?.[0] ? { id: bots[0].id, name: bots[0].name } : null
-    });
+    // Filter by owner_user_id if provided
+    if (ownerUserId && isValidUUID(ownerUserId)) {
+      query = query.eq('owner_user_id', ownerUserId);
+      console.log(`✅ Filtering bots by owner_user_id: ${ownerUserId}`);
+    } else if (!isSystemAdmin && !ownerUserId) {
+      // Non-admin users only see their own bots (when not filtering by specific owner)
+      query = query.eq('owner_user_id', userId);
+    }
+
+    const { data: bots, error } = await executeWithTimeout(query);
 
     if (error) {
       console.error('❌ Error fetching bots:', error);
@@ -1399,7 +1600,12 @@ export const getAllBots = async (req, res) => {
       data: sanitizeArray(bots || [])
     };
 
-    await cacheService.set(cacheKey, result, CACHE_TTL);
+    // Only cache if not filtering by ownerUserId
+    if (!ownerUserId) {
+      const cacheKey = CACHE_KEYS.BOTS_LIST(isSystemAdmin ? 'admin' : userId);
+      await cacheService.set(cacheKey, result, CACHE_TTL);
+    }
+
     res.json(result);
   } catch (err) {
     return handleApiError(err, res, 'Failed to fetch bots');
@@ -1414,22 +1620,43 @@ export const getAllBots = async (req, res) => {
 export const getAllContactLists = async (req, res) => {
   try {
     const userId = req.user.id;
-    const isSystemAdmin = req.profile?.is_systemadmin === true;
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
+    const { ownerUserId } = req.query;
 
-    // Check cache
-    const cacheKey = CACHE_KEYS.CONTACT_LISTS(isSystemAdmin ? 'admin' : userId);
-    const cachedData = await cacheService.get(cacheKey);
-    if (cachedData) {
-      return res.json(cachedData);
+    // Validate ownerUserId if provided
+    if (ownerUserId && !isValidUUID(ownerUserId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid owner user ID format'
+      });
     }
 
-    // TEMPORARILY NO FILTERING to debug
-    const { data: lists, error } = await executeWithTimeout(
-      supabase
-        .from('genie_contact_lists')
-        .select('id, name, description, created_at')
-        .order('name', { ascending: true })
-    );
+    // Check cache (skip cache if filtering by ownerUserId)
+    if (!ownerUserId) {
+      const cacheKey = CACHE_KEYS.CONTACT_LISTS(isSystemAdmin ? 'admin' : userId);
+      const cachedData = await cacheService.get(cacheKey);
+      if (cachedData) {
+        return res.json(cachedData);
+      }
+    }
+
+    // Build query
+    let query = supabase
+      .from('genie_contact_lists')
+      .select('id, name, description, created_at, owner_user_id')
+      .order('name', { ascending: true });
+
+    // Filter by owner_user_id if provided
+    if (ownerUserId) {
+      query = query.eq('owner_user_id', ownerUserId);
+      console.log(`✅ Filtering contact lists by owner_user_id: ${ownerUserId}`);
+    } else if (!isSystemAdmin) {
+      // Non-admin users only see their own lists (when not filtering by specific owner)
+      query = query.eq('owner_user_id', userId);
+    }
+
+    const { data: lists, error } = await executeWithTimeout(query);
 
     if (error) {
       console.error('❌ Error fetching contact lists:', error);
@@ -1454,7 +1681,12 @@ export const getAllContactLists = async (req, res) => {
       data: sanitizeArray(listsWithCounts)
     };
 
-    await cacheService.set(cacheKey, result, CACHE_TTL);
+    // Only cache if not filtering by ownerUserId
+    if (!ownerUserId) {
+      const cacheKey = CACHE_KEYS.CONTACT_LISTS(isSystemAdmin ? 'admin' : userId);
+      await cacheService.set(cacheKey, result, CACHE_TTL);
+    }
+
     res.json(result);
   } catch (err) {
     return handleApiError(err, res, 'Failed to fetch contact lists');

@@ -17,6 +17,7 @@ import {
   sanitizeInputMiddleware
 } from '../../utils/apiOptimization.js';
 import { hasRole, hasAnyRole } from '../../utils/roleUtils.js';
+import PDFDocument from 'pdfkit';
 
 // Cache configuration
 const CACHE_TTL = 300; // 5 minutes
@@ -1571,6 +1572,210 @@ export const resendInvoice = async (req, res) => {
     });
   } catch (error) {
     return handleApiError(error, res, 'An error occurred while resending the invoice email.');
+  }
+};
+
+/**
+ * Download invoice as PDF
+ * @route   GET /api/invoices/:id/download-pdf
+ * @access  Private (Admin, Reseller, Consumer)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation (UUID format)
+ * 2. Query timeout (Performance)
+ * 3. Secure error handling (Security)
+ */
+export const downloadInvoicePDF = async (req, res) => {
+  try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // Note: Permission checks are handled by checkInvoiceAccess middleware in routes
+    // ========================================
+    const { id: invoiceId } = req.params;
+
+    if (!invoiceId || !isValidUUID(invoiceId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid invoice ID format'
+      });
+    }
+
+    // ========================================
+    // 2. FETCH INVOICE (with timeout)
+    // ========================================
+    const invoicePromise = supabaseAdmin
+      .from('invoices')
+      .select(`
+        id,
+        sender_id,
+        receiver_id,
+        issue_date,
+        due_date,
+        total_amount,
+        tax_total,
+        status,
+        notes,
+        created_at,
+        sender:auth_role_with_profiles!invoices_sender_id_fkey(user_id, full_name, email, role),
+        receiver:auth_role_with_profiles!invoices_receiver_id_fkey(user_id, full_name, email, role),
+        invoice_items (
+          id,
+          product_id,
+          quantity,
+          unit_price,
+          tax_rate,
+          total_price,
+          products (
+            id,
+            name,
+            price
+          )
+        )
+      `)
+      .eq('id', invoiceId)
+      .single();
+
+    const { data: invoice, error: invoiceError } = await executeWithTimeout(invoicePromise);
+
+    // ========================================
+    // 3. ERROR HANDLING (Security)
+    // ========================================
+    if (invoiceError || !invoice) {
+      console.error('❌ Error fetching invoice:', invoiceError);
+      return res.status(404).json({
+        success: false,
+        error: 'Not Found',
+        message: 'Invoice not found'
+      });
+    }
+
+    // ========================================
+    // 4. GENERATE PDF
+    // Note: Permission checks are handled by middleware in routes
+    // ========================================
+    const doc = new PDFDocument({ margin: 50, size: 'LETTER' });
+    
+    // Set response headers
+    const invoiceNumber = `INV-${invoice.created_at?.split('T')[0]?.replace(/-/g, '')}-${invoice.id.substring(0, 8).toUpperCase()}`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=invoice-${invoiceNumber}.pdf`);
+    res.setHeader('Cache-Control', 'no-cache');
+
+    // Pipe PDF to response
+    doc.pipe(res);
+
+    // Invoice Header
+    doc.fontSize(24).font('Helvetica-Bold').text('INVOICE', 50, 50);
+    
+    // Invoice Number and Date
+    const invoiceDate = invoice.issue_date ? new Date(invoice.issue_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A';
+    const dueDate = invoice.due_date ? new Date(invoice.due_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A';
+    
+    doc.fontSize(10).font('Helvetica').text(`Invoice #: ${invoiceNumber}`, 400, 50, { align: 'right' });
+    doc.text(`Date: ${invoiceDate}`, 400, 70, { align: 'right' });
+    doc.text(`Due Date: ${dueDate}`, 400, 85, { align: 'right' });
+    
+    // Bill From (Sender)
+    let yPos = 130;
+    doc.fontSize(12).font('Helvetica-Bold').text('Bill From:', 50, yPos);
+    doc.fontSize(10).font('Helvetica');
+    doc.text(invoice.sender?.full_name || 'N/A', 50, yPos + 20);
+    if (invoice.sender?.email) {
+      doc.text(invoice.sender.email, 50, yPos + 35);
+    }
+    
+    // Bill To (Receiver)
+    doc.fontSize(12).font('Helvetica-Bold').text('Bill To:', 300, yPos);
+    doc.fontSize(10).font('Helvetica');
+    doc.text(invoice.receiver?.full_name || 'N/A', 300, yPos + 20);
+    if (invoice.receiver?.email) {
+      doc.text(invoice.receiver.email, 300, yPos + 35);
+    }
+    
+    // Items Table Header
+    yPos = 220;
+    doc.fontSize(10).font('Helvetica-Bold');
+    doc.text('Description', 50, yPos, { width: 250 });
+    doc.text('Quantity', 310, yPos);
+    doc.text('Unit Price', 370, yPos, { align: 'right', width: 70 });
+    doc.text('Tax Rate', 450, yPos, { align: 'right', width: 50 });
+    doc.text('Total', 510, yPos, { align: 'right', width: 90 });
+    
+    // Draw line
+    doc.moveTo(50, yPos + 15).lineTo(600, yPos + 15).stroke();
+    
+    // Invoice Items
+    yPos += 30;
+    doc.fontSize(10).font('Helvetica');
+    const invoiceItems = invoice.invoice_items || [];
+    invoiceItems.forEach((item) => {
+      const itemName = item.products?.name || 'Unknown Product';
+      const quantity = item.quantity || 0;
+      const unitPrice = parseFloat(item.unit_price || 0).toFixed(2);
+      const taxRate = parseFloat(item.tax_rate || 0).toFixed(2);
+      const total = parseFloat(item.total_price || 0).toFixed(2);
+      
+      doc.text(itemName, 50, yPos, { width: 250 });
+      doc.text(quantity.toString(), 310, yPos);
+      doc.text(`$${unitPrice}`, 370, yPos, { align: 'right', width: 70 });
+      doc.text(`${taxRate}%`, 450, yPos, { align: 'right', width: 50 });
+      doc.text(`$${total}`, 510, yPos, { align: 'right', width: 90 });
+      
+      yPos += 20;
+      
+      // Check if we need a new page
+      if (yPos > 700) {
+        doc.addPage();
+        yPos = 50;
+      }
+    });
+    
+    // Totals
+    yPos += 20;
+    const subtotal = parseFloat((invoice.total_amount || 0) - (invoice.tax_total || 0)).toFixed(2);
+    const taxTotal = parseFloat(invoice.tax_total || 0).toFixed(2);
+    const grandTotal = parseFloat(invoice.total_amount || 0).toFixed(2);
+    
+    doc.fontSize(10).font('Helvetica');
+    doc.text('Subtotal:', 450, yPos, { align: 'right', width: 80 });
+    doc.text(`$${subtotal}`, 540, yPos, { align: 'right', width: 60 });
+    
+    yPos += 20;
+    doc.text('Tax:', 450, yPos, { align: 'right', width: 80 });
+    doc.text(`$${taxTotal}`, 540, yPos, { align: 'right', width: 60 });
+    
+    yPos += 25;
+    doc.fontSize(12).font('Helvetica-Bold');
+    doc.text('Total:', 450, yPos, { align: 'right', width: 80 });
+    doc.text(`$${grandTotal}`, 540, yPos, { align: 'right', width: 60 });
+    
+    // Status
+    yPos += 40;
+    doc.fontSize(10).font('Helvetica');
+    const status = invoice.status || 'unpaid';
+    doc.text(`Status: ${status.charAt(0).toUpperCase() + status.slice(1)}`, 50, yPos);
+    
+    // Notes
+    if (invoice.notes) {
+      yPos += 30;
+      doc.fontSize(10).font('Helvetica-Bold').text('Notes:', 50, yPos);
+      doc.fontSize(10).font('Helvetica').text(invoice.notes, 50, yPos + 15, { width: 500 });
+    }
+    
+    // Footer
+    doc.fontSize(8).font('Helvetica').text(
+      'Thank you for your business!',
+      50,
+      doc.page.height - 50,
+      { align: 'center', width: doc.page.width - 100 }
+    );
+    
+    // Finalize PDF
+    doc.end();
+  } catch (error) {
+    console.error('❌ Error generating invoice PDF:', error);
+    return handleApiError(error, res, 'An error occurred while generating the invoice PDF.');
   }
 };
 

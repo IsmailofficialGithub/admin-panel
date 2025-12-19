@@ -227,10 +227,66 @@ const InvoicePaymentDetail = () => {
           Back to Invoices
         </button>
         
-        <h2 style={{ margin: '0 0 10px 0', color: '#1f2937' }}>Invoice Payment Details</h2>
-        <p style={{ margin: 0, color: '#6b7280', fontSize: '14px' }}>
-          Invoice: {invoice.invoice_number || invoice.id}
-        </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <h2 style={{ margin: '0 0 10px 0', color: '#1f2937' }}>Invoice Payment Details</h2>
+            <p style={{ margin: 0, color: '#6b7280', fontSize: '14px' }}>
+              Invoice: {invoice.invoice_number || invoice.id}
+            </p>
+          </div>
+          <button
+            onClick={async () => {
+              try {
+                toast.loading('Downloading invoice PDF...');
+                const response = await apiClient.invoices.downloadInvoicePDF(invoiceId);
+                
+                if (!response?.data) {
+                  toast.error('Failed to download invoice PDF');
+                  return;
+                }
+
+                const blob = response.data;
+                if (blob.size < 100) {
+                  toast.error('Downloaded file appears to be empty');
+                  return;
+                }
+
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                const invoiceNumber = invoice.invoice_number || `INV-${invoice.id.substring(0, 8).toUpperCase()}`;
+                a.download = `invoice-${invoiceNumber}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(downloadUrl);
+
+                toast.dismiss();
+                toast.success('Invoice downloaded successfully');
+              } catch (error) {
+                console.error('Error downloading invoice:', error);
+                toast.dismiss();
+                toast.error(error.message || 'Failed to download invoice PDF');
+              }
+            }}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '10px 20px',
+              backgroundColor: '#74317e',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}
+          >
+            <Download size={18} />
+            Download PDF
+          </button>
+        </div>
       </div>
 
       <Row>
