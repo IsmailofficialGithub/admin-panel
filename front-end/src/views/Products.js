@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card } from 'react-bootstrap';
-import { Plus, Edit2, Trash2, Search, Package, DollarSign, FileText, MoreVertical, ExternalLink } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Package, FileText, MoreVertical, ExternalLink } from 'lucide-react';
 import { useHistory } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import CreateProductModal from '../components/ui/createProductModal';
@@ -365,7 +365,6 @@ const Products = () => {
               flex: 1,
               display: 'flex',
               flexDirection: 'column',
-              overflow: 'hidden'
             }}>
               {/* Search Bar */}
               <div style={{ marginBottom: '20px' }}>
@@ -666,7 +665,7 @@ const Products = () => {
                       <p style={{
                         fontSize: '14px',
                         color: '#6b7280',
-                        margin: '0 0 16px 0',
+                        margin: '0',
                         lineHeight: '1.5',
                         display: '-webkit-box',
                         WebkitLineClamp: 2,
@@ -676,26 +675,6 @@ const Products = () => {
                       }}>
                         {product.description || 'No description'}
                       </p>
-
-                      {/* Product Price */}
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '8px 12px',
-                        backgroundColor: '#f0fdf4',
-                        borderRadius: '8px',
-                        width: 'fit-content'
-                      }}>
-                        <DollarSign size={18} color="#16a34a" />
-                        <span style={{
-                          fontSize: '18px',
-                          fontWeight: '700',
-                          color: '#16a34a'
-                        }}>
-                          {parseFloat(product.price || 0).toFixed(2)}
-                        </span>
-                      </div>
                     </div>
                   ))}
                 </div>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Package, FileText, DollarSign, AlertCircle, CheckCircle } from 'lucide-react';
+import { X, Package, FileText, AlertCircle, CheckCircle, ToggleLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { createProduct } from '../../api/backend/products';
 
@@ -7,7 +7,7 @@ const CreateProductModal = ({ isOpen, onClose, onCreate }) => {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    price: ''
+    status: 'active'
   });
 
   const [errors, setErrors] = useState({});
@@ -45,13 +45,6 @@ const CreateProductModal = ({ isOpen, onClose, onCreate }) => {
     } else if (formData.description.trim().length < 10) {
       newErrors.description = 'Description must be at least 10 characters';
     }
-    
-    // Price validation
-    if (!formData.price) {
-      newErrors.price = 'Price is required';
-    } else if (isNaN(formData.price) || parseFloat(formData.price) <= 0) {
-      newErrors.price = 'Price must be a positive number';
-    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -70,8 +63,8 @@ const CreateProductModal = ({ isOpen, onClose, onCreate }) => {
     try {
       const productData = {
         name: formData.name.trim(),
-        description: formData.description.trim(),
-        price: parseFloat(formData.price)
+        description: formData.description.trim()
+        // Note: status is not sent to backend - it's only for form display
       };
 
       const result = await createProduct(productData);
@@ -85,7 +78,7 @@ const CreateProductModal = ({ isOpen, onClose, onCreate }) => {
           setFormData({
             name: '',
             description: '',
-            price: ''
+            status: 'active'
           });
           setErrors({});
           setSubmitMessage({ type: '', text: '' });
@@ -109,7 +102,7 @@ const CreateProductModal = ({ isOpen, onClose, onCreate }) => {
       setFormData({
         name: '',
         description: '',
-        price: ''
+        status: 'active'
       });
       setErrors({});
       setSubmitMessage({ type: '', text: '' });
@@ -321,7 +314,7 @@ const CreateProductModal = ({ isOpen, onClose, onCreate }) => {
               )}
             </div>
 
-            {/* Price */}
+            {/* Status */}
             <div style={{ marginBottom: '20px' }}>
               <label style={{
                 display: 'block',
@@ -330,7 +323,7 @@ const CreateProductModal = ({ isOpen, onClose, onCreate }) => {
                 color: '#374151',
                 marginBottom: '8px'
               }}>
-                Price <span style={{ color: '#ef4444' }}>*</span>
+                Status
               </label>
               <div style={{ position: 'relative' }}>
                 <div style={{
@@ -338,52 +331,51 @@ const CreateProductModal = ({ isOpen, onClose, onCreate }) => {
                   left: '12px',
                   top: '50%',
                   transform: 'translateY(-50%)',
-                  color: '#9ca3af'
+                  color: '#9ca3af',
+                  pointerEvents: 'none',
+                  zIndex: 1
                 }}>
-                  <DollarSign size={18} />
+                  <ToggleLeft size={18} />
                 </div>
-                <input
-                  type="number"
-                  name="price"
-                  value={formData.price}
+                <select
+                  name="status"
+                  value={formData.status}
                   onChange={handleChange}
-                  placeholder="0.00"
-                  step="0.01"
-                  min="0"
                   disabled={isSubmitting}
                   style={{
                     width: '100%',
                     padding: '10px 12px 10px 40px',
-                    border: errors.price ? '1px solid #ef4444' : '1px solid #d1d5db',
+                    border: '1px solid #d1d5db',
                     borderRadius: '8px',
                     fontSize: '14px',
                     outline: 'none',
                     transition: 'all 0.2s',
+                    backgroundColor: 'white',
+                    cursor: isSubmitting ? 'not-allowed' : 'pointer',
                     boxSizing: 'border-box',
+                    appearance: 'none',
+                    backgroundImage: 'url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%236b7280\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3e%3cpolyline points=\'6 9 12 15 18 9\'%3e%3c/polyline%3e%3c/svg%3e")',
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 12px center',
+                    backgroundSize: '16px',
+                    paddingRight: '40px',
                     opacity: isSubmitting ? 0.6 : 1
                   }}
                   onFocus={(e) => {
-                    if (!errors.price && !isSubmitting) {
+                    if (!isSubmitting) {
                       e.target.style.borderColor = '#74317e';
                       e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
                     }
                   }}
                   onBlur={(e) => {
-                    e.target.style.borderColor = errors.price ? '#ef4444' : '#d1d5db';
+                    e.target.style.borderColor = '#d1d5db';
                     e.target.style.boxShadow = 'none';
                   }}
-                />
+                >
+                  <option value="active">Active</option>
+                  <option value="deactivated">Deactivated</option>
+                </select>
               </div>
-              {errors.price && (
-                <p style={{
-                  color: '#ef4444',
-                  fontSize: '12px',
-                  marginTop: '6px',
-                  marginBottom: 0
-                }}>
-                  {errors.price}
-                </p>
-              )}
             </div>
 
             {/* Submit Message */}

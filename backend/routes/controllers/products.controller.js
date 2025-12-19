@@ -69,7 +69,7 @@ export const getAllProducts = async (req, res) => {
     // ========================================
     const query = supabase
       .from('products')
-      .select('id, name, description, price, created_at, updated_at', { count: 'exact' })
+      .select('id, name, description, created_at, updated_at', { count: 'exact' })
       .order('created_at', { ascending: false })
       .range(offset, offset + limitNum - 1);
 
@@ -157,7 +157,7 @@ export const getProductById = async (req, res) => {
     // ========================================
     const query = supabase
       .from('products')
-      .select('id, name, description, price, created_at, updated_at')
+      .select('id, name, description, created_at, updated_at')
       .eq('id', id)
       .single();
 
@@ -213,14 +213,14 @@ export const createProduct = async (req, res) => {
     // ========================================
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
-    let { name, description, price } = req.body;
+    let { name, description } = req.body;
 
     // Validate required fields
-    if (!name || !description || price === undefined) {
+    if (!name || !description) {
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
-        message: 'Name, description, and price are required'
+        message: 'Name and description are required'
       });
     }
 
@@ -246,16 +246,6 @@ export const createProduct = async (req, res) => {
       });
     }
 
-    // Validate price is a positive number
-    const priceNum = parseFloat(price);
-    if (isNaN(priceNum) || priceNum <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Bad Request',
-        message: 'Price must be a positive number'
-      });
-    }
-
     console.log(`📦 Creating product: ${name}`);
 
     // ========================================
@@ -265,10 +255,9 @@ export const createProduct = async (req, res) => {
       .from('products')
       .insert([{
         name: name.trim(),
-        description: description.trim(),
-        price: priceNum
+        description: description.trim()
       }])
-      .select('id, name, description, price, created_at, updated_at')
+      .select('id, name, description, created_at, updated_at')
       .single();
 
     const { data: product, error } = await executeWithTimeout(insertPromise);
@@ -322,7 +311,7 @@ export const updateProduct = async (req, res) => {
     // 1. INPUT VALIDATION
     // ========================================
     const { id } = req.params;
-    let { name, description, price } = req.body;
+    let { name, description } = req.body;
 
     if (!id || !isValidUUID(id)) {
       return res.status(400).json({
@@ -333,11 +322,11 @@ export const updateProduct = async (req, res) => {
     }
 
     // Validate required fields
-    if (!name || !description || price === undefined) {
+    if (!name || !description) {
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
-        message: 'Name, description, and price are required'
+        message: 'Name and description are required'
       });
     }
 
@@ -360,16 +349,6 @@ export const updateProduct = async (req, res) => {
         success: false,
         error: 'Bad Request',
         message: 'Product description must be at least 5 characters long'
-      });
-    }
-
-    // Validate price is a positive number
-    const priceNum = parseFloat(price);
-    if (isNaN(priceNum) || priceNum <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Bad Request',
-        message: 'Price must be a positive number'
       });
     }
 
@@ -403,11 +382,10 @@ export const updateProduct = async (req, res) => {
       .update({
         name: name.trim(),
         description: description.trim(),
-        price: priceNum,
         updated_at: new Date().toISOString()
       })
       .eq('id', id)
-      .select('id, name, description, price, created_at, updated_at')
+      .select('id, name, description, created_at, updated_at')
       .single();
 
     const { data: product, error } = await executeWithTimeout(updatePromise);
