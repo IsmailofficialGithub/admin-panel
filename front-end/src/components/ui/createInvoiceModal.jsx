@@ -86,7 +86,7 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
             // Fetch all packages for admin and reseller (for manual addition)
             if (isAdmin || isReseller) {
               try {
-                const allPackagesResult = await getAllPackages();
+                const allPackagesResult = await getAllPackages({ limit: 1000 }); // Get all packages
                 if (allPackagesResult && allPackagesResult.success && allPackagesResult.data && Array.isArray(allPackagesResult.data)) {
                   setAllPackages(allPackagesResult.data);
                 }
@@ -235,6 +235,7 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
           ...newPackages[index],
           package_id: value,
           package_name: pkg?.package_name || pkg?.name || '',
+          product_name: pkg?.product_name || null,
           price: originalPrice,
           original_price: originalPrice, // Store original price for validation
           subtotal: originalPrice * (newPackages[index].quantity || 1)
@@ -823,11 +824,16 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
                       {/* Show consumer's subscribed packages (if any) */}
                       {availablePackages.length > 0 && (
                         <optgroup label="Consumer's Packages">
-                          {availablePackages.map(p => (
-                            <option key={p.package_id || p.id} value={p.package_id || p.id}>
-                              {p.package_name || p.name} - ${parseFloat(p.price || 0).toFixed(2)}
-                            </option>
-                          ))}
+                          {availablePackages.map(p => {
+                            const productName = p.product_name || '';
+                            const packageName = p.package_name || p.name || '';
+                            const displayName = productName ? `${productName} - ${packageName}` : packageName;
+                            return (
+                              <option key={p.package_id || p.id} value={p.package_id || p.id}>
+                                {displayName} - ${parseFloat(p.price || 0).toFixed(2)}
+                              </option>
+                            );
+                          })}
                         </optgroup>
                       )}
                       {/* Show all packages for admin and reseller */}
@@ -837,18 +843,28 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
                             // Show packages not in consumer's list
                             allPackages
                               .filter(p => !availablePackages.some(ap => (ap.package_id || ap.id) === p.id))
-                              .map(p => (
-                                <option key={p.id} value={p.id}>
-                                  {p.name} - ${parseFloat(p.price || 0).toFixed(2)}
-                                </option>
-                              ))
+                              .map(p => {
+                                const productName = p.product_name || '';
+                                const packageName = p.name || '';
+                                const displayName = productName ? `${productName} - ${packageName}` : packageName;
+                                return (
+                                  <option key={p.id} value={p.id}>
+                                    {displayName} - ${parseFloat(p.price || 0).toFixed(2)}
+                                  </option>
+                                );
+                              })
                           ) : (
                             // Show all packages if consumer has no packages
-                            allPackages.map(p => (
-                              <option key={p.id} value={p.id}>
-                                {p.name} - ${parseFloat(p.price || 0).toFixed(2)}
-                              </option>
-                            ))
+                            allPackages.map(p => {
+                              const productName = p.product_name || '';
+                              const packageName = p.name || '';
+                              const displayName = productName ? `${productName} - ${packageName}` : packageName;
+                              return (
+                                <option key={p.id} value={p.id}>
+                                  {displayName} - ${parseFloat(p.price || 0).toFixed(2)}
+                                </option>
+                              );
+                            })
                           )}
                         </optgroup>
                       )}

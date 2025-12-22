@@ -80,7 +80,7 @@ export const getAllPackages = async (req, res) => {
     // ========================================
     let query = supabase
       .from('packages')
-      .select('id, product_id, name, description, price, created_at, updated_at', { count: 'exact' })
+      .select('id, product_id, name, description, price, created_at, updated_at, products:product_id (id, name)', { count: 'exact' })
       .order('created_at', { ascending: false });
 
     // Filter by product if provided
@@ -107,9 +107,17 @@ export const getAllPackages = async (req, res) => {
     console.log(`✅ Found ${packages?.length || 0} packages`);
 
     // ========================================
-    // 5. DATA SANITIZATION (Security)
+    // 5. ENRICH PACKAGES WITH PRODUCT NAME
     // ========================================
-    const sanitizedPackages = sanitizeArray(packages || []);
+    const enrichedPackages = (packages || []).map(pkg => ({
+      ...pkg,
+      product_name: pkg.products?.name || null
+    }));
+
+    // ========================================
+    // 6. DATA SANITIZATION (Security)
+    // ========================================
+    const sanitizedPackages = sanitizeArray(enrichedPackages);
 
     // ========================================
     // 6. RESPONSE STRUCTURE

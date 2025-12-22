@@ -334,7 +334,7 @@ export const getConsumerPackagesForInvoice = async (req, res) => {
     const packageIds = packageAccess.map(pa => pa.package_id);
     const packagesPromise = supabaseAdmin
       .from('packages')
-      .select('id, name, price, description')
+      .select('id, name, price, description, product_id, products:product_id (id, name)')
       .in('id', packageIds);
 
     const { data: packages, error: packagesError } = await executeWithTimeout(packagesPromise, 5000);
@@ -356,6 +356,8 @@ export const getConsumerPackagesForInvoice = async (req, res) => {
       return {
         package_id: pkg.id,
         package_name: pkg.name,
+        product_id: pkg.product_id,
+        product_name: pkg.products?.name || null,
         price: parseFloat(pkg.price || 0),
         description: pkg.description,
         granted_at: access?.granted_at
@@ -475,7 +477,12 @@ export const getAllInvoices = async (req, res) => {
           packages (
             id,
             name,
-            price
+            price,
+            product_id,
+            products:product_id (
+              id,
+              name
+            )
           ),
           products (
             id,
@@ -554,12 +561,19 @@ export const getAllInvoices = async (req, res) => {
       total: parseFloat(invoice.total_amount || 0).toFixed(2),
       status: invoice.status || 'unpaid',
       payment_date: invoice.status === 'paid' ? invoice.updated_at : null,
-      packages: invoice.invoice_items?.map(item => ({
-        name: item.packages?.name || 'Unknown Package',
-        quantity: item.quantity,
-        price: parseFloat(item.unit_price || 0).toFixed(2),
-        total: parseFloat(item.total_price || 0).toFixed(2)
-      })) || [],
+        packages: invoice.invoice_items?.map(item => {
+          const packageName = item.packages?.name || item.products?.name || 'Unknown Package';
+          const productName = item.packages?.products?.name || null;
+          const displayName = productName ? `${productName} - ${packageName}` : packageName;
+          return {
+            name: displayName,
+            product_name: productName,
+            package_name: packageName,
+            quantity: item.quantity,
+            price: parseFloat(item.unit_price || 0).toFixed(2),
+            total: parseFloat(item.total_price || 0).toFixed(2)
+          };
+        }) || [],
       notes: invoice.notes,
       created_at: invoice.created_at
     }));
@@ -711,7 +725,12 @@ export const getMyInvoices = async (req, res) => {
           packages (
             id,
             name,
-            price
+            price,
+            product_id,
+            products:product_id (
+              id,
+              name
+            )
           ),
           products (
             id,
@@ -807,12 +826,19 @@ export const getMyInvoices = async (req, res) => {
           name: offer.name,
           commission_percentage: parseFloat(offer.commission_percentage)
         } : null,
-        packages: invoice.invoice_items?.map(item => ({
-          name: item.packages?.name || item.products?.name || 'Unknown Package',
-          quantity: item.quantity,
-          price: parseFloat(item.unit_price || 0).toFixed(2),
-          total: parseFloat(item.total_price || 0).toFixed(2)
-        })) || [],
+        packages: invoice.invoice_items?.map(item => {
+          const packageName = item.packages?.name || item.products?.name || 'Unknown Package';
+          const productName = item.packages?.products?.name || null;
+          const displayName = productName ? `${productName} - ${packageName}` : packageName;
+          return {
+            name: displayName,
+            product_name: productName,
+            package_name: packageName,
+            quantity: item.quantity,
+            price: parseFloat(item.unit_price || 0).toFixed(2),
+            total: parseFloat(item.total_price || 0).toFixed(2)
+          };
+        }) || [],
         notes: invoice.notes,
         created_at: invoice.created_at
       };
@@ -988,7 +1014,12 @@ export const getConsumerInvoices = async (req, res) => {
           packages (
             id,
             name,
-            price
+            price,
+            product_id,
+            products:product_id (
+              id,
+              name
+            )
           ),
           products (
             id,
@@ -1081,12 +1112,19 @@ export const getConsumerInvoices = async (req, res) => {
           name: offer.name,
           commission_percentage: parseFloat(offer.commission_percentage)
         } : null,
-        packages: invoice.invoice_items?.map(item => ({
-          name: item.packages?.name || item.products?.name || 'Unknown Package',
-          quantity: item.quantity,
-          price: parseFloat(item.unit_price || 0).toFixed(2),
-          total: parseFloat(item.total_price || 0).toFixed(2)
-        })) || [],
+        packages: invoice.invoice_items?.map(item => {
+          const packageName = item.packages?.name || item.products?.name || 'Unknown Package';
+          const productName = item.packages?.products?.name || null;
+          const displayName = productName ? `${productName} - ${packageName}` : packageName;
+          return {
+            name: displayName,
+            product_name: productName,
+            package_name: packageName,
+            quantity: item.quantity,
+            price: parseFloat(item.unit_price || 0).toFixed(2),
+            total: parseFloat(item.total_price || 0).toFixed(2)
+          };
+        }) || [],
         notes: invoice.notes,
         created_at: invoice.created_at
       };
@@ -1244,7 +1282,7 @@ export const createInvoice = async (req, res) => {
     const packageIds = items.map(item => item.package_id);
     const packagesPromise = supabase
       .from('packages')
-      .select('id, name, price')
+      .select('id, name, price, product_id, products:product_id (id, name)')
       .in('id', packageIds);
 
     const { data: packages, error: packagesError } = await executeWithTimeout(packagesPromise);
@@ -1560,8 +1598,11 @@ export const createInvoice = async (req, res) => {
     // Use consumer data we already have instead of fetching again
     const emailItems = validatedItems.map((item, idx) => {
       const pkg = packagesMap.get(item.package_id);
+      const packageName = pkg?.name || 'Package';
+      const productName = pkg?.products?.name || null;
+      const displayName = productName ? `${productName} - ${packageName}` : packageName;
       return {
-        name: pkg?.name || 'Package',
+        name: displayName,
         quantity: item.quantity,
         price: item.unit_price,
         total: item.total_price
@@ -1679,7 +1720,12 @@ export const resendInvoice = async (req, res) => {
           packages (
             id,
             name,
-            price
+            price,
+            product_id,
+            products:product_id (
+              id,
+              name
+            )
           ),
           products (
             id,
@@ -1735,12 +1781,17 @@ export const resendInvoice = async (req, res) => {
     const invoiceNumber = `INV-${(invoice.created_at || new Date().toISOString()).split('T')[0].replace(/-/g, '')}-${String(invoice.id).substring(0,8).toUpperCase()}`;
 
     // Build items for email
-    const emailItems = (invoice.invoice_items || []).map((it) => ({
-      name: it.packages?.name || it.products?.name || 'Package',
-      quantity: it.quantity,
-      price: it.unit_price,
-      total: it.total_price || (Number(it.unit_price) * Number(it.quantity))
-    }));
+    const emailItems = (invoice.invoice_items || []).map((it) => {
+      const packageName = it.packages?.name || it.products?.name || 'Package';
+      const productName = it.packages?.products?.name || null;
+      const displayName = productName ? `${productName} - ${packageName}` : packageName;
+      return {
+        name: displayName,
+        quantity: it.quantity,
+        price: it.unit_price,
+        total: it.total_price || (Number(it.unit_price) * Number(it.quantity))
+      };
+    });
 
     // Use sender profile from req.userProfile (already available from middleware)
     const senderProfile = req.userProfile || { full_name: 'Admin', role: ['admin'] }; // Array for TEXT[]
@@ -1828,7 +1879,12 @@ export const downloadInvoicePDF = async (req, res) => {
           packages (
             id,
             name,
-            price
+            price,
+            product_id,
+            products:product_id (
+              id,
+              name
+            )
           ),
           products (
             id,
@@ -1914,7 +1970,9 @@ export const downloadInvoicePDF = async (req, res) => {
     doc.fontSize(10).font('Helvetica');
     const invoiceItems = invoice.invoice_items || [];
     invoiceItems.forEach((item) => {
-      const itemName = item.packages?.name || item.products?.name || 'Unknown Package';
+      const packageName = item.packages?.name || item.products?.name || 'Unknown Package';
+      const productName = item.packages?.products?.name || null;
+      const itemName = productName ? `${productName} - ${packageName}` : packageName;
       const quantity = item.quantity || 0;
       const unitPrice = parseFloat(item.unit_price || 0).toFixed(2);
       const taxRate = parseFloat(item.tax_rate || 0).toFixed(2);
