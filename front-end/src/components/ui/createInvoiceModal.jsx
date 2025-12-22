@@ -77,10 +77,7 @@ const CreateInvoiceModal = ({ isOpen, onClose, onCreate, consumer }) => {
               setAvailablePackages(packages);
               toast.success(`Loaded ${packages.length} package(s) for this consumer`);
             } else {
-              // Don't show error for resellers - they can still add all packages
-              if (!isReseller) {
-                toast.error('This consumer has no accessed packages');
-              }
+              // Consumer has no accessed packages - they can still add packages manually
             }
 
             // Fetch all packages for admin and reseller (for manual addition)

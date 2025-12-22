@@ -569,9 +569,9 @@ export const getAllInvoices = async (req, res) => {
             name: displayName,
             product_name: productName,
             package_name: packageName,
-            quantity: item.quantity,
-            price: parseFloat(item.unit_price || 0).toFixed(2),
-            total: parseFloat(item.total_price || 0).toFixed(2)
+        quantity: item.quantity,
+        price: parseFloat(item.unit_price || 0).toFixed(2),
+        total: parseFloat(item.total_price || 0).toFixed(2)
           };
         }) || [],
       notes: invoice.notes,
@@ -834,9 +834,9 @@ export const getMyInvoices = async (req, res) => {
             name: displayName,
             product_name: productName,
             package_name: packageName,
-            quantity: item.quantity,
-            price: parseFloat(item.unit_price || 0).toFixed(2),
-            total: parseFloat(item.total_price || 0).toFixed(2)
+          quantity: item.quantity,
+          price: parseFloat(item.unit_price || 0).toFixed(2),
+          total: parseFloat(item.total_price || 0).toFixed(2)
           };
         }) || [],
         notes: invoice.notes,
@@ -1120,9 +1120,9 @@ export const getConsumerInvoices = async (req, res) => {
             name: displayName,
             product_name: productName,
             package_name: packageName,
-            quantity: item.quantity,
-            price: parseFloat(item.unit_price || 0).toFixed(2),
-            total: parseFloat(item.total_price || 0).toFixed(2)
+          quantity: item.quantity,
+          price: parseFloat(item.unit_price || 0).toFixed(2),
+          total: parseFloat(item.total_price || 0).toFixed(2)
           };
         }) || [],
         notes: invoice.notes,
@@ -1787,9 +1787,9 @@ export const resendInvoice = async (req, res) => {
       const displayName = productName ? `${productName} - ${packageName}` : packageName;
       return {
         name: displayName,
-        quantity: it.quantity,
-        price: it.unit_price,
-        total: it.total_price || (Number(it.unit_price) * Number(it.quantity))
+      quantity: it.quantity,
+      price: it.unit_price,
+      total: it.total_price || (Number(it.unit_price) * Number(it.quantity))
       };
     });
 
