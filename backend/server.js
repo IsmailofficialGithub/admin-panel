@@ -24,9 +24,11 @@ import productDetailRoutes from './routes/productDetail.routes.js';
 import productDatabaseRoutes from './routes/productDatabase.routes.js';
 import customerSupportRoutes from './routes/customerSupport.routes.js';
 import publicSupportRoutes from './routes/publicSupport.routes.js';
+import publicMailRoutes from './routes/publicMail.routes.js';
 import permissionsRoutes from './routes/permissions.routes.js';
 import callLogsRoutes from './routes/callLogs.routes.js';
 import genieRoutes from './routes/genie.routes.js';
+import vapiRoutes from './routes/vapi.routes.js';
 import { testRedisConnection } from './config/redis.js';
 
 // Load environment variables
@@ -132,9 +134,11 @@ app.use('/api/admin/products', productDetailRoutes);
 app.use('/api/admin/product-databases', productDatabaseRoutes);
 app.use('/api/customer-support', customerSupportRoutes);
 app.use('/api/public/customer-support', publicSupportRoutes);
+app.use('/api/public/mail', publicMailRoutes);
 app.use('/api/permissions', permissionsRoutes);
 app.use('/api/call-logs', callLogsRoutes);
 app.use('/api/genie', genieRoutes);
+app.use('/api/vapi', vapiRoutes);
 
 // Debug: Log all registered routes
 ;

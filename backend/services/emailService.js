@@ -554,6 +554,48 @@ export const sendTicketReplyEmail = async ({
   }
 };
 
+/**
+ * Send custom email with HTML content
+ * @param {Object} params - Email parameters
+ * @param {string} params.to - Recipient email
+ * @param {string} params.from - Sender email
+ * @param {string} params.subject - Email subject
+ * @param {string} params.html - HTML content of the email
+ * @returns {Promise<Object>} Email send result
+ */
+export const sendCustomEmail = async ({ to, from, subject, html }) => {
+  try {
+    if (!to || !from || !subject || !html) {
+      throw new Error('Missing required fields: to, from, subject, html');
+    }
+
+    const msg = {
+      to: to,
+      from: {
+        email: from,
+        name: "DuhaNashrahAi"
+      },
+      subject: subject,
+      html: html,
+    };
+
+    console.log(`📧 Sending custom email to ${to} from ${from}`);
+    await sgMail.send(msg);
+    console.log("✅ Custom email sent successfully");
+
+    return {
+      success: true,
+      message: "Email sent successfully",
+      to,
+      from,
+      subject,
+    };
+  } catch (error) {
+    console.error("❌ Error sending custom email:", error.response?.body || error);
+    throw error;
+  }
+};
+
 export default {
   sendWelcomeEmail,
   sendPasswordResetEmail,
@@ -564,5 +606,6 @@ export default {
   sendTicketCreatedEmail,
   sendTicketStatusChangedEmail,
   sendTicketReplyEmail,
+  sendCustomEmail,
   testEmailConfiguration,
 };
