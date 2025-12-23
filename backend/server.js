@@ -75,6 +75,8 @@ const corsOptions = {
       'http://localhost:3001',
       'http://127.0.0.1:3000',
       'http://127.0.0.1:3001',
+      'https://social.duhanashrah.ai',
+      'http://localhost:5173',
     ].filter(Boolean);
     
     // For public support routes, allow all origins
