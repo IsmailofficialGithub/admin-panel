@@ -12,7 +12,8 @@ import {
   revokeLifetimeAccess,
   reassignConsumerToReseller,
   rateLimitMiddleware,
-  sanitizeInputMiddleware
+  sanitizeInputMiddleware,
+  getConsumerProductSettings
 } from './controllers/consumers.controller.js';
 
 const router = express.Router();
@@ -79,5 +80,12 @@ router.post('/:id/revoke-lifetime-access', authenticate, requireAdmin, requireAn
  * @access  Private (Admin with consumers.reassign permission)
  */
 router.post('/:id/reassign', authenticate, requireAdmin, requirePermission('consumers.reassign'), rateLimitMiddleware, sanitizeInputMiddleware, reassignConsumerToReseller);
+
+/**
+ * @route   GET /api/consumers/:id/product-settings
+ * @desc    Get consumer product settings (admin only)
+ * @access  Private (Admin)
+ */
+router.get('/:id/product-settings', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, getConsumerProductSettings);
 
 export default router;

@@ -71,7 +71,6 @@ export function createClient() {
       storageKey: 'sb-auth-token'  // Custom storage key
     }
   });
-  console.log('✅ Supabase singleton client created (with localStorage AND cookies)');
   
   return supabaseInstance;
 }

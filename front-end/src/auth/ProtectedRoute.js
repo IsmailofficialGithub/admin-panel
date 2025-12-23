@@ -7,18 +7,6 @@ const ProtectedRoute = ({ component: Component, allowedRoles = [], ...rest }) =>
   const { user, profile, loading, getDashboardPath, signOut } = useAuth();
   const location = useLocation();
 
-  console.log('🔒 ProtectedRoute: Checking auth...', { 
-    user: !!user, 
-    role: profile?.role,
-    roleType: typeof profile?.role,
-    isArray: Array.isArray(profile?.role),
-    hasReseller: profile?.role ? hasRole(profile.role, 'reseller') : false,
-    hasConsumer: profile?.role ? hasRole(profile.role, 'consumer') : false,
-    loading, 
-    allowedRoles,
-    path: rest.path 
-  });
-
   return (
     <Route
       {...rest}

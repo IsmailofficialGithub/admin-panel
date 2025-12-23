@@ -4,6 +4,7 @@ import { countries, searchCountries } from '../../utils/countryData';
 import { generatePassword } from '../../utils/passwordGenerator';
 import { getResellers, getProducts } from '../../api/backend';
 import { getAllPackages } from '../../api/backend/packages';
+import { getAllVapiAccounts } from '../../api/backend/vapi';
 import { useAuth } from '../../hooks/useAuth';
 
 const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
@@ -25,6 +26,13 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
   
   // Separate state for products (for display/reference only)
   const [selectedProducts, setSelectedProducts] = useState([]);
+  
+  // Product settings state - stores settings per product ID
+  const [productSettings, setProductSettings] = useState({});
+  
+  // VAPI accounts state
+  const [vapiAccounts, setVapiAccounts] = useState([]);
+  const [loadingVapiAccounts, setLoadingVapiAccounts] = useState(false);
   
   // Available roles for consumer form
   const availableRoles = [
@@ -51,12 +59,18 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
   const [packages, setPackages] = useState([]);
   const [loadingPackages, setLoadingPackages] = useState(false);
   const [showPackagesDropdown, setShowPackagesDropdown] = useState(false);
+  
+  // Check if genie product is selected (case-insensitive) - must be after products state is declared
+  const isGenieProductSelected = selectedProducts.some(productId => {
+    const product = products.find(p => p.id === productId);
+    return product && product.name && product.name.toLowerCase() === 'genie';
+  });
 
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState({ type: '', text: '' });
 
-  // Fetch products and packages when modal opens and consumer role is selected
+  // Fetch products, packages, and VAPI accounts when modal opens and consumer role is selected
   useEffect(() => {
     if (isOpen && isConsumerSelected) {
       const fetchData = async () => {
@@ -92,6 +106,23 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
           console.error('Error fetching packages:', error);
         } finally {
           setLoadingPackages(false);
+        }
+
+        // Fetch VAPI accounts
+        setLoadingVapiAccounts(true);
+        try {
+          const vapiResult = await getAllVapiAccounts();
+          console.log('Fetched VAPI accounts:', vapiResult);
+          if (vapiResult && vapiResult.success && vapiResult.data && Array.isArray(vapiResult.data)) {
+            setVapiAccounts(vapiResult.data);
+            console.log('VAPI accounts set:', vapiResult.data.length);
+          } else if (vapiResult && vapiResult.error) {
+            console.error('Error from getAllVapiAccounts:', vapiResult.error);
+          }
+        } catch (error) {
+          console.error('Error fetching VAPI accounts:', error);
+        } finally {
+          setLoadingVapiAccounts(false);
         }
       };
 
@@ -284,11 +315,45 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
 
   // Handle product selection (for display/reference only)
   const handleProductToggle = (productId) => {
-    setSelectedProducts(prev => 
-      prev.includes(productId)
+    setSelectedProducts(prev => {
+      const isSelected = prev.includes(productId);
+      const newProducts = isSelected
         ? prev.filter(id => id !== productId)
-        : [...prev, productId]
-    );
+        : [...prev, productId];
+      
+      // If removing genie product, clear its settings
+      if (isSelected) {
+        const product = products.find(p => p.id === productId);
+        if (product && product.name && product.name.toLowerCase() === 'genie') {
+          setProductSettings(prevSettings => {
+            const newSettings = { ...prevSettings };
+            delete newSettings[productId];
+            return newSettings;
+          });
+        }
+      }
+      
+      return newProducts;
+    });
+  };
+  
+  // Handle product settings change
+  const handleProductSettingChange = (productId, field, value) => {
+    setProductSettings(prev => ({
+      ...prev,
+      [productId]: {
+        ...(prev[productId] || {}),
+        [field]: value === '' ? undefined : (field === 'vapi_account' || field === 'agent_number' || field === 'duration_limit' || field === 'list_limit' || field === 'concurrency_limit' ? parseInt(value) || undefined : value)
+      }
+    }));
+  };
+  
+  // Get genie product ID
+  const getGenieProductId = () => {
+    return selectedProducts.find(productId => {
+      const product = products.find(p => p.id === productId);
+      return product && product.name && product.name.toLowerCase() === 'genie';
+    });
   };
 
   // Check if product is selected
@@ -493,7 +558,9 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         country: formData.country.trim() || null,
         city: formData.city.trim() || null,
         referred_by: referredBy,
-        subscribed_packages: formData.subscribed_packages
+        subscribed_packages: formData.subscribed_packages,
+        subscribed_products: selectedProducts.length > 0 ? selectedProducts : [],
+        productSettings: Object.keys(productSettings).length > 0 ? productSettings : undefined
       });
 
       if (result.success) {
@@ -514,6 +581,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
             subscribed_packages: []
           });
           setSelectedProducts([]);
+          setProductSettings({});
           setSelectedReseller(null);
           setResellerSearchTerm('');
           setShowResellerSuggestions(false);
@@ -2044,6 +2112,271 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
               </p>
             )}
           </div>
+
+          {/* Genie Product Settings Section */}
+          {isGenieProductSelected && (
+            <div style={{ 
+              marginBottom: '20px',
+              padding: '16px',
+              backgroundColor: '#f9fafb',
+              borderRadius: '8px',
+              border: '1px solid #e5e7eb'
+            }}>
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '14px',
+                fontWeight: '600',
+                color: '#374151',
+                marginBottom: '16px'
+              }}>
+                <Package size={16} style={{ color: '#74317e' }} />
+                Genie Product Settings <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+              </label>
+              
+              {(() => {
+                const genieProductId = getGenieProductId();
+                const settings = productSettings[genieProductId] || {};
+                
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {/* VAPI Account */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: '#374151',
+                        marginBottom: '6px'
+                      }}>
+                        VAPI Account
+                      </label>
+                      <div style={{ position: 'relative' }}>
+                        <select
+                          value={settings.vapi_account || ''}
+                          onChange={(e) => handleProductSettingChange(genieProductId, 'vapi_account', e.target.value)}
+                          disabled={isSubmitting}
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '6px',
+                            fontSize: '14px',
+                            outline: 'none',
+                            transition: 'all 0.2s',
+                            boxSizing: 'border-box',
+                            backgroundColor: 'white',
+                            cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                            fontFamily: 'inherit',
+                            color: settings.vapi_account ? '#374151' : '#9ca3af',
+                            appearance: 'none',
+                            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 9L1 4h10z'/%3E%3C/svg%3E")`,
+                            backgroundRepeat: 'no-repeat',
+                            backgroundPosition: 'right 12px center',
+                            paddingRight: '32px'
+                          }}
+                          onFocus={(e) => {
+                            if (!isSubmitting) {
+                              e.target.style.borderColor = '#74317e';
+                              e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                            }
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#d1d5db';
+                            e.target.style.boxShadow = 'none';
+                          }}
+                        >
+                          <option value="">Select VAPI account...</option>
+                          {loadingVapiAccounts ? (
+                            <option disabled>Loading...</option>
+                          ) : (
+                            vapiAccounts.map(account => (
+                              <option key={account.id} value={account.id}>
+                                {account.account_name}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Agent Number */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: '#374151',
+                        marginBottom: '6px'
+                      }}>
+                        Agent Number
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={settings.agent_number || ''}
+                        onChange={(e) => handleProductSettingChange(genieProductId, 'agent_number', e.target.value)}
+                        disabled={isSubmitting}
+                        placeholder="Enter agent number"
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '14px',
+                          outline: 'none',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box',
+                          backgroundColor: 'white',
+                          opacity: isSubmitting ? 0.6 : 1
+                        }}
+                        onFocus={(e) => {
+                          if (!isSubmitting) {
+                            e.target.style.borderColor = '#74317e';
+                            e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                          }
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#d1d5db';
+                          e.target.style.boxShadow = 'none';
+                        }}
+                      />
+                    </div>
+
+                    {/* Duration Limit */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: '#374151',
+                        marginBottom: '6px'
+                      }}>
+                        Duration Limit <span style={{ color: '#9ca3af', fontWeight: '400' }}>(minutes)</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={settings.duration_limit || ''}
+                        onChange={(e) => handleProductSettingChange(genieProductId, 'duration_limit', e.target.value)}
+                        disabled={isSubmitting}
+                        placeholder="Enter duration limit in minutes"
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '14px',
+                          outline: 'none',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box',
+                          backgroundColor: 'white',
+                          opacity: isSubmitting ? 0.6 : 1
+                        }}
+                        onFocus={(e) => {
+                          if (!isSubmitting) {
+                            e.target.style.borderColor = '#74317e';
+                            e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                          }
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#d1d5db';
+                          e.target.style.boxShadow = 'none';
+                        }}
+                      />
+                    </div>
+
+                    {/* List Limit */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: '#374151',
+                        marginBottom: '6px'
+                      }}>
+                        List Limit
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={settings.list_limit || ''}
+                        onChange={(e) => handleProductSettingChange(genieProductId, 'list_limit', e.target.value)}
+                        disabled={isSubmitting}
+                        placeholder="Enter list limit"
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '14px',
+                          outline: 'none',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box',
+                          backgroundColor: 'white',
+                          opacity: isSubmitting ? 0.6 : 1
+                        }}
+                        onFocus={(e) => {
+                          if (!isSubmitting) {
+                            e.target.style.borderColor = '#74317e';
+                            e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                          }
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#d1d5db';
+                          e.target.style.boxShadow = 'none';
+                        }}
+                      />
+                    </div>
+
+                    {/* Concurrency Limit */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: '#374151',
+                        marginBottom: '6px'
+                      }}>
+                        Concurrency Limit
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={settings.concurrency_limit || ''}
+                        onChange={(e) => handleProductSettingChange(genieProductId, 'concurrency_limit', e.target.value)}
+                        disabled={isSubmitting}
+                        placeholder="Enter concurrency limit"
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '14px',
+                          outline: 'none',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box',
+                          backgroundColor: 'white',
+                          opacity: isSubmitting ? 0.6 : 1
+                        }}
+                        onFocus={(e) => {
+                          if (!isSubmitting) {
+                            e.target.style.borderColor = '#74317e';
+                            e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                          }
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#d1d5db';
+                          e.target.style.boxShadow = 'none';
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
           {/* Trial Period Field (Required) */}
           <div style={{ marginBottom: '20px' }}>

@@ -91,6 +91,16 @@ export const createConsumer = async (consumerData) => {
       requestData.subscribed_packages = consumerData.subscribed_products || [];
     }
     
+    // Add subscribed_products if provided (for product access)
+    if (consumerData.subscribed_products !== undefined) {
+      requestData.subscribed_products = consumerData.subscribed_products || [];
+    }
+    
+    // Add productSettings if provided
+    if (consumerData.productSettings !== undefined) {
+      requestData.productSettings = consumerData.productSettings;
+    }
+    
     console.log('createConsumer sending data:', requestData);
     
     const response = await apiClient.resellers.createConsumer(requestData);
@@ -138,6 +148,7 @@ export const updateConsumer = async (consumerId, updateData) => {
     // Support both subscribed_packages (new) and subscribed_products (backward compatibility)
     if (updateData.subscribed_packages !== undefined) cleanedData.subscribed_packages = updateData.subscribed_packages;
     if (updateData.subscribed_products !== undefined) cleanedData.subscribed_products = updateData.subscribed_products;
+    if (updateData.productSettings !== undefined) cleanedData.productSettings = updateData.productSettings;
     // Support both roles array and single role (backward compatibility)
     if (updateData.roles !== undefined) {
       cleanedData.roles = updateData.roles;

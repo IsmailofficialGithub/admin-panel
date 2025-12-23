@@ -140,7 +140,7 @@ export const getAllConsumers = async (req, res) => {
         try {
           const productAccessPromise = supabase
             .from('user_product_access')
-            .select('product_id')
+            .select('product_id, product_settings')
             .eq('user_id', consumer.user_id);
 
           const { data: productAccess, error: productError } = await executeWithTimeout(productAccessPromise, 5000);
@@ -149,22 +149,33 @@ export const getAllConsumers = async (req, res) => {
             console.error(`Error fetching products for consumer ${consumer.user_id}:`, productError);
             return {
               ...consumer,
-              subscribed_products: []
+              subscribed_products: [],
+              productSettings: {}
             };
           }
 
           // Extract product IDs into array
           const productIds = productAccess?.map(pa => pa.product_id) || [];
           
+          // Build productSettings object from product_settings
+          const productSettings = {};
+          productAccess?.forEach(pa => {
+            if (pa.product_id && pa.product_settings) {
+              productSettings[pa.product_id] = pa.product_settings;
+            }
+          });
+          
           return {
             ...consumer,
-            subscribed_products: productIds
+            subscribed_products: productIds,
+            productSettings: productSettings
           };
         } catch (err) {
           console.error(`Error processing consumer ${consumer.user_id}:`, err);
           return {
             ...consumer,
-            subscribed_products: []
+            subscribed_products: [],
+            productSettings: {}
           };
         }
       })
@@ -264,7 +275,7 @@ export const getConsumerById = async (req, res) => {
     try {
       const productAccessPromise = supabase
         .from('user_product_access')
-        .select('product_id')
+        .select('product_id, product_settings')
         .eq('user_id', id);
 
       const { data: productAccess, error: productError } = await executeWithTimeout(productAccessPromise, 5000);
@@ -272,13 +283,24 @@ export const getConsumerById = async (req, res) => {
       if (productError) {
         console.error(`Error fetching products for consumer ${id}:`, productError);
         consumer.subscribed_products = [];
+        consumer.productSettings = {};
       } else {
         // Extract product IDs into array
         consumer.subscribed_products = productAccess?.map(pa => pa.product_id) || [];
+        
+        // Build productSettings object from product_settings
+        const productSettings = {};
+        productAccess?.forEach(pa => {
+          if (pa.product_id && pa.product_settings) {
+            productSettings[pa.product_id] = pa.product_settings;
+          }
+        });
+        consumer.productSettings = productSettings;
       }
     } catch (err) {
       console.error(`Error processing product access for consumer ${id}:`, err);
       consumer.subscribed_products = [];
+      consumer.productSettings = {};
     }
 
     // ========================================
@@ -327,18 +349,19 @@ export const updateConsumer = async (req, res) => {
       });
     }
 
-    let { full_name, phone, trial_expiry_date, country, city, subscribed_products, subscribed_packages, roles } = req.body;
+    let { full_name, phone, trial_expiry_date, country, city, subscribed_products, subscribed_packages, roles, productSettings } = req.body;
     
     console.log('📝 Update consumer - received data:', { 
       roles, 
       rolesType: typeof roles, 
       isArray: Array.isArray(roles),
       subscribed_products,
-      subscribed_packages 
+      subscribed_packages,
+      productSettings
     });
 
     // Validate required fields for update
-    if (!country || !city || !phone) {
+    if (!country ) {
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
@@ -559,10 +582,44 @@ export const updateConsumer = async (req, res) => {
 
         // Then insert new product access records if any verified products are provided
         if (verifiedProductIds.length > 0) {
-          const productAccessRecords = verifiedProductIds.map(productId => ({
-            user_id: id,
-            product_id: productId
-          }));
+          // Build product access records with product_settings included
+          const productAccessRecords = verifiedProductIds.map(productId => {
+            const record = {
+              user_id: id,
+              product_id: productId
+            };
+            
+            // Add product_settings if available for this product
+            if (productSettings && typeof productSettings === 'object' && productSettings[productId]) {
+              const settings = productSettings[productId];
+              
+              // Validate and sanitize settings
+              const sanitizedSettings = {};
+              
+              if (settings.vapi_account !== undefined && settings.vapi_account !== null && settings.vapi_account !== '') {
+                sanitizedSettings.vapi_account = parseInt(settings.vapi_account);
+              }
+              if (settings.agent_number !== undefined && settings.agent_number !== null && settings.agent_number !== '') {
+                sanitizedSettings.agent_number = parseInt(settings.agent_number);
+              }
+              if (settings.duration_limit !== undefined && settings.duration_limit !== null && settings.duration_limit !== '') {
+                sanitizedSettings.duration_limit = parseInt(settings.duration_limit);
+              }
+              if (settings.list_limit !== undefined && settings.list_limit !== null && settings.list_limit !== '') {
+                sanitizedSettings.list_limit = parseInt(settings.list_limit);
+              }
+              if (settings.concurrency_limit !== undefined && settings.concurrency_limit !== null && settings.concurrency_limit !== '') {
+                sanitizedSettings.concurrency_limit = parseInt(settings.concurrency_limit);
+              }
+              
+              // Only add product_settings if there are valid settings
+              if (Object.keys(sanitizedSettings).length > 0) {
+                record.product_settings = sanitizedSettings;
+              }
+            }
+            
+            return record;
+          });
 
           const { error: insertError } = await supabase
             .from('user_product_access')
@@ -578,6 +635,9 @@ export const updateConsumer = async (req, res) => {
             });
           } else {
             console.log(`✅ Stored ${productAccessRecords.length} product access records`);
+            if (productSettings && Object.keys(productSettings).length > 0) {
+              console.log('✅ Product settings included in update');
+            }
           }
         } else if (Array.isArray(subscribed_products) && subscribed_products.length > 0 && verifiedProductIds.length === 0) {
           // If products were provided but none were valid, warn the user
@@ -1732,3 +1792,33 @@ export const reassignConsumerToReseller = async (req, res) => {
   }
 };
 
+
+
+export const getConsumerProductSettings = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid consumer ID format'
+      });
+    }
+    const consumerPromise = supabase
+      .from('user_product_access')
+      .select('product_settings')
+      .eq('user_id', id)
+      .maybeSingle();
+    const { data: productAccess, error: productAccessError } = await executeWithTimeout(consumerPromise, 5000);
+
+    if (productAccessError) {
+      return handleApiError(productAccessError, res, 'An error occurred while fetching the consumer product settings.');
+    }
+    return res.json({
+      success: true,
+      data: productAccess?.product_settings || {}
+    });
+  } catch (error) {
+    return handleApiError(error, res, 'An error occurred while fetching the consumer product settings.');
+  }
+};

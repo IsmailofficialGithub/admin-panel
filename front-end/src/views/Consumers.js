@@ -258,6 +258,7 @@ const Consumers = () => {
           email: consumer.email,
           phone: consumer.phone,
           country: consumer.country,
+          productSettings: consumer.productSettings || {},
           city: consumer.city,
           trial_expiry: consumer.trial_expiry,
           trial_expiry_date: consumer.trial_expiry,
@@ -406,7 +407,19 @@ const Consumers = () => {
         return { error: errorMessage };
       }
       
-      // Add new consumer to the local state matching backend structure
+      // Refetch consumers to get the complete data including subscribed_products
+      try {
+        const updatedConsumers = await getConsumers({
+          account_status: accountStatusFilter,
+          search: searchQuery
+        });
+        
+        if (updatedConsumers && !updatedConsumers.error) {
+          setUsers(updatedConsumers || []);
+        }
+      } catch (fetchError) {
+        console.warn('⚠️ Failed to refetch consumers after creation, using local state update:', fetchError);
+        // Fallback: Add new consumer to local state (without subscribed_products)
       const newConsumer = {
         user_id: result.user.id,
         full_name: consumerData.full_name,
@@ -415,11 +428,12 @@ const Consumers = () => {
         trial_expiry: consumerData.trial_expiry_date || null,
         referred_by: null,
         role: 'consumer',
+          subscribed_products: consumerData.subscribed_products || [],
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
-      
       setUsers(prevUsers => [newConsumer, ...prevUsers]);
+      }
       
       toast.success(`Consumer "${consumerData.full_name || consumerData.email}" created successfully!`, { id: loadingToast });
       
@@ -462,6 +476,7 @@ const Consumers = () => {
         trial_expiry_date: updatedConsumer.trial_expiry_date,
         country: updatedConsumer.country,
         city: updatedConsumer.city,
+        productSettings: updatedConsumer.productSettings || {},
         subscribed_products: updatedConsumer.subscribed_products || [],
         subscribed_packages: updatedConsumer.subscribed_packages || [], // Use subscribed_packages instead of subscribed_products
         roles: updatedConsumer.roles || ['consumer'] // Include roles array
@@ -480,8 +495,8 @@ const Consumers = () => {
         
         if (updatedConsumerData.success && updatedConsumerData.data) {
           // Update the consumer in the local state with complete data from API
-          setUsers(prevUsers =>
-            prevUsers.map(user => {
+      setUsers(prevUsers =>
+        prevUsers.map(user => {
               if (user.user_id === updatedConsumer.user_id || user.user_id === consumerId) {
                 return {
                   ...user,
@@ -501,19 +516,19 @@ const Consumers = () => {
           setUsers(prevUsers =>
             prevUsers.map(user => {
               if (user.user_id === updatedConsumer.user_id || user.user_id === consumerId) {
-                return {
-                  ...user,
-                  full_name: updatedConsumer.full_name,
-                  phone: updatedConsumer.phone || null,
-                  trial_expiry: updatedConsumer.trial_expiry_date || null,
+            return {
+              ...user,
+              full_name: updatedConsumer.full_name,
+              phone: updatedConsumer.phone || null,
+              trial_expiry: updatedConsumer.trial_expiry_date || null,
                   subscribed_products: updatedConsumer.subscribed_products || [],
                   subscribed_packages: updatedConsumer.subscribed_packages || [],
-                  updated_at: new Date().toISOString()
-                };
-              }
-              return user;
-            })
-          );
+              updated_at: new Date().toISOString()
+            };
+          }
+          return user;
+        })
+      );
         }
       } catch (fetchError) {
         console.error('Error fetching updated consumer data:', fetchError);

@@ -19,16 +19,16 @@ let cachedToken = null;
 const getTokenFromStorage = () => {
   try {
     // Only log in development mode
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔍 Searching localStorage, total keys:', localStorage.length);
-    }
+    // if (process.env.NODE_ENV === 'development') {
+    //   console.log('🔍 Searching localStorage, total keys:', localStorage.length);
+    // }
     
     // Check all localStorage keys for Supabase auth data
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (process.env.NODE_ENV === 'development') {
-        console.log('🔑 LocalStorage key:', key);
-      }
+      // if (process.env.NODE_ENV === 'development') {
+      //   console.log('🔑 LocalStorage key:', key);
+      // }
       
       // Look for Supabase auth keys (various formats)
       if (key && (key.includes('supabase') || key.includes('auth') || key.includes('sb-'))) {
@@ -36,9 +36,9 @@ const getTokenFromStorage = () => {
           const data = localStorage.getItem(key);
           if (data) {
             const parsed = JSON.parse(data);
-            if (process.env.NODE_ENV === 'development') {
-              console.log('📦 Parsed data from key:', key, parsed);
-            }
+            // if (process.env.NODE_ENV === 'development') {
+            //   console.log('📦 Parsed data from key:', key, parsed);
+            // }
             
             // Try different token paths in Supabase storage structure
             const token = parsed?.access_token || 
@@ -47,9 +47,9 @@ const getTokenFromStorage = () => {
                          parsed?.session?.access_token;
             
             if (token) {
-              if (process.env.NODE_ENV === 'development') {
-                console.log('✅ Found token in key:', key);
-              }
+              // if (process.env.NODE_ENV === 'development') {
+              //   console.log('✅ Found token in key:', key);
+              // }
               return token;
             }
           }
@@ -61,9 +61,9 @@ const getTokenFromStorage = () => {
         }
       }
     }
-    if (process.env.NODE_ENV === 'development') {
-      console.log('❌ No token found in localStorage');
-    }
+    // if (process.env.NODE_ENV === 'development') {
+    //   console.log('❌ No token found in localStorage');
+    // }
   } catch (error) {
     // Always log errors
     console.warn('⚠️ Error reading token from localStorage:', error);
@@ -73,9 +73,9 @@ const getTokenFromStorage = () => {
 
 // Initialize token from localStorage FIRST (synchronous)
 cachedToken = getTokenFromStorage();
-if (process.env.NODE_ENV === 'development') {
-  console.log('🔐 apiClient: Token from localStorage:', cachedToken ? 'Token found' : 'No token');
-}
+// if (process.env.NODE_ENV === 'development') {
+//   console.log('🔐 apiClient: Token from localStorage:', cachedToken ? 'Token found' : 'No token');
+// }
 
 /**
  * Then update with fresh session and listen for auth changes
@@ -85,9 +85,9 @@ const initializeAuth = async () => {
     // Get fresh session from Supabase
     const { data: { session } } = await supabase.auth.getSession();
     cachedToken = session?.access_token || null;
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔐 apiClient: Token updated from session:', cachedToken ? 'Token present' : 'No token');
-    }
+    // if (process.env.NODE_ENV === 'development') {
+    //   console.log('🔐 apiClient: Token updated from session:', cachedToken ? 'Token present' : 'No token');
+    // }
   } catch (error) {
     // Always log errors
     console.error('❌ apiClient: Error getting session:', error);
@@ -96,9 +96,9 @@ const initializeAuth = async () => {
   // Listen for auth state changes
   supabase.auth.onAuthStateChange((event, session) => {
     cachedToken = session?.access_token || null;
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔐 apiClient: Token updated on auth change:', event, cachedToken ? 'Token present' : 'No token');
-    }
+    // if (process.env.NODE_ENV === 'development') {
+    //   console.log('🔐 apiClient: Token updated on auth change:', event, cachedToken ? 'Token present' : 'No token');
+    // }
   });
 };
 
@@ -122,9 +122,9 @@ const axiosInstance = axios.create({
 axiosInstance.interceptors.request.use(
   async (config) => {
     // Only log in development mode
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔄 API Request:', config.method.toUpperCase(), config.url);
-    }
+    // if (process.env.NODE_ENV === 'development') {
+    //   console.log('🔄 API Request:', config.method.toUpperCase(), config.url);
+    // }
     
     // For FormData, let the browser set Content-Type with boundary
     // Don't set Content-Type header for FormData
@@ -138,14 +138,14 @@ axiosInstance.interceptors.request.use(
       if (session?.access_token) {
         cachedToken = session.access_token;
         config.headers.Authorization = `Bearer ${cachedToken}`;
-        if (process.env.NODE_ENV === 'development') {
-          console.log('✅ Auth token added from session');
-        }
+        // if (process.env.NODE_ENV === 'development') {
+        //   console.log('✅ Auth token added from session');
+        // }
       } else if (cachedToken) {
         config.headers.Authorization = `Bearer ${cachedToken}`;
-        if (process.env.NODE_ENV === 'development') {
-          console.log('✅ Auth token added from cache');
-        }
+        // if (process.env.NODE_ENV === 'development') {
+        //   console.log('✅ Auth token added from cache');
+        // }
       } else {
         if (process.env.NODE_ENV === 'development') {
           console.warn('⚠️ No cached token available');
@@ -174,9 +174,9 @@ axiosInstance.interceptors.request.use(
 axiosInstance.interceptors.response.use(
   (response) => {
     // Only log in development mode
-    if (process.env.NODE_ENV === 'development') {
-      console.log('✅ API Response:', response.config.url, response.data);
-    }
+    // if (process.env.NODE_ENV === 'development') {
+    //   console.log('✅ API Response:', response.config.url, response.data);
+    // }
     return response.data;
   },
   async (error) => {
@@ -556,6 +556,15 @@ const apiClient = {
      * Delete product
      */
     delete: (id) => axiosInstance.delete(`/products/${id}`),
+  },
+
+  // ==================== PACKAGES ====================
+  // ==================== VAPI ====================
+  vapi: {
+    /**
+     * Get all VAPI accounts
+     */
+    getAllAccounts: () => axiosInstance.get('/vapi/accounts'),
   },
 
   // ==================== PACKAGES ====================

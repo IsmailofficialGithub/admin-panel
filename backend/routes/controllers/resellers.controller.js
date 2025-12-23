@@ -394,7 +394,8 @@ export const createReseller = async (req, res) => {
     // ========================================
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
-    let { email, password, full_name, phone, country, city, roles, referred_by, subscribed_products, trial_expiry_date } = req.body;
+    let { email, password, full_name, phone, country, city, roles, referred_by, subscribed_products, trial_expiry_date, productSettings } = req.body;
+    console.log('=============================================')
 
     // Validate required fields
     if (!email || !password || !full_name || !country || !city) {
@@ -587,20 +588,65 @@ export const createReseller = async (req, res) => {
         const validProductIds = subscribed_products.filter(productId => isValidUUID(productId));
         
         if (validProductIds.length > 0) {
-          const productAccessRecords = validProductIds.map(productId => ({
-            user_id: newUser.user.id,
-            product_id: productId
-          }));
+          // Build product access records with product_settings included
+          const productAccessRecords = validProductIds.map(productId => {
+            const record = {
+              user_id: newUser.user.id,
+              product_id: productId
+            };
+            
+            // Add product_settings if available for this product
+            if (productSettings && typeof productSettings === 'object' && productSettings[productId]) {
+              const settings = productSettings[productId];
+              
+              // Validate and sanitize settings
+              const sanitizedSettings = {};
+              
+              if (settings.vapi_account !== undefined && settings.vapi_account !== null && settings.vapi_account !== '') {
+                sanitizedSettings.vapi_account = parseInt(settings.vapi_account);
+              }
+              if (settings.agent_number !== undefined && settings.agent_number !== null && settings.agent_number !== '') {
+                sanitizedSettings.agent_number = parseInt(settings.agent_number);
+              }
+              if (settings.duration_limit !== undefined && settings.duration_limit !== null && settings.duration_limit !== '') {
+                sanitizedSettings.duration_limit = parseInt(settings.duration_limit);
+              }
+              if (settings.list_limit !== undefined && settings.list_limit !== null && settings.list_limit !== '') {
+                sanitizedSettings.list_limit = parseInt(settings.list_limit);
+              }
+              if (settings.concurrency_limit !== undefined && settings.concurrency_limit !== null && settings.concurrency_limit !== '') {
+                sanitizedSettings.concurrency_limit = parseInt(settings.concurrency_limit);
+              }
+              
+              // Only add product_settings if there are valid settings
+              if (Object.keys(sanitizedSettings).length > 0) {
+                record.product_settings = sanitizedSettings;
+              }
+            }
+            
+            return record;
+          });
 
           const productAccessPromise = supabaseAdmin
             .from('user_product_access')
-            .insert(productAccessRecords);
+            .insert(productAccessRecords)
+            .select('id, product_id, product_settings');
 
           const timeoutPromise = new Promise((_, reject) => 
             setTimeout(() => reject(new Error('Product access insert timeout')), 5000)
           );
 
-          await Promise.race([productAccessPromise, timeoutPromise]);
+          const { data: insertedProductAccess, error: productAccessError } = await Promise.race([productAccessPromise, timeoutPromise]);
+          
+          if (productAccessError) {
+            console.error('❌ Error inserting product access:', productAccessError);
+            throw productAccessError;
+          }
+          
+          console.log('✅ Product access records inserted:', insertedProductAccess?.length || 0);
+          if (productSettings && Object.keys(productSettings).length > 0) {
+            console.log('✅ Product settings included in insert');
+          }
         } else {
           console.warn('⚠️ No valid product IDs provided in subscribed_products');
         }
@@ -635,6 +681,10 @@ export const createReseller = async (req, res) => {
       ipAddress: getClientIp(req),
       userAgent: getUserAgent(req)
     });
+
+    // Invalidate cache for consumers list
+    await cacheService.delByPattern('consumers:*');
+    console.log('✅ Cache invalidated for consumers list after creation');
 
     res.status(201).json({
       success: true,
@@ -1155,7 +1205,8 @@ export const createMyConsumer = async (req, res) => {
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
     const resellerId = req.user.id;
-    let { email, password, full_name, phone, trial_expiry_date, country, city, subscribed_products, subscribed_packages, roles } = req.body;
+    let { email, password, full_name, phone, trial_expiry_date, country, city, subscribed_products, subscribed_packages, roles, productSettings } = req.body;
+    console.log('req.body', email,password,full_name,phone,trial_expiry_date,country,city,subscribed_products,subscribed_packages,roles,productSettings);
 
     // Validate required fields
     if (!email || !password || !full_name) {
@@ -1379,6 +1430,71 @@ export const createMyConsumer = async (req, res) => {
     }
 
     // ========================================
+    // 5b. STORE PRODUCT ACCESS AND SETTINGS (with timeout, non-blocking)
+    // ========================================
+    // Handle subscribed_products separately from packages
+    if (userRoles.includes('consumer') && subscribed_products && Array.isArray(subscribed_products) && subscribed_products.length > 0) {
+      const validProductIds = subscribed_products.filter(productId => isValidUUID(productId));
+      
+      if (validProductIds.length > 0) {
+        // Build product access records with product_settings included
+        const productAccessRecordsWithSettings = validProductIds.map(productId => {
+          const record = {
+            user_id: newUser.user.id,
+            product_id: productId
+          };
+          
+          // Add product_settings if available for this product
+          if (productSettings && typeof productSettings === 'object' && productSettings[productId]) {
+            const settings = productSettings[productId];
+            
+            // Validate and sanitize settings
+            const sanitizedSettings = {};
+            
+            if (settings.vapi_account !== undefined && settings.vapi_account !== null && settings.vapi_account !== '') {
+              sanitizedSettings.vapi_account = parseInt(settings.vapi_account);
+            }
+            if (settings.agent_number !== undefined && settings.agent_number !== null && settings.agent_number !== '') {
+              sanitizedSettings.agent_number = parseInt(settings.agent_number);
+            }
+            if (settings.duration_limit !== undefined && settings.duration_limit !== null && settings.duration_limit !== '') {
+              sanitizedSettings.duration_limit = parseInt(settings.duration_limit);
+            }
+            if (settings.list_limit !== undefined && settings.list_limit !== null && settings.list_limit !== '') {
+              sanitizedSettings.list_limit = parseInt(settings.list_limit);
+            }
+            if (settings.concurrency_limit !== undefined && settings.concurrency_limit !== null && settings.concurrency_limit !== '') {
+              sanitizedSettings.concurrency_limit = parseInt(settings.concurrency_limit);
+            }
+            
+            // Only add product_settings if there are valid settings
+            if (Object.keys(sanitizedSettings).length > 0) {
+              record.product_settings = sanitizedSettings;
+            }
+          }
+          
+          return record;
+        });
+
+        const productAccessPromise = supabaseAdmin
+          .from('user_product_access')
+          .insert(productAccessRecordsWithSettings)
+          .select('id, product_id, product_settings');
+
+        const { data: insertedProductAccess, error: productAccessError } = await executeWithTimeout(productAccessPromise, 3000);
+
+        if (productAccessError) {
+          console.warn('⚠️ Failed to store product access:', productAccessError?.message);
+        } else {
+          console.log(`✅ Stored ${insertedProductAccess.length} product access records`);
+          if (productSettings && Object.keys(productSettings).length > 0) {
+            console.log('✅ Product settings included in insert');
+          }
+        }
+      }
+    }
+
+    // ========================================
     // 6. SEND WELCOME EMAIL (non-blocking)
     // ========================================
     sendWelcomeEmail({
@@ -1408,7 +1524,14 @@ export const createMyConsumer = async (req, res) => {
     });
 
     // ========================================
-    // 8. DATA SANITIZATION
+    // 8. INVALIDATE CACHE
+    // ========================================
+    // Invalidate cache for consumers list
+    await cacheService.delByPattern('consumers:*');
+    console.log('✅ Cache invalidated for consumers list after creation');
+
+    // ========================================
+    // 9. DATA SANITIZATION
     // ========================================
     const sanitizedUser = sanitizeObject({
       id: newUser.user.id,
@@ -1880,8 +2003,8 @@ export const createConsumerAdmin = async (req, res) => {
     // ========================================
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
-    let { email, password, full_name, phone, trial_expiry_date, country, city, referred_by, subscribed_products, subscribed_packages } = req.body;
-
+    let { email, password, full_name, phone, trial_expiry_date, country, city, referred_by, subscribed_products, subscribed_packages ,productSettings} = req.body;
+    
     // Validate required fields
     if (!email || !password || !full_name) {
       return res.status(400).json({
@@ -1954,7 +2077,6 @@ export const createConsumerAdmin = async (req, res) => {
       const { data: reseller, error: resellerError } = await executeWithTimeout(resellerPromise);
 
       if (resellerError || !reseller) {
-        console.error('❌ Error fetching reseller:', resellerError);
         return res.status(400).json({
           success: false,
           error: 'Bad Request',
@@ -1981,7 +2103,6 @@ export const createConsumerAdmin = async (req, res) => {
         const { count: currentConsumerCount, error: countError } = await executeWithTimeout(countPromise);
 
         if (countError) {
-          console.error('❌ Error counting consumers:', countError);
         } else if (currentConsumerCount >= resellerSettings.maxConsumersPerReseller) {
           return res.status(403).json({
             success: false,
@@ -2098,6 +2219,71 @@ export const createConsumerAdmin = async (req, res) => {
         executeWithTimeout(packageAccessPromise, 3000).catch(packageAccessError => {
           console.warn('⚠️ Failed to store package access:', packageAccessError?.message);
         });
+      }
+    }
+
+    // ========================================
+    // 6b. STORE PRODUCT ACCESS AND SETTINGS (with timeout, non-blocking)
+    // ========================================
+    // Handle subscribed_products separately from packages
+    if (subscribed_products && Array.isArray(subscribed_products) && subscribed_products.length > 0) {
+      const validProductIds = subscribed_products.filter(productId => isValidUUID(productId));
+      
+      if (validProductIds.length > 0) {
+        // Build product access records with product_settings included
+        const productAccessRecordsWithSettings = validProductIds.map(productId => {
+          const record = {
+            user_id: newUser.user.id,
+            product_id: productId
+          };
+          
+          // Add product_settings if available for this product
+          if (productSettings && typeof productSettings === 'object' && productSettings[productId]) {
+            const settings = productSettings[productId];
+            
+            // Validate and sanitize settings
+            const sanitizedSettings = {};
+            
+            if (settings.vapi_account !== undefined && settings.vapi_account !== null && settings.vapi_account !== '') {
+              sanitizedSettings.vapi_account = parseInt(settings.vapi_account);
+            }
+            if (settings.agent_number !== undefined && settings.agent_number !== null && settings.agent_number !== '') {
+              sanitizedSettings.agent_number = parseInt(settings.agent_number);
+            }
+            if (settings.duration_limit !== undefined && settings.duration_limit !== null && settings.duration_limit !== '') {
+              sanitizedSettings.duration_limit = parseInt(settings.duration_limit);
+            }
+            if (settings.list_limit !== undefined && settings.list_limit !== null && settings.list_limit !== '') {
+              sanitizedSettings.list_limit = parseInt(settings.list_limit);
+            }
+            if (settings.concurrency_limit !== undefined && settings.concurrency_limit !== null && settings.concurrency_limit !== '') {
+              sanitizedSettings.concurrency_limit = parseInt(settings.concurrency_limit);
+            }
+            
+            // Only add product_settings if there are valid settings
+            if (Object.keys(sanitizedSettings).length > 0) {
+              record.product_settings = sanitizedSettings;
+            }
+          }
+          
+          return record;
+        });
+
+        const productAccessPromise = supabaseAdmin
+          .from('user_product_access')
+          .insert(productAccessRecordsWithSettings)
+          .select('id, product_id, product_settings');
+
+        const { data: insertedProductAccess, error: productAccessError } = await executeWithTimeout(productAccessPromise, 3000);
+
+        if (productAccessError) {
+          console.warn('⚠️ Failed to store product access:', productAccessError?.message);
+        } else {
+          console.log(`✅ Stored ${insertedProductAccess.length} product access records`);
+          if (productSettings && Object.keys(productSettings).length > 0) {
+            console.log('✅ Product settings included in insert');
+          }
+        }
       }
     }
 
