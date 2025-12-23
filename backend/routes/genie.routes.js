@@ -27,6 +27,8 @@ import {
   // Supporting
   getAllBots,
   getAllContactLists,
+  getVapiAccounts,
+  updateBotsVapiAccount,
   // Middleware
   rateLimitMiddleware,
   sanitizeInputMiddleware
@@ -355,6 +357,36 @@ router.get(
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   getAllContactLists
+);
+
+/**
+ * @route   GET /api/genie/vapi-accounts
+ * @desc    Get all Vapi accounts
+ * @access  Private (genie.view)
+ */
+router.get(
+  '/vapi-accounts',
+  authenticate,
+  loadUserProfile,
+  requirePermission('genie.view'),
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
+  getVapiAccounts
+);
+
+/**
+ * @route   PATCH /api/genie/bots/assign-vapi-account
+ * @desc    Update vapi_account_assigned for all bots owned by a user
+ * @access  Private (genie.view)
+ */
+router.patch(
+  '/bots/assign-vapi-account',
+  authenticate,
+  loadUserProfile,
+  requirePermission('genie.view'),
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
+  updateBotsVapiAccount
 );
 
 export default router;

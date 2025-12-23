@@ -135,6 +135,8 @@ export const updateConsumer = async (consumerId, updateData) => {
     if (updateData.city !== undefined) cleanedData.city = updateData.city;
     if (updateData.phone !== undefined) cleanedData.phone = updateData.phone;
     if (updateData.trial_expiry_date !== undefined) cleanedData.trial_expiry_date = updateData.trial_expiry_date;
+    // Support both subscribed_packages (new) and subscribed_products (backward compatibility)
+    if (updateData.subscribed_packages !== undefined) cleanedData.subscribed_packages = updateData.subscribed_packages;
     if (updateData.subscribed_products !== undefined) cleanedData.subscribed_products = updateData.subscribed_products;
     // Support both roles array and single role (backward compatibility)
     if (updateData.roles !== undefined) {

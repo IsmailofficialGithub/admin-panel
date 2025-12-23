@@ -74,7 +74,6 @@ export const getAllResellers = async (req, res) => {
     const { pageNum, limitNum } = validatePagination(page, limit);
     const offset = (pageNum - 1) * limitNum;
 
-    console.log('🔍 Searching resellers with:', { search: searchTerm, page: pageNum, limit: limitNum });
 
     // ========================================
     // 2. CACHE CHECK
@@ -99,7 +98,6 @@ export const getAllResellers = async (req, res) => {
     // Apply search filter if provided
     if (searchTerm) {
       query = query.or(`full_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
-      console.log('✅ Searching for:', searchTerm);
     }
 
     // Order and paginate
@@ -121,7 +119,6 @@ export const getAllResellers = async (req, res) => {
       });
     }
 
-    console.log(`✅ Found ${resellers?.length || 0} resellers`);
 
     // ========================================
     // 5. FETCH COMMISSION DATA (with timeout)
@@ -187,7 +184,6 @@ export const getAllResellers = async (req, res) => {
         });
       })
     );
-    console.log("resellerWithCounts", resellerWithCounts);
 
     // ========================================
     // 7. DATA SANITIZATION (Security)
@@ -547,20 +543,17 @@ export const createReseller = async (req, res) => {
         const trialDate = new Date(trial_expiry_date);
         if (!isNaN(trialDate.getTime()) && trialDate >= new Date()) {
           profileData.trial_expiry = trialDate.toISOString();
-          console.log('✅ Using provided trial expiry date:', profileData.trial_expiry);
         } else {
           // Invalid date, use default
           const trialExpiry = new Date();
           trialExpiry.setDate(trialExpiry.getDate() + 3);
           profileData.trial_expiry = trialExpiry.toISOString();
-          console.log('⚠️ Invalid trial_expiry_date provided, using default 3-day trial:', profileData.trial_expiry);
         }
       } else {
         // No date provided, use default 3 days
         const trialExpiry = new Date();
         trialExpiry.setDate(trialExpiry.getDate() + 3);
         profileData.trial_expiry = trialExpiry.toISOString();
-        console.log('✅ Setting default 3-day trial for consumer:', profileData.trial_expiry);
       }
       // If consumer is included, set account_status to active (override pending for resellers)
       profileData.account_status = 'active';
@@ -608,7 +601,6 @@ export const createReseller = async (req, res) => {
           );
 
           await Promise.race([productAccessPromise, timeoutPromise]);
-          console.log(`✅ Stored ${validProductIds.length} product access record(s) for consumer`);
         } else {
           console.warn('⚠️ No valid product IDs provided in subscribed_products');
         }
@@ -741,10 +733,7 @@ export const updateReseller = async (req, res) => {
       
       // Remove duplicates and set as array
       updateData.role = [...new Set(userRoles)];
-      console.log('✅ Roles processed and set in updateData:', updateData.role);
-    } else {
-      console.log('ℹ️ No roles provided in update request, keeping existing roles');
-    }
+      }
 
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({

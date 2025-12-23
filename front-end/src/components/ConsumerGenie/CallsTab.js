@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { PhoneCall, Download, ChevronLeft, ChevronRight, Eye, MoreVertical } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { PhoneCall, Download, ChevronLeft, ChevronRight, Eye, MoreVertical, Filter, X, ChevronDown, Search, Clock, Calendar, Bot } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import apiClient from '../../services/apiClient';
 import CallDetailModal from './CallDetailModal';
 
 function CallsTab({ consumerId }) {
   const [calls, setCalls] = useState([]);
+  const [allCalls, setAllCalls] = useState([]); // Store all calls for frontend filtering
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -14,11 +15,76 @@ function CallsTab({ consumerId }) {
   const [selectedCallId, setSelectedCallId] = useState(null);
   const [showCallModal, setShowCallModal] = useState(false);
   const [openDropdown, setOpenDropdown] = useState(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [bots, setBots] = useState([]);
+  const [loadingBots, setLoadingBots] = useState(false);
+  
+  // Filter states
+  const [filters, setFilters] = useState({
+    botId: '',
+    status: '',
+    startDate: '',
+    endDate: '',
+    search: '',
+    minDuration: '',
+    maxDuration: ''
+  });
+  
   const limit = 10;
+  const filterDropdownRef = useRef(null);
+
+  useEffect(() => {
+    fetchBots();
+  }, [consumerId]);
+
+  const applyFrontendFilters = () => {
+    if (!allCalls || allCalls.length === 0) {
+      setCalls([]);
+      setTotalCount(0);
+      setTotalPages(1);
+      return;
+    }
+
+    let filtered = [...allCalls];
+    
+    // Filter by duration (frontend only)
+    if (filters.minDuration) {
+      const minSeconds = parseFloat(filters.minDuration) * 60;
+      filtered = filtered.filter(call => {
+        const callSeconds = (call.duration || 0) * 60;
+        return callSeconds >= minSeconds;
+      });
+    }
+    
+    if (filters.maxDuration) {
+      const maxSeconds = parseFloat(filters.maxDuration) * 60;
+      filtered = filtered.filter(call => {
+        const callSeconds = (call.duration || 0) * 60;
+        return callSeconds <= maxSeconds;
+      });
+    }
+    
+    // Update pagination based on filtered results
+    const filteredTotal = filtered.length;
+    const filteredPages = Math.ceil(filteredTotal / limit) || 1;
+    const startIndex = (currentPage - 1) * limit;
+    const paginatedCalls = filtered.slice(startIndex, startIndex + limit);
+    
+    setCalls(paginatedCalls);
+    setTotalCount(filteredTotal);
+    setTotalPages(filteredPages);
+  };
 
   useEffect(() => {
     fetchCalls();
-  }, [consumerId, currentPage]);
+  }, [consumerId, currentPage, filters.botId, filters.status, filters.startDate, filters.endDate, filters.search]);
+
+  useEffect(() => {
+    // Apply frontend filters (duration) to allCalls
+    if (filters.minDuration || filters.maxDuration) {
+      applyFrontendFilters();
+    }
+  }, [allCalls, filters.minDuration, filters.maxDuration, currentPage]);
 
   useEffect(() => {
     // Close dropdown when clicking outside
@@ -26,24 +92,56 @@ function CallsTab({ consumerId }) {
       if (!event.target.closest('.dropdown-container')) {
         setOpenDropdown(null);
       }
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(event.target)) {
+        // Keep filter panel open on outside click - user might want to keep it open
+      }
     };
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
+  const fetchBots = async () => {
+    setLoadingBots(true);
+    try {
+      const response = await apiClient.genie.getAllBots({ ownerUserId: consumerId });
+      if (response?.success) {
+        setBots(response.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching bots:', error);
+    } finally {
+      setLoadingBots(false);
+    }
+  };
+
   const fetchCalls = async () => {
     setLoading(true);
     try {
-      console.log('📞 Fetching calls for consumer:', consumerId);
-      const response = await apiClient.genie.getAllCallsByOwnerId(consumerId, {
+      console.log('📞 Fetching calls for consumer:', consumerId, 'with filters:', filters);
+      const params = {
         page: currentPage,
-        limit
-      });
+        limit: (filters.minDuration || filters.maxDuration) ? 10000 : limit // Get all for frontend filtering if duration filters exist
+      };
+      
+      if (filters.botId) params.botId = filters.botId;
+      if (filters.status) params.status = filters.status;
+      if (filters.startDate) params.startDate = filters.startDate;
+      if (filters.endDate) params.endDate = filters.endDate;
+      if (filters.search) params.search = filters.search;
+      
+      const response = await apiClient.genie.getAllCallsByOwnerId(consumerId, params);
       console.log('📞 Calls response:', response);
       if (response?.data) {
-        setCalls(response.data || []);
-        setTotalCount(response.total || 0);
-        setTotalPages(response.totalPages || 1);
+        setAllCalls(response.data || []);
+        // If no duration filters, use backend pagination
+        if (!filters.minDuration && !filters.maxDuration) {
+          setCalls(response.data || []);
+          setTotalCount(response.total || 0);
+          setTotalPages(response.totalPages || 1);
+        } else {
+          // Frontend filtering will handle pagination
+          applyFrontendFilters();
+        }
         console.log(`📞 Loaded ${response.data.length} calls for consumer ${consumerId}`);
       } else {
         toast.error('Failed to fetch calls');
@@ -56,6 +154,28 @@ function CallsTab({ consumerId }) {
     }
   };
 
+  const handleFilterChange = (key, value) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+    setCurrentPage(1); // Reset to first page when filter changes
+  };
+
+  const clearFilters = () => {
+    setFilters({
+      botId: '',
+      status: '',
+      startDate: '',
+      endDate: '',
+      search: '',
+      minDuration: '',
+      maxDuration: ''
+    });
+    setCurrentPage(1);
+  };
+
+  const hasActiveFilters = () => {
+    return Object.values(filters).some(value => value !== '');
+  };
+
   const handleViewDetails = (callId) => {
     setSelectedCallId(callId);
     setShowCallModal(true);
@@ -65,20 +185,50 @@ function CallsTab({ consumerId }) {
   const handleDownloadCalls = async () => {
     setDownloading(true);
     try {
-      // Fetch all calls for export
-      const response = await apiClient.genie.getAllCallsByOwnerId(consumerId, {
+      // Fetch all calls for export with current filters
+      const params = {
         page: 1,
         limit: 10000 // Get all calls
-      });
+      };
+      
+      if (filters.botId) params.botId = filters.botId;
+      if (filters.status) params.status = filters.status;
+      if (filters.startDate) params.startDate = filters.startDate;
+      if (filters.endDate) params.endDate = filters.endDate;
+      if (filters.search) params.search = filters.search;
+
+      const response = await apiClient.genie.getAllCallsByOwnerId(consumerId, params);
 
       if (!response?.data || response.data.length === 0) {
         toast.error('No calls to export');
         return;
       }
 
+      // Apply frontend duration filters if any
+      let exportCalls = response.data;
+      if (filters.minDuration) {
+        const minSeconds = parseFloat(filters.minDuration) * 60;
+        exportCalls = exportCalls.filter(call => {
+          const callSeconds = (call.duration || 0) * 60;
+          return callSeconds >= minSeconds;
+        });
+      }
+      if (filters.maxDuration) {
+        const maxSeconds = parseFloat(filters.maxDuration) * 60;
+        exportCalls = exportCalls.filter(call => {
+          const callSeconds = (call.duration || 0) * 60;
+          return callSeconds <= maxSeconds;
+        });
+      }
+
+      if (exportCalls.length === 0) {
+        toast.error('No calls match the current filters');
+        return;
+      }
+
       // Create CSV content
       const headers = ['Name', 'Phone', 'Call Status', 'Duration', 'Started At', 'Bot Name'];
-      const rows = response.data.map(call => [
+      const rows = exportCalls.map(call => [
         call.name || '',
         call.phone || '',
         call.call_status || '',
@@ -104,7 +254,7 @@ function CallsTab({ consumerId }) {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      toast.success('Calls exported successfully');
+      toast.success(`Exported ${exportCalls.length} call(s) successfully`);
     } catch (error) {
       console.error('Error exporting calls:', error);
       toast.error('Failed to export calls');
@@ -178,7 +328,7 @@ function CallsTab({ consumerId }) {
 
   return (
     <div style={{ width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
-      {/* Header with Download Button */}
+      {/* Header with Download Button and Filter Toggle */}
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -192,28 +342,335 @@ function CallsTab({ consumerId }) {
             Call Logs ({totalCount})
           </h4>
         </div>
-        <button
-          onClick={handleDownloadCalls}
-          disabled={downloading || totalCount === 0}
-          style={{
-            padding: '10px 20px',
-            backgroundColor: downloading || totalCount === 0 ? '#ccc' : '#74317e',
-            color: 'white',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: downloading || totalCount === 0 ? 'not-allowed' : 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            fontSize: '14px',
-            fontWeight: '500',
-            whiteSpace: 'nowrap'
-          }}
-        >
-          <Download size={18} />
-          {downloading ? 'Exporting...' : 'Download CSV'}
-        </button>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: showFilters ? '#74317e' : 'white',
+              color: showFilters ? 'white' : '#74317e',
+              border: '1px solid #74317e',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontSize: '14px',
+              fontWeight: '500',
+              whiteSpace: 'nowrap',
+              position: 'relative'
+            }}
+          >
+            <Filter size={18} />
+            Filters
+            {hasActiveFilters() && (
+              <span style={{
+                position: 'absolute',
+                top: '-6px',
+                right: '-6px',
+                width: '18px',
+                height: '18px',
+                borderRadius: '50%',
+                backgroundColor: '#ef4444',
+                color: 'white',
+                fontSize: '10px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: '600'
+              }}>
+                {Object.values(filters).filter(v => v !== '').length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={handleDownloadCalls}
+            disabled={downloading || totalCount === 0}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: downloading || totalCount === 0 ? '#ccc' : '#74317e',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: downloading || totalCount === 0 ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontSize: '14px',
+              fontWeight: '500',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            <Download size={18} />
+            {downloading ? 'Exporting...' : 'Download CSV'}
+          </button>
+        </div>
       </div>
+
+      {/* Filters Panel */}
+      {showFilters && (
+        <div ref={filterDropdownRef} style={{
+          backgroundColor: '#f8f9fa',
+          borderRadius: '12px',
+          padding: '20px',
+          marginBottom: '24px',
+          border: '1px solid #e9ecef'
+        }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: '16px',
+            marginBottom: '16px'
+          }}>
+            {/* Bot Filter */}
+            <div>
+              <label style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#495057'
+              }}>
+                <Bot size={14} style={{ display: 'inline', marginRight: '6px', verticalAlign: 'middle' }} />
+                Bot
+              </label>
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={filters.botId}
+                  onChange={(e) => handleFilterChange('botId', e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    border: '1px solid #dee2e6',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    backgroundColor: 'white',
+                    color: '#495057',
+                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="">All Bots</option>
+                  {bots.map(bot => (
+                    <option key={bot.id} value={bot.id}>{bot.name || 'Unnamed Bot'}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Status Filter */}
+            <div>
+              <label style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#495057'
+              }}>
+                Status
+              </label>
+              <select
+                value={filters.status}
+                onChange={(e) => handleFilterChange('status', e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #dee2e6',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  backgroundColor: 'white',
+                  color: '#495057',
+                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+              </select>
+            </div>
+
+            {/* Start Date */}
+            <div>
+              <label style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#495057'
+              }}>
+                <Calendar size={14} style={{ display: 'inline', marginRight: '6px', verticalAlign: 'middle' }} />
+                Start Date
+              </label>
+              <input
+                type="datetime-local"
+                value={filters.startDate}
+                onChange={(e) => handleFilterChange('startDate', e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #dee2e6',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  backgroundColor: 'white',
+                  color: '#495057',
+                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+                }}
+              />
+            </div>
+
+            {/* End Date */}
+            <div>
+              <label style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#495057'
+              }}>
+                <Calendar size={14} style={{ display: 'inline', marginRight: '6px', verticalAlign: 'middle' }} />
+                End Date
+              </label>
+              <input
+                type="datetime-local"
+                value={filters.endDate}
+                onChange={(e) => handleFilterChange('endDate', e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #dee2e6',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  backgroundColor: 'white',
+                  color: '#495057',
+                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+                }}
+              />
+            </div>
+
+            {/* Min Duration */}
+            <div>
+              <label style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#495057'
+              }}>
+                <Clock size={14} style={{ display: 'inline', marginRight: '6px', verticalAlign: 'middle' }} />
+                Min Duration (minutes)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={filters.minDuration}
+                onChange={(e) => handleFilterChange('minDuration', e.target.value)}
+                placeholder="0"
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #dee2e6',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  backgroundColor: 'white',
+                  color: '#495057',
+                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+                }}
+              />
+            </div>
+
+            {/* Max Duration */}
+            <div>
+              <label style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#495057'
+              }}>
+                <Clock size={14} style={{ display: 'inline', marginRight: '6px', verticalAlign: 'middle' }} />
+                Max Duration (minutes)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={filters.maxDuration}
+                onChange={(e) => handleFilterChange('maxDuration', e.target.value)}
+                placeholder="No limit"
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #dee2e6',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  backgroundColor: 'white',
+                  color: '#495057',
+                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+                }}
+              />
+            </div>
+
+            {/* Search */}
+            <div>
+              <label style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#495057'
+              }}>
+                <Search size={14} style={{ display: 'inline', marginRight: '6px', verticalAlign: 'middle' }} />
+                Search (Name/Phone)
+              </label>
+              <input
+                type="text"
+                value={filters.search}
+                onChange={(e) => handleFilterChange('search', e.target.value)}
+                placeholder="Search by name or phone..."
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #dee2e6',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  backgroundColor: 'white',
+                  color: '#495057',
+                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Clear Filters Button */}
+          {hasActiveFilters() && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                onClick={clearFilters}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: 'transparent',
+                  color: '#74317e',
+                  border: '1px solid #74317e',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '14px',
+                  fontWeight: '500'
+                }}
+              >
+                <X size={16} />
+                Clear All Filters
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Calls Table - Responsive */}
       {calls.length === 0 ? (

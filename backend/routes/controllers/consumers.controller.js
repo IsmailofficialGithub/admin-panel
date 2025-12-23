@@ -401,6 +401,7 @@ export const updateConsumer = async (req, res) => {
     }
     // Note: subscribed_packages is stored in profiles.subscribed_packages array
     // and also in user_package_access table (see below)
+    // subscribed_products is stored in user_product_access table (see below)
 
     if (Object.keys(updateData).length === 0 && subscribed_packages === undefined && subscribed_products === undefined) {
       return res.status(400).json({
@@ -515,27 +516,130 @@ export const updateConsumer = async (req, res) => {
       userAgent: getUserAgent(req)
     });
 
-    // Update package access - support both subscribed_packages (new) and subscribed_products (backward compatibility)
-    const packagesToStore = subscribed_packages !== undefined ? subscribed_packages : subscribed_products;
+    // Update product access - handle subscribed_products separately
+    if (subscribed_products !== undefined) {
+      try {
+        // Validate product IDs format
+        const validFormatProductIds = Array.isArray(subscribed_products) 
+          ? subscribed_products.filter(productId => isValidUUID(productId))
+          : [];
+
+        // Verify that all product IDs exist in the products table
+        let verifiedProductIds = [];
+        if (validFormatProductIds.length > 0) {
+          const { data: existingProducts, error: productsCheckError } = await executeWithTimeout(
+            supabase
+              .from('products')
+              .select('id')
+              .in('id', validFormatProductIds)
+          );
+
+          if (productsCheckError) {
+            console.error('Error checking product existence:', productsCheckError);
+          } else {
+            verifiedProductIds = (existingProducts || []).map(prod => prod.id);
+            const invalidProductIds = validFormatProductIds.filter(id => !verifiedProductIds.includes(id));
+            if (invalidProductIds.length > 0) {
+              console.warn(`⚠️ Skipping ${invalidProductIds.length} invalid product ID(s) that don't exist in products table:`, invalidProductIds);
+            }
+          }
+        }
+
+        // First, delete all existing product access for this user
+        const { error: deleteError } = await supabase
+          .from('user_product_access')
+          .delete()
+          .eq('user_id', id);
+
+        if (deleteError) {
+          console.error('Error deleting existing product access:', deleteError);
+        } else {
+          console.log('✅ Deleted existing product access records');
+        }
+
+        // Then insert new product access records if any verified products are provided
+        if (verifiedProductIds.length > 0) {
+          const productAccessRecords = verifiedProductIds.map(productId => ({
+            user_id: id,
+            product_id: productId
+          }));
+
+          const { error: insertError } = await supabase
+            .from('user_product_access')
+            .insert(productAccessRecords);
+
+          if (insertError) {
+            console.error('Error inserting product access:', insertError);
+            // Return error to user if product access fails
+            return res.status(400).json({
+              success: false,
+              error: 'Bad Request',
+              message: `Failed to update product access: ${insertError.message || 'One or more product IDs do not exist'}`
+            });
+          } else {
+            console.log(`✅ Stored ${productAccessRecords.length} product access records`);
+          }
+        } else if (Array.isArray(subscribed_products) && subscribed_products.length > 0 && verifiedProductIds.length === 0) {
+          // If products were provided but none were valid, warn the user
+          console.warn('⚠️ No valid products found to update');
+          return res.status(400).json({
+            success: false,
+            error: 'Bad Request',
+            message: 'None of the provided product IDs exist in the products table'
+          });
+        }
+      } catch (productAccessErr) {
+        console.error('Error updating product access:', productAccessErr);
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: `Failed to update product access: ${productAccessErr.message || 'Unknown error'}`
+        });
+      }
+    }
+
+    // Update package access - handle subscribed_packages (separate from products)
+    const packagesToStore = subscribed_packages;
     
     if (packagesToStore !== undefined) {
       try {
-        // Validate package IDs
-        const validPackageIds = Array.isArray(packagesToStore) 
+        // Validate package IDs format
+        const validFormatPackageIds = Array.isArray(packagesToStore) 
           ? packagesToStore.filter(packageId => isValidUUID(packageId))
           : [];
 
-        // Update profile with subscribed_packages array
-        if (validPackageIds.length > 0 || packagesToStore.length === 0) {
+        // Verify that all package IDs exist in the packages table
+        let verifiedPackageIds = [];
+        if (validFormatPackageIds.length > 0) {
+          const { data: existingPackages, error: packagesCheckError } = await executeWithTimeout(
+            supabase
+              .from('packages')
+              .select('id')
+              .in('id', validFormatPackageIds)
+          );
+
+          if (packagesCheckError) {
+            console.error('Error checking package existence:', packagesCheckError);
+          } else {
+            verifiedPackageIds = (existingPackages || []).map(pkg => pkg.id);
+            const invalidPackageIds = validFormatPackageIds.filter(id => !verifiedPackageIds.includes(id));
+            if (invalidPackageIds.length > 0) {
+              console.warn(`⚠️ Skipping ${invalidPackageIds.length} invalid package ID(s) that don't exist in packages table:`, invalidPackageIds);
+            }
+          }
+        }
+
+        // Update profile with subscribed_packages array (use verified package IDs)
+        if (verifiedPackageIds.length > 0 || (Array.isArray(packagesToStore) && packagesToStore.length === 0)) {
           const { error: profileUpdateError } = await supabase
             .from('profiles')
-            .update({ subscribed_packages: validPackageIds })
+            .update({ subscribed_packages: verifiedPackageIds })
             .eq('user_id', id);
 
           if (profileUpdateError) {
             console.error('Error updating profile with packages:', profileUpdateError);
           } else {
-            console.log(`✅ Updated profile with ${validPackageIds.length} packages`);
+            console.log(`✅ Updated profile with ${verifiedPackageIds.length} packages`);
           }
         }
 
@@ -551,9 +655,9 @@ export const updateConsumer = async (req, res) => {
           console.log('✅ Deleted existing package access records');
         }
 
-        // Then insert new package access records if any packages are provided
-        if (validPackageIds.length > 0) {
-          const packageAccessRecords = validPackageIds.map(packageId => ({
+        // Then insert new package access records if any verified packages are provided
+        if (verifiedPackageIds.length > 0) {
+          const packageAccessRecords = verifiedPackageIds.map(packageId => ({
             user_id: id,
             package_id: packageId
           }));
@@ -564,14 +668,31 @@ export const updateConsumer = async (req, res) => {
 
           if (insertError) {
             console.error('Error inserting package access:', insertError);
-            // Don't fail the request, just log the error
+            // Return error to user if package access fails
+            return res.status(400).json({
+              success: false,
+              error: 'Bad Request',
+              message: `Failed to update package access: ${insertError.message || 'One or more package IDs do not exist'}`
+            });
           } else {
             console.log(`✅ Stored ${packageAccessRecords.length} package access records`);
           }
+        } else if (Array.isArray(packagesToStore) && packagesToStore.length > 0 && verifiedPackageIds.length === 0) {
+          // If packages were provided but none were valid, warn the user
+          console.warn('⚠️ No valid packages found to update');
+          return res.status(400).json({
+            success: false,
+            error: 'Bad Request',
+            message: 'None of the provided package IDs exist in the packages table'
+          });
         }
       } catch (packageAccessErr) {
         console.error('Error updating package access:', packageAccessErr);
-        // Don't fail the request if package access update fails
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: `Failed to update package access: ${packageAccessErr.message || 'Unknown error'}`
+        });
       }
     }
 

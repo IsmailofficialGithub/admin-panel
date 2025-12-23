@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Phone, Calendar, Globe, MapPin, ChevronDown, Package, CheckCircle, Shield } from 'lucide-react';
 import { countries, searchCountries } from '../../utils/countryData';
-import { getProducts } from '../../api/backend';
+import apiClient from '../../services/apiClient';
 import { normalizeRole } from '../../utils/roleUtils';
+import { getProducts } from '../../api/backend';
 
 const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
   const [formData, setFormData] = useState({
@@ -11,7 +12,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
     trial_expiry_date: '',
     country: '',
     city: '',
-    subscribed_products: [],
+    subscribed_packages: [],
     roles: ['consumer'] // Default to consumer, but allow reseller too
   });
   
@@ -27,9 +28,13 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
   const [countrySearch, setCountrySearch] = useState('');
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState(null);
+  const [showPackagesDropdown, setShowPackagesDropdown] = useState(false);
+  const [packages, setPackages] = useState([]);
+  const [loadingPackages, setLoadingPackages] = useState(false);
   const [showProductsDropdown, setShowProductsDropdown] = useState(false);
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [selectedProducts, setSelectedProducts] = useState([]);
   const [errors, setErrors] = useState({});
 
   useEffect(() => {
@@ -48,8 +53,20 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         }
       }
       
+      // Handle both subscribed_packages (new) and subscribed_products (backward compatibility)
+      const consumerPackages = consumer.subscribed_packages || [];
       const consumerProducts = consumer.subscribed_products || [];
-      console.log('Update modal: Setting subscribed_products from consumer:', consumerProducts);
+      console.log('🔄 Update modal: Initializing formData with subscribed_packages from consumer:', consumerPackages);
+      console.log('🔄 Update modal: Initializing selectedProducts with subscribed_products from consumer:', consumerProducts);
+      console.log('🔄 Consumer object:', { 
+        id: consumer.id, 
+        user_id: consumer.user_id,
+        subscribed_packages: consumer.subscribed_packages,
+        subscribed_products: consumer.subscribed_products 
+      });
+      
+      // Initialize selected products from consumer data
+      setSelectedProducts(Array.isArray(consumerProducts) ? consumerProducts : []);
       
       // Handle role - use normalizeRole utility to handle all formats (array, string, etc.)
       const consumerRoles = normalizeRole(consumer.role);
@@ -64,7 +81,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         trial_expiry_date: trialDate,
         country: consumer.country || '',
         city: consumer.city || '',
-        subscribed_products: consumerProducts || [],
+        subscribed_packages: consumerPackages || [],
         roles: finalRoles
       });
       
@@ -111,21 +128,64 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         setLoadingProducts(true);
         try {
           const result = await getProducts();
-          console.log('Fetched products:', result); // Debug log
+          console.log('Fetched products:', result);
           if (result && result.success && result.data && Array.isArray(result.data)) {
             setProducts(result.data);
-            console.log('Products set:', result.data.length); // Debug log
+            console.log('Products set:', result.data.length);
           } else if (result && result.error) {
             console.error('Error from getProducts:', result.error);
+            setProducts([]);
+          } else {
+            setProducts([]);
           }
         } catch (error) {
           console.error('Error fetching products:', error);
+          setProducts([]);
         } finally {
           setLoadingProducts(false);
         }
       };
 
       fetchProducts();
+    }
+  }, [isOpen, isConsumerSelected]);
+
+  // Fetch packages when modal opens and consumer role is selected
+  useEffect(() => {
+    if (isOpen && isConsumerSelected) {
+      const fetchPackages = async () => {
+        setLoadingPackages(true);
+        try {
+          const response = await apiClient.packages.getAll({ limit: 1000 }); // Get all packages
+          console.log('Fetched packages response:', response); // Debug log
+          
+          // The axios interceptor already unwraps response.data, so response is the data object
+          // API response structure: { success: true, data: [...], count: 9, ... }
+          if (response?.success && Array.isArray(response.data)) {
+            setPackages(response.data);
+            console.log('✅ Packages loaded:', response.data.length);
+            console.log('✅ Package IDs:', response.data.map(p => ({ id: p.id, name: p.name, idType: typeof p.id })));
+          } else if (Array.isArray(response?.data)) {
+            // Fallback: if response.data is an array directly
+            setPackages(response.data);
+            console.log('✅ Packages set (fallback):', response.data.length);
+            console.log('✅ Package IDs:', response.data.map(p => ({ id: p.id, name: p.name, idType: typeof p.id })));
+          } else if (response?.error) {
+            console.error('❌ Error from getPackages:', response.error);
+            setPackages([]);
+          } else {
+            console.warn('⚠️ Unexpected packages response format:', response);
+            setPackages([]);
+          }
+        } catch (error) {
+          console.error('Error fetching packages:', error);
+          setPackages([]);
+        } finally {
+          setLoadingPackages(false);
+        }
+      };
+
+      fetchPackages();
     }
   }, [isOpen, isConsumerSelected]);
 
@@ -232,21 +292,53 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
     ? searchCountries(countrySearch)
     : countries;
 
+  // Handle package selection
+  const handlePackageToggle = (packageId) => {
+    setFormData(prev => {
+      // Convert both to strings for comparison to handle UUID string comparison issues
+      const packageIdStr = String(packageId);
+      const isSelected = prev.subscribed_packages.some(id => String(id) === packageIdStr);
+      
+      const newPackages = isSelected
+        ? prev.subscribed_packages.filter(id => String(id) !== packageIdStr)
+        : [...prev.subscribed_packages, packageId];
+      
+      console.log('Package toggled:', packageId, 'Type:', typeof packageId, 'Is selected:', isSelected);
+      console.log('Current packages:', prev.subscribed_packages);
+      console.log('New packages array:', newPackages);
+      console.log('formData after update will have:', newPackages.length, 'packages');
+      
+      return {
+        ...prev,
+        subscribed_packages: newPackages
+      };
+    });
+  };
+
+  // Check if package is selected
+  const isPackageSelected = (packageId) => {
+    // Convert both to strings for comparison to handle UUID string comparison issues
+    const packageIdStr = String(packageId);
+    return formData.subscribed_packages.some(id => String(id) === packageIdStr);
+  };
+
   // Handle product selection
   const handleProductToggle = (productId) => {
-    setFormData(prev => ({
-      ...prev,
-      subscribed_products: prev.subscribed_products.includes(productId)
-        ? prev.subscribed_products.filter(id => id !== productId)
-        : [...prev.subscribed_products, productId]
-    }));
+    console.log('Product clicked:', productId);
+    
+    setSelectedProducts(prev => {
+      const isSelected = prev.includes(productId);
+      const newProducts = isSelected
+        ? prev.filter(id => id !== productId)
+        : [...prev, productId];
+      console.log('Selected products updated:', newProducts);
+      return newProducts;
+    });
   };
 
   // Check if product is selected
   const isProductSelected = (productId) => {
-    // Convert both to strings for comparison to handle UUID string comparison issues
-    const productIdStr = String(productId);
-    return formData.subscribed_products.some(id => String(id) === productIdStr);
+    return selectedProducts.includes(productId);
   };
   
   // Handle role change
@@ -277,7 +369,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         roles: newRoles,
         // Clear consumer-specific fields if consumer role is removed
         ...(wasConsumer && !isNowConsumer ? {
-          subscribed_products: [],
+          subscribed_packages: [],
           trial_expiry_date: ''
         } : {})
       };
@@ -347,18 +439,30 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         ? `${selectedCountry.phoneCode} ${formData.phone.trim()}`
         : formData.phone.trim() || null;
 
+      // Build updateData without spreading consumer to avoid including old subscribed_products
       const updateData = {
-        ...consumer,
+        user_id: consumer?.user_id || consumer?.id, // Include user_id for the API call
+        id: consumer?.id || consumer?.user_id, // Include id as well for compatibility
         full_name: formData.full_name.trim(),
         phone: fullPhone,
         trial_expiry_date: formData.trial_expiry_date || null,
         country: formData.country.trim() || null,
         city: formData.city.trim() || null,
-        subscribed_products: formData.subscribed_products || [],
         roles: formData.roles || ['consumer'] // Send roles array
       };
 
-      console.log('Update modal sending subscribed_products:', updateData.subscribed_products);
+      // Always include subscribed_packages (even if empty array)
+      updateData.subscribed_packages = formData.subscribed_packages || [];
+      
+      // Include subscribed_products if any products are selected
+      if (selectedProducts.length > 0) {
+        updateData.subscribed_products = selectedProducts;
+      } else {
+        // Send empty array to clear products if none are selected
+        updateData.subscribed_products = [];
+      }
+      
+   console.log('updateData', updateData);
       
       onUpdate(updateData);
       onClose();
@@ -994,7 +1098,202 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
             )}
           </div>
 
-          {/* Subscribed Products Field (Multi-select) */}
+          {/* Products Section (for reference/display only) */}
+          {isConsumerSelected && (
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '14px',
+                fontWeight: '500',
+                color: '#374151',
+                marginBottom: '8px'
+              }}>
+                <Package size={16} style={{ color: '#6b7280' }} />
+                Products <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+              </label>
+              <div style={{ position: 'relative' }}>
+                <div
+                  onClick={() => setShowProductsDropdown(!showProductsDropdown)}
+                  style={{
+                    width: '100%',
+                    minHeight: '42px',
+                    padding: '8px 40px 8px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    outline: 'none',
+                    transition: 'all 0.2s',
+                    boxSizing: 'border-box',
+                    backgroundColor: 'white',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '6px',
+                    alignItems: 'center'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = '#74317e';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = '#d1d5db';
+                  }}
+                >
+                  {loadingProducts ? (
+                    <span style={{ color: '#9ca3af' }}>Loading products...</span>
+                  ) : selectedProducts.length === 0 ? (
+                    <span style={{ color: '#9ca3af' }}>Select products (optional)...</span>
+                  ) : (
+                    selectedProducts.map(productId => {
+                      const product = products.find(p => p.id === productId);
+                      return (
+                        <span
+                          key={productId}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '4px 8px',
+                            backgroundColor: '#74317e',
+                            color: 'white',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            fontWeight: '500'
+                          }}
+                        >
+                          {product?.name}
+                          <X
+                            size={14}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleProductToggle(productId);
+                            }}
+                            style={{ cursor: 'pointer' }}
+                          />
+                        </span>
+                      );
+                    })
+                  )}
+                  <div style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    pointerEvents: 'none'
+                  }}>
+                    <ChevronDown size={16} style={{ color: '#9ca3af' }} />
+                  </div>
+                </div>
+
+                {/* Products Dropdown */}
+                {showProductsDropdown && (
+                  <>
+                    <div
+                      style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        zIndex: 999
+                      }}
+                      onClick={() => setShowProductsDropdown(false)}
+                    />
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        marginTop: '4px',
+                        backgroundColor: 'white',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                        maxHeight: '200px',
+                        overflowY: 'auto',
+                        zIndex: 1000
+                      }}
+                    >
+                      {loadingProducts ? (
+                        <div style={{ padding: '10px 12px', textAlign: 'center', color: '#9ca3af' }}>
+                          Loading products...
+                        </div>
+                      ) : products.length === 0 ? (
+                        <div style={{ padding: '10px 12px', textAlign: 'center', color: '#9ca3af' }}>
+                          No products available
+                        </div>
+                      ) : (
+                        products.map((product) => (
+                        <div
+                          key={product.id}
+                          onClick={() => handleProductToggle(product.id)}
+                          style={{
+                            padding: '10px 12px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            transition: 'background-color 0.2s',
+                            backgroundColor: isProductSelected(product.id) ? '#eff6ff' : 'white'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = isProductSelected(product.id) ? '#dbeafe' : '#f9fafb';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = isProductSelected(product.id) ? '#eff6ff' : 'white';
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: '18px',
+                              height: '18px',
+                              border: isProductSelected(product.id) ? '2px solid #74317e' : '2px solid #d1d5db',
+                              borderRadius: '4px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: isProductSelected(product.id) ? '#74317e' : 'white',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            {isProductSelected(product.id) && (
+                              <CheckCircle size={12} style={{ color: 'white' }} />
+                            )}
+                          </div>
+                          <span style={{
+                            fontSize: '14px',
+                            color: '#374151',
+                            fontWeight: isProductSelected(product.id) ? '500' : '400'
+                          }}>
+                            {product.name}
+                          </span>
+                        </div>
+                      ))
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+              {selectedProducts.length > 0 && (
+                <p style={{
+                  color: '#6b7280',
+                  fontSize: '12px',
+                  marginTop: '6px',
+                  marginBottom: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}>
+                  <span style={{ fontSize: '16px' }}>ℹ️</span>
+                  {selectedProducts.length} product{selectedProducts.length !== 1 ? 's' : ''} selected
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Subscribed Packages Field (Multi-select) */}
           <div style={{ marginBottom: '20px' }}>
             <label style={{
               display: 'flex',
@@ -1005,12 +1304,14 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
               color: '#374151',
               marginBottom: '8px'
             }}>
-              <Package size={16} style={{ color: '#6b7280' }} />
-              Subscribed Products <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+              <Package size={16} style={{ color: '#74317e' }} />
+              <span style={{ fontWeight: '600', color: '#374151' }}>Subscribed Packages</span>
+              <span style={{ color: '#ef4444', fontWeight: '500', fontSize: '12px' }}>*</span>
+              <span style={{ color: '#6b7280', fontWeight: '400', fontSize: '12px' }}>(Select packages to subscribe - this is what gets saved to database)</span>
             </label>
             <div style={{ position: 'relative' }}>
               <div
-                onClick={() => setShowProductsDropdown(!showProductsDropdown)}
+                onClick={() => setShowPackagesDropdown(!showPackagesDropdown)}
                 style={{
                   width: '100%',
                   minHeight: '42px',
@@ -1035,16 +1336,16 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                   e.currentTarget.style.borderColor = '#d1d5db';
                 }}
               >
-                {loadingProducts ? (
-                  <span style={{ color: '#9ca3af' }}>Loading products...</span>
-                ) : formData.subscribed_products.length === 0 ? (
-                  <span style={{ color: '#9ca3af' }}>Select products...</span>
+                {loadingPackages ? (
+                  <span style={{ color: '#9ca3af' }}>Loading packages...</span>
+                ) : formData.subscribed_packages.length === 0 ? (
+                  <span style={{ color: '#9ca3af' }}>Select packages...</span>
                 ) : (
-                  formData.subscribed_products.map(productId => {
-                    const product = products.find(p => p.id === productId);
+                  formData.subscribed_packages.map(packageId => {
+                    const pkg = packages.find(p => p.id === packageId);
                     return (
                       <span
-                        key={productId}
+                        key={packageId}
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
@@ -1057,12 +1358,12 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                           fontWeight: '500'
                         }}
                       >
-                        {product?.name}
+                        {pkg?.name || 'Unknown Package'}
                         <X
                           size={14}
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleProductToggle(productId);
+                            handlePackageToggle(packageId);
                           }}
                           style={{ cursor: 'pointer' }}
                         />
@@ -1081,84 +1382,113 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                 </div>
               </div>
 
-              {/* Products Dropdown */}
-              {showProductsDropdown && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: '100%',
-                    left: 0,
-                    right: 0,
-                    marginTop: '4px',
-                    backgroundColor: 'white',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
-                    maxHeight: '200px',
-                    overflowY: 'auto',
-                    zIndex: 1000
-                  }}
-                >
-                  {loadingProducts ? (
-                    <div style={{ padding: '10px 12px', textAlign: 'center', color: '#9ca3af' }}>
-                      Loading products...
-                    </div>
-                  ) : products.length === 0 ? (
-                    <div style={{ padding: '10px 12px', textAlign: 'center', color: '#9ca3af' }}>
-                      No products available
-                    </div>
-                  ) : (
-                    products.map((product) => (
-                    <div
-                      key={product.id}
-                      onClick={() => handleProductToggle(product.id)}
-                      style={{
-                        padding: '10px 12px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        transition: 'background-color 0.2s',
-                        backgroundColor: isProductSelected(product.id) ? '#eff6ff' : 'white'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = isProductSelected(product.id) ? '#dbeafe' : '#f9fafb';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = isProductSelected(product.id) ? '#eff6ff' : 'white';
-                      }}
-                    >
+              {/* Packages Dropdown */}
+              {showPackagesDropdown && (
+                <>
+                  <div
+                    style={{
+                      position: 'fixed',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      zIndex: 999
+                    }}
+                    onClick={() => setShowPackagesDropdown(false)}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      marginTop: '4px',
+                      backgroundColor: 'white',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                      maxHeight: '200px',
+                      overflowY: 'auto',
+                      zIndex: 1000
+                    }}
+                  >
+                    {loadingPackages ? (
+                      <div style={{ padding: '10px 12px', textAlign: 'center', color: '#9ca3af' }}>
+                        Loading packages...
+                      </div>
+                    ) : packages.length === 0 ? (
+                      <div style={{ padding: '10px 12px', textAlign: 'center', color: '#9ca3af' }}>
+                        No packages available
+                      </div>
+                    ) : (
+                      packages.map((pkg) => (
                       <div
+                        key={pkg.id}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('📦 Package clicked:', pkg.id, 'Name:', pkg.name, 'Type:', typeof pkg.id);
+                          handlePackageToggle(pkg.id);
+                        }}
                         style={{
-                          width: '18px',
-                          height: '18px',
-                          border: isProductSelected(product.id) ? '2px solid #74317e' : '2px solid #d1d5db',
-                          borderRadius: '4px',
+                          padding: '10px 12px',
+                          cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
-                          justifyContent: 'center',
-                          backgroundColor: isProductSelected(product.id) ? '#74317e' : 'white',
-                          transition: 'all 0.2s'
+                          gap: '10px',
+                          transition: 'background-color 0.2s',
+                          backgroundColor: isPackageSelected(pkg.id) ? '#eff6ff' : 'white'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = isPackageSelected(pkg.id) ? '#dbeafe' : '#f9fafb';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = isPackageSelected(pkg.id) ? '#eff6ff' : 'white';
                         }}
                       >
-                        {isProductSelected(product.id) && (
-                          <CheckCircle size={12} style={{ color: 'white' }} />
-                        )}
+                        <div
+                          style={{
+                            width: '18px',
+                            height: '18px',
+                            border: isPackageSelected(pkg.id) ? '2px solid #74317e' : '2px solid #d1d5db',
+                            borderRadius: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: isPackageSelected(pkg.id) ? '#74317e' : 'white',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          {isPackageSelected(pkg.id) && (
+                            <CheckCircle size={12} style={{ color: 'white' }} />
+                          )}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <span style={{
+                            fontSize: '14px',
+                            color: '#374151',
+                            fontWeight: isPackageSelected(pkg.id) ? '500' : '400'
+                          }}>
+                            {pkg.name}
+                          </span>
+                          {pkg.products?.name && (
+                            <div style={{
+                              fontSize: '12px',
+                              color: '#6b7280',
+                              marginTop: '2px'
+                            }}>
+                              Product: {pkg.products.name}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <span style={{
-                        fontSize: '14px',
-                        color: '#374151',
-                        fontWeight: isProductSelected(product.id) ? '500' : '400'
-                      }}>
-                        {product.name}
-                      </span>
-                    </div>
-                  ))
-                  )}
-                </div>
+                    ))
+                    )}
+                  </div>
+                </>
               )}
             </div>
-            {formData.subscribed_products.length > 0 && (
+            {formData.subscribed_packages.length > 0 && (
               <p style={{
                 color: '#6b7280',
                 fontSize: '12px',
@@ -1169,7 +1499,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                 gap: '4px'
               }}>
                 <span style={{ fontSize: '16px' }}>ℹ️</span>
-                {formData.subscribed_products.length} product{formData.subscribed_products.length !== 1 ? 's' : ''} selected
+                {formData.subscribed_packages.length} package{formData.subscribed_packages.length !== 1 ? 's' : ''} selected
               </p>
             )}
           </div>

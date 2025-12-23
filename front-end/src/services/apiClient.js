@@ -558,6 +558,41 @@ const apiClient = {
     delete: (id) => axiosInstance.delete(`/products/${id}`),
   },
 
+  // ==================== PACKAGES ====================
+  packages: {
+    /**
+     * Get all packages with optional filters
+     */
+    getAll: (params = {}) => {
+      const queryParams = new URLSearchParams();
+      if (params.page) queryParams.append('page', params.page);
+      if (params.limit) queryParams.append('limit', params.limit);
+      if (params.productId) queryParams.append('productId', params.productId);
+      const query = queryParams.toString();
+      return axiosInstance.get(`/packages${query ? `?${query}` : ''}`);
+    },
+
+    /**
+     * Get package by ID
+     */
+    getById: (id) => axiosInstance.get(`/packages/${id}`),
+
+    /**
+     * Create package
+     */
+    create: (packageData) => axiosInstance.post('/packages', packageData),
+
+    /**
+     * Update package
+     */
+    update: (id, packageData) => axiosInstance.put(`/packages/${id}`, packageData),
+
+    /**
+     * Delete package
+     */
+    delete: (id) => axiosInstance.delete(`/packages/${id}`),
+  },
+
   // ==================== INVOICES ====================
   invoices: {
     /**
@@ -1052,6 +1087,9 @@ const apiClient = {
       const query = queryParams.toString();
       return axiosInstance.get(`/genie/contact-lists${query ? `?${query}` : ''}`);
     },
+    getVapiAccounts: () => axiosInstance.get('/genie/vapi-accounts'),
+    assignVapiAccountToBots: (ownerUserId, vapiAccountId) => 
+      axiosInstance.patch('/genie/bots/assign-vapi-account', { ownerUserId, vapiAccountId }),
   },
 };
 

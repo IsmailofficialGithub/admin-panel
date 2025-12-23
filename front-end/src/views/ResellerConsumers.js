@@ -230,14 +230,22 @@ const ResellerConsumers = () => {
 
   const handleUpdateConsumer = async (updatedConsumer) => {
     try {
+      // Get consumer ID - try user_id first, then id
+      const consumerId = updatedConsumer.user_id || updatedConsumer.id;
+      
+      if (!consumerId) {
+        console.error('Consumer ID missing in update data:', updatedConsumer);
+        return { error: 'Consumer ID is missing. Cannot update consumer.' };
+      }
+      
       // Call API to update consumer using user_id (as reseller)
-      const result = await apiClient.resellers.updateMyConsumer(updatedConsumer.user_id, {
+      const result = await apiClient.resellers.updateMyConsumer(consumerId, {
         full_name: updatedConsumer.full_name,
         phone: updatedConsumer.phone,
         trial_expiry_date: updatedConsumer.trial_expiry_date,
         country: updatedConsumer.country,
         city: updatedConsumer.city,
-        subscribed_products: updatedConsumer.subscribed_products || []
+        subscribed_packages: updatedConsumer.subscribed_packages || [] // Use subscribed_packages instead of subscribed_products
       });
       
       console.log('Reseller updating consumer with subscribed_products:', updatedConsumer.subscribed_products);

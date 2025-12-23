@@ -1,4 +1,4 @@
-import { supabase } from '../../config/database.js';
+import { supabase, supabaseAdmin } from '../../config/database.js';
 import { cacheService } from '../../config/redis.js';
 import {
   sanitizeString,
@@ -1576,7 +1576,7 @@ export const getAllBots = async (req, res) => {
     // Build query
     let query = supabase
       .from('genie_bots')
-      .select('id, name, company_name, goal, voice, language, created_at, owner_user_id')
+      .select('id, name, company_name, goal, voice, language, created_at, owner_user_id, vapi_account_assigned')
       .order('name', { ascending: true });
 
     // Filter by owner_user_id if provided
@@ -1690,6 +1690,246 @@ export const getAllContactLists = async (req, res) => {
     res.json(result);
   } catch (err) {
     return handleApiError(err, res, 'Failed to fetch contact lists');
+  }
+};
+
+/**
+ * Get all Vapi accounts
+ * @route   GET /api/genie/vapi-accounts
+ * @access  Private (genie.view)
+ */
+export const getVapiAccounts = async (req, res) => {
+  try {
+    // Check for cache-busting parameter
+    const { nocache } = req.query;
+    const cacheKey = 'genie:vapi_accounts:all';
+    
+    if (!nocache) {
+      const cachedData = await cacheService.get(cacheKey);
+      if (cachedData) {
+        console.log('✅ Cache HIT for Vapi accounts');
+        return res.json(cachedData);
+      }
+    } else {
+      console.log('🔄 Cache bypass requested');
+    }
+
+    console.log('❌ Cache MISS for Vapi accounts - fetching from database');
+
+    // Use supabaseAdmin to bypass RLS policies (admin operation)
+    const client = supabaseAdmin || supabase;
+    
+    // PostgREST expects lowercase table name 'vapi_accounts' (hint from error: "Perhaps you meant the table 'public.vapi_accounts'")
+    // Try lowercase table name with * first (simplest approach)
+    let query = client
+      .from('vapi_accounts')
+      .select('*')
+      .order('account_name', { ascending: true });
+
+    let { data: accounts, error } = await executeWithTimeout(query);
+
+    // If lowercase columns fail, try with exact case column names (Account_name)
+    if (error && (error.code === 'PGRST116' || error.code === 'PGRST205' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
+      console.log('⚠️ Lowercase column names failed, trying exact case column names...');
+      query = client
+        .from('vapi_accounts')
+        .select('*')
+        .order('Account_name', { ascending: true });
+      
+      const result = await executeWithTimeout(query);
+      accounts = result.data;
+      error = result.error;
+    }
+
+    // If * selector fails, try specific column names with lowercase
+    if (error && (error.code === 'PGRST116' || error.code === 'PGRST205' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
+      console.log('⚠️ * selector failed, trying specific lowercase column names...');
+      query = client
+        .from('vapi_accounts')
+        .select('id, account_name, account_description, created_at')
+        .order('account_name', { ascending: true });
+      
+      const result = await executeWithTimeout(query);
+      accounts = result.data;
+      error = result.error;
+    }
+
+    // Last resort: try exact case column names with specific columns
+    if (error && (error.code === 'PGRST116' || error.code === 'PGRST205' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
+      console.log('⚠️ Trying exact case column names with specific columns...');
+      query = client
+        .from('vapi_accounts')
+        .select('id, Account_name, Account_description, created_at')
+        .order('Account_name', { ascending: true });
+      
+      const result = await executeWithTimeout(query);
+      accounts = result.data;
+      error = result.error;
+    }
+
+    if (error) {
+      console.error('❌ Error fetching Vapi accounts:', {
+        error,
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        fullError: JSON.stringify(error, null, 2)
+      });
+      
+      // Return the actual error message to help debug
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: `Failed to fetch Vapi accounts: ${error.message || 'Unknown error'}`,
+        details: error.details || null,
+        hint: error.hint || null,
+        code: error.code || null
+      });
+    }
+
+    console.log(`✅ Fetched ${accounts?.length || 0} Vapi account(s) from database`);
+    
+    // Log the actual data structure for debugging
+    if (accounts && accounts.length > 0) {
+      console.log('📋 Sample account data:', JSON.stringify(accounts[0], null, 2));
+    } else {
+      console.log('⚠️ No accounts found in vapi_accounts table. Make sure data exists.');
+    }
+
+    // Map accounts to ensure consistent field names (handle both Account_name and account_name)
+    const mappedAccounts = (accounts || []).map(account => ({
+      id: account.id,
+      Account_name: account.Account_name || account.account_name || account.Account_Name,
+      Account_description: account.Account_description || account.account_description || account.Account_Description,
+      created_at: account.created_at
+    }));
+
+    const result = {
+      success: true,
+      data: sanitizeArray(mappedAccounts)
+    };
+
+    // Only cache if we got data or if it's a successful empty result
+    if (!error) {
+      await cacheService.set(cacheKey, result, CACHE_TTL);
+    }
+    
+    res.json(result);
+  } catch (err) {
+    console.error('❌ Exception in getVapiAccounts:', err);
+    return handleApiError(err, res, 'Failed to fetch Vapi accounts');
+  }
+};
+
+/**
+ * Update vapi_account_assigned for all bots owned by a specific user
+ * @route   PATCH /api/genie/bots/assign-vapi-account
+ * @access  Private (genie.view)
+ */
+export const updateBotsVapiAccount = async (req, res) => {
+  try {
+    const { ownerUserId, vapiAccountId } = req.body;
+    const userId = req.user.id;
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
+
+    // Validate inputs
+    if (!ownerUserId || !isValidUUID(ownerUserId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Valid owner user ID is required'
+      });
+    }
+
+    // Validate vapiAccountId (can be null to unassign)
+    if (vapiAccountId !== null && vapiAccountId !== undefined) {
+      if (typeof vapiAccountId !== 'number' && !Number.isInteger(Number(vapiAccountId))) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: 'Invalid Vapi account ID format'
+        });
+      }
+    }
+
+    // Check if user has permission (admin or the owner themselves)
+    if (!isSystemAdmin && ownerUserId !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden',
+        message: 'You can only update bots for your own account'
+      });
+    }
+
+    // If vapiAccountId is provided, verify it exists
+    if (vapiAccountId !== null && vapiAccountId !== undefined) {
+      // Use supabaseAdmin to bypass RLS policies
+      const client = supabaseAdmin || supabase;
+      
+      // Try lowercase table name first
+      let accountQuery = client
+        .from('vapi_accounts')
+        .select('id')
+        .eq('id', vapiAccountId)
+        .single();
+
+      let { data: account, error: accountError } = await executeWithTimeout(accountQuery);
+
+      // If lowercase fails, try exact case table name
+      if (accountError && (accountError.code === 'PGRST116' || accountError.message?.includes('relation') || accountError.message?.includes('does not exist'))) {
+        accountQuery = client
+          .from('Vapi_accounts')
+          .select('id')
+          .eq('id', vapiAccountId)
+          .single();
+        
+        const result = await executeWithTimeout(accountQuery);
+        account = result.data;
+        accountError = result.error;
+      }
+
+      if (accountError || !account) {
+        return res.status(404).json({
+          success: false,
+          error: 'Not Found',
+          message: 'Vapi account not found'
+        });
+      }
+    }
+
+    // Update all bots for this owner
+    const updateData = { vapi_account_assigned: vapiAccountId || null };
+    
+    const { data: updatedBots, error: updateError } = await executeWithTimeout(
+      supabase
+        .from('genie_bots')
+        .update(updateData)
+        .eq('owner_user_id', ownerUserId)
+        .select('id, name, vapi_account_assigned')
+    );
+
+    if (updateError) {
+      console.error('❌ Error updating bots:', updateError);
+      return handleApiError(updateError, res, 'Failed to update bots');
+    }
+
+    // Clear relevant caches
+    await clearGenieCaches(ownerUserId, { clearAll: true });
+    await cacheService.delByPattern('genie:vapi_accounts:*');
+
+    const result = {
+      success: true,
+      message: `Successfully updated ${updatedBots?.length || 0} bot(s)`,
+      data: {
+        updatedCount: updatedBots?.length || 0,
+        bots: sanitizeArray(updatedBots || [])
+      }
+    };
+
+    res.json(result);
+  } catch (err) {
+    return handleApiError(err, res, 'Failed to update bots Vapi account');
   }
 };
 

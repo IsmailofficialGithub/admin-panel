@@ -33,6 +33,24 @@ export const AuthProvider = ({ children }) => {
     }
     
     try {
+      // Get user to check if they are system admin
+      const { data: { session } } = await supabase.auth.getSession()
+      const userId = session?.user?.id
+      
+      if (!userId) return false
+      
+      // Check if user has is_systemadmin flag in profiles
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('is_systemadmin')
+        .eq('user_id', userId)
+        .single()
+      
+      // Bypass profile check for system admin users
+      if (userProfile?.is_systemadmin === true) {
+        return true
+      }
+      
       const { data: profileData } = await supabase
         .from('profiles')
         .select('role, account_status')
@@ -148,6 +166,21 @@ export const AuthProvider = ({ children }) => {
           }
 
           setUser(session.user)
+
+          // Check if user is system admin - bypass profile check
+          const { data: systemAdminProfile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .eq('is_systemadmin', true)
+            .single()
+          
+          if (systemAdminProfile) {
+            // User is system admin - use their actual profile
+            setProfile(systemAdminProfile)
+            setLoading(false)
+            return
+          }
 
           const { data: profileData } = await supabase
             .from('profiles')

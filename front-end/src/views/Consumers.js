@@ -263,6 +263,7 @@ const Consumers = () => {
           trial_expiry_date: consumer.trial_expiry,
           created_at: consumer.created_at,
           subscribed_products: consumer.subscribed_products || [],
+          subscribed_packages: consumer.subscribed_packages || [],
           role: consumer.role || ['consumer'] // Include role field from consumer data
         });
         setIsUpdateModalOpen(true);
@@ -445,14 +446,24 @@ const Consumers = () => {
 
       const loadingToast = toast.loading(`Updating consumer ${updatedConsumer.full_name || updatedConsumer.email}...`);
       
+      // Get consumer ID - try user_id first, then id
+      const consumerId = updatedConsumer.user_id || updatedConsumer.id;
+      
+      if (!consumerId) {
+        toast.error('Error: Consumer ID is missing. Cannot update consumer.', { id: loadingToast });
+        console.error('Consumer ID missing in update data:', updatedConsumer);
+        return;
+      }
+      
       // Call API to update consumer using user_id
-      const result = await updateConsumer(updatedConsumer.user_id, {
+      const result = await updateConsumer(consumerId, {
         full_name: updatedConsumer.full_name,
         phone: updatedConsumer.phone,
         trial_expiry_date: updatedConsumer.trial_expiry_date,
         country: updatedConsumer.country,
         city: updatedConsumer.city,
         subscribed_products: updatedConsumer.subscribed_products || [],
+        subscribed_packages: updatedConsumer.subscribed_packages || [], // Use subscribed_packages instead of subscribed_products
         roles: updatedConsumer.roles || ['consumer'] // Include roles array
       });
       
@@ -462,21 +473,68 @@ const Consumers = () => {
         return;
       }
       
-      // Update the consumer in the local state matching backend structure
-      setUsers(prevUsers =>
-        prevUsers.map(user => {
-          if (user.user_id === updatedConsumer.user_id) {
-            return {
-              ...user,
-              full_name: updatedConsumer.full_name,
-              phone: updatedConsumer.phone || null,
-              trial_expiry: updatedConsumer.trial_expiry_date || null,
-              updated_at: new Date().toISOString()
-            };
-          }
-          return user;
-        })
-      );
+      // Fetch updated consumer data from API to get latest subscribed_products and subscribed_packages
+      try {
+        const { getConsumerById } = await import('../api/backend/consumers');
+        const updatedConsumerData = await getConsumerById(consumerId);
+        
+        if (updatedConsumerData.success && updatedConsumerData.data) {
+          // Update the consumer in the local state with complete data from API
+          setUsers(prevUsers =>
+            prevUsers.map(user => {
+              if (user.user_id === updatedConsumer.user_id || user.user_id === consumerId) {
+                return {
+                  ...user,
+                  full_name: updatedConsumerData.data.full_name || updatedConsumer.full_name,
+                  phone: updatedConsumerData.data.phone || updatedConsumer.phone || null,
+                  trial_expiry: updatedConsumerData.data.trial_expiry || updatedConsumer.trial_expiry_date || null,
+                  subscribed_products: updatedConsumerData.data.subscribed_products || [],
+                  subscribed_packages: updatedConsumerData.data.subscribed_packages || [],
+                  updated_at: new Date().toISOString()
+                };
+              }
+              return user;
+            })
+          );
+        } else {
+          // Fallback: Update with data from modal if API fetch fails
+          setUsers(prevUsers =>
+            prevUsers.map(user => {
+              if (user.user_id === updatedConsumer.user_id || user.user_id === consumerId) {
+                return {
+                  ...user,
+                  full_name: updatedConsumer.full_name,
+                  phone: updatedConsumer.phone || null,
+                  trial_expiry: updatedConsumer.trial_expiry_date || null,
+                  subscribed_products: updatedConsumer.subscribed_products || [],
+                  subscribed_packages: updatedConsumer.subscribed_packages || [],
+                  updated_at: new Date().toISOString()
+                };
+              }
+              return user;
+            })
+          );
+        }
+      } catch (fetchError) {
+        console.error('Error fetching updated consumer data:', fetchError);
+        // Fallback: Update with data from modal
+        setUsers(prevUsers =>
+          prevUsers.map(user => {
+            if (user.user_id === updatedConsumer.user_id || user.user_id === consumerId) {
+              return {
+                ...user,
+                full_name: updatedConsumer.full_name,
+                phone: updatedConsumer.phone || null,
+                trial_expiry: updatedConsumer.trial_expiry_date || null,
+                subscribed_products: updatedConsumer.subscribed_products || [],
+                subscribed_packages: updatedConsumer.subscribed_packages || [],
+                updated_at: new Date().toISOString()
+              };
+            }
+            return user;
+          })
+        );
+      }
       
       toast.success(`Consumer "${updatedConsumer.full_name || updatedConsumer.email}" updated successfully!`, { id: loadingToast });
       

@@ -79,5 +79,10 @@ export function createClient() {
 // Direct export of the singleton instance for easy importing
 export const supabase = createClient();
 
+// Expose to window for console access (development only)
+if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  window.__supabase = supabase;
+}
+
 
 
