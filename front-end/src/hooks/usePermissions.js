@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getMyRolePermissions } from 'api/backend/permissions';
 import { useAuth } from './useAuth';
+import { getPrimaryRole } from '../utils/roleUtils';
 
 // Local storage keys
 const STORAGE_KEYS = {
@@ -139,9 +140,8 @@ export const usePermissions = () => {
       setIsLoading(true);
       setError(null);
 
-      // Get primary role
-      const userRoles = profile.roles || ['viewer'];
-      const primaryRole = userRoles[0] || 'viewer';
+      // Get primary role using priority hierarchy
+      const primaryRole = getPrimaryRole(profile?.role, profile?.is_systemadmin) || 'viewer';
 
       // Check local cache first
       const cached = getCachedPermissions();

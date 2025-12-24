@@ -177,8 +177,20 @@ const Login = () => {
         });
 
         // Check role and redirect accordingly
-        // IMPORTANT: Check reseller role FIRST (even if user also has consumer)
-        if (hasRole(profile.role, 'reseller')) {
+        // IMPORTANT: Check admin role FIRST (admin takes priority over reseller)
+        if (hasRole(profile.role, 'admin')) {
+          console.log('✅ Login: User has admin role, redirecting to /admin/dashboard');
+          toast.success(`Welcome back, Admin!`);
+          
+          // Redirect to admin dashboard
+          try {
+            setTimeout(() => {
+              window.location.href = '/admin/dashboard';
+            }, 500);
+          } catch (redirectError) {
+            console.error('❌ Redirect failed:', redirectError);
+          }
+        } else if (hasRole(profile.role, 'reseller')) {
           console.log('✅ Login: User has reseller role, redirecting to /reseller/dashboard');
           toast.success(`Welcome back, Reseller!`);
           
@@ -186,17 +198,6 @@ const Login = () => {
           try {
             setTimeout(() => {
               window.location.href = '/reseller/dashboard';
-            }, 500);
-          } catch (redirectError) {
-            console.error('❌ Redirect failed:', redirectError);
-          }
-        } else if (hasRole(profile.role, 'admin')) {
-          toast.success(`Welcome back, Admin!`);
-          
-          // Redirect to admin users page
-          try {
-            setTimeout(() => {
-              window.location.href = '/admin/dashboard';
             }, 500);
           } catch (redirectError) {
             console.error('❌ Redirect failed:', redirectError);

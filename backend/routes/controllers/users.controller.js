@@ -13,7 +13,7 @@ import {
   sanitizeObject,
   sanitizeArray
 } from '../../utils/validation.js';
-import { hasRole } from '../../utils/roleUtils.js';
+import { hasRole, getPrimaryRole } from '../../utils/roleUtils.js';
 
 // Cache configuration
 export const CACHE_TTL = 300; // 5 minutes
@@ -424,7 +424,8 @@ export const createUser = async (req, res) => {
     }
 
     // Create user with Supabase Admin
-    // Store first role in user_metadata for backward compatibility
+    // Store primary role (highest priority) in user_metadata for backward compatibility
+    const primaryRole = getPrimaryRole(userRoles) || "user";
     const createUserPayload = {
       email,
       password,
@@ -433,7 +434,7 @@ export const createUser = async (req, res) => {
         full_name: full_name || "",
         country: country || "",
         city: city || "",
-        role: userRoles[0] || "user",
+        role: primaryRole,
         roles: userRoles,
       }
     };

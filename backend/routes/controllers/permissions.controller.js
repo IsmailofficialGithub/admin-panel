@@ -14,6 +14,7 @@ import {
   createRateLimitMiddleware,
   sanitizeInputMiddleware
 } from '../../utils/apiOptimization.js';
+import { getPrimaryRole } from '../../utils/roleUtils.js';
 
 // Cache configuration
 const CACHE_TTL = 300; // 5 minutes
@@ -528,9 +529,9 @@ export const getMyRolePermissions = async (req, res) => {
     }
 
     // Get user's primary role - profile.role can be array or string
-    const userRoles = Array.isArray(profile.role) ? profile.role : (profile.roles || [profile.role || 'viewer']);
-    const primaryRole = userRoles[0] || 'viewer';
-    const validRoles = ['admin', 'reseller', 'consumer', 'viewer'];
+    // Use getPrimaryRole utility to get highest priority role based on hierarchy
+    const primaryRole = getPrimaryRole(profile.role, profile.is_systemadmin) || 'viewer';
+    const validRoles = ['admin', 'reseller', 'consumer', 'viewer', 'systemadmin'];
     
     if (!validRoles.includes(primaryRole)) {
       return res.status(400).json({

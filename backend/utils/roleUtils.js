@@ -51,14 +51,41 @@ export const hasAllRoles = (userRole, requiredRoles) => {
 };
 
 /**
- * Get the primary role (first role in array, or the role itself if string)
- * Useful for display purposes or backward compatibility
+ * Get the primary role based on priority hierarchy:
+ * super admin (if is_systemadmin) > admin > reseller > consumer
  * @param {string|string[]|null|undefined} role - Role value
+ * @param {boolean} isSystemAdmin - Optional flag for system admin (default: false)
  * @returns {string|null} Primary role or null
  */
-export const getPrimaryRole = (role) => {
+export const getPrimaryRole = (role, isSystemAdmin = false) => {
+  // If system admin, return 'systemadmin'
+  if (isSystemAdmin) {
+    return 'systemadmin';
+  }
+  
   const roles = normalizeRole(role);
-  return roles.length > 0 ? roles[0] : null;
+  if (roles.length === 0) return null;
+  
+  // Define priority order (higher number = higher priority)
+  const rolePriority = {
+    'admin': 3,
+    'reseller': 2,
+    'consumer': 1
+  };
+  
+  // Find the role with highest priority
+  let highestPriority = -1;
+  let primaryRole = null;
+  
+  for (const r of roles) {
+    const priority = rolePriority[r.toLowerCase()] || 0;
+    if (priority > highestPriority) {
+      highestPriority = priority;
+      primaryRole = r.toLowerCase();
+    }
+  }
+  
+  return primaryRole;
 };
 
 /**

@@ -326,8 +326,13 @@ export const AuthProvider = ({ children }) => {
   const getDashboardPath = () => {
     if (!profile || !profile.role) return '/login'
     
-    const primaryRole = getPrimaryRole(profile.role)
-    if (primaryRole === 'admin') return '/admin/dashboard'
+    // Check for system admin first
+    if (profile.is_systemadmin === true) {
+      return '/admin/dashboard'
+    }
+    
+    const primaryRole = getPrimaryRole(profile.role, profile.is_systemadmin)
+    if (primaryRole === 'systemadmin' || primaryRole === 'admin') return '/admin/dashboard'
     if (primaryRole === 'reseller') return '/reseller/dashboard'
     
     return '/login'

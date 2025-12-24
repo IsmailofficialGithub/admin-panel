@@ -65,8 +65,21 @@ const ProtectedRoute = ({ component: Component, allowedRoles = [], ...rest }) =>
           return null;
         }
         
+        // Check if user has admin role - redirect to admin dashboard ONLY if not already on an admin route
+        // IMPORTANT: Admin takes priority over reseller
+        if (hasRole(profile.role, 'admin')) {
+          const currentPath = location.pathname;
+          const isAdminRoute = currentPath.startsWith('/admin');
+          
+          if (!isAdminRoute) {
+            console.log('🔄 ProtectedRoute: Admin role detected. Redirecting to /admin/dashboard.');
+            return <Redirect to="/admin/dashboard" />;
+          }
+          // If already on admin route, allow access (don't redirect)
+          console.log('✅ ProtectedRoute: Admin on admin route, allowing access.');
+        }
         // Check if user has reseller role - redirect to reseller dashboard ONLY if not already on a reseller route
-        if (hasRole(profile.role, 'reseller')) {
+        else if (hasRole(profile.role, 'reseller')) {
           // Only redirect if user is NOT already on a reseller route
           const currentPath = location.pathname;
           const isResellerRoute = currentPath.startsWith('/reseller');
@@ -79,7 +92,7 @@ const ProtectedRoute = ({ component: Component, allowedRoles = [], ...rest }) =>
           console.log('✅ ProtectedRoute: Reseller on reseller route, allowing access.');
         }
         
-        // If user is ONLY consumer (has consumer but no reseller), redirect to external site
+        // If user is ONLY consumer (has consumer but no reseller or admin), redirect to external site
         const userRoles = normalizeRole(profile.role);
         const isOnlyConsumer = userRoles.length === 1 && userRoles.includes('consumer');
         if (isOnlyConsumer) {

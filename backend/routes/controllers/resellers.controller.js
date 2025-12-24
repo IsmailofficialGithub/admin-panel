@@ -21,7 +21,7 @@ import {
   createRateLimitMiddleware,
   sanitizeInputMiddleware
 } from '../../utils/apiOptimization.js';
-import { hasRole } from '../../utils/roleUtils.js';
+import { hasRole, getPrimaryRole } from '../../utils/roleUtils.js';
 
 // Cache configuration
 const CACHE_TTL = 300; // 5 minutes
@@ -488,7 +488,8 @@ export const createReseller = async (req, res) => {
     // ========================================
     // 3. CREATE USER (with timeout)
     // ========================================
-    // Store first role in user_metadata for backward compatibility
+    // Store primary role (highest priority) in user_metadata for backward compatibility
+    const primaryRole = getPrimaryRole(userRoles) || 'reseller';
     const createUserPayload = {
       email,
       password,
@@ -497,7 +498,7 @@ export const createReseller = async (req, res) => {
         full_name: full_name || '',
         country: country || '',
         city: city || '',
-        role: userRoles[0] || 'reseller',
+        role: primaryRole,
         roles: userRoles
       }
     };
