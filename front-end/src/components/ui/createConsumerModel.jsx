@@ -1916,7 +1916,8 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
           </div>
 
               {/* Packages Section (actual subscription) */}
-          <div style={{ marginBottom: '20px' }}>
+              
+              <div style={{ marginBottom: '20px' }}>
             <label style={{
               display: 'flex',
               alignItems: 'center',
