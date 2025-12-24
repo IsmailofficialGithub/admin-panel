@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Mail, Lock, Phone, Calendar, CheckCircle, AlertCircle, MapPin, Globe, ChevronDown, RefreshCw, Eye, Users, Package, Shield } from 'lucide-react';
+import { X, User, Mail, Lock, Phone, Calendar, CheckCircle, AlertCircle, MapPin, Globe, ChevronDown, RefreshCw, Eye, Users, Package, Shield, CloudCog, EyeOff } from 'lucide-react';
 import { countries, searchCountries } from '../../utils/countryData';
 import { generatePassword } from '../../utils/passwordGenerator';
 import { getResellers, getProducts } from '../../api/backend';
 import { getAllPackages } from '../../api/backend/packages';
 import { getAllVapiAccounts } from '../../api/backend/vapi';
 import { useAuth } from '../../hooks/useAuth';
+import { hasRole } from '../../utils/roleUtils';
 
 const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
   const { profile } = useAuth();
@@ -56,15 +57,20 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
   const [selectedReseller, setSelectedReseller] = useState(null);
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
-  const [packages, setPackages] = useState([]);
-  const [loadingPackages, setLoadingPackages] = useState(false);
-  const [showPackagesDropdown, setShowPackagesDropdown] = useState(false);
+  // const [packages, setPackages] = useState([]);
+  // const [loadingPackages, setLoadingPackages] = useState(false);
+  // const [showPackagesDropdown, setShowPackagesDropdown] = useState(false);
   
   // Check if genie product is selected (case-insensitive) - must be after products state is declared
   const isGenieProductSelected = selectedProducts.some(productId => {
     const product = products.find(p => p.id === productId);
     return product && product.name && product.name.toLowerCase() === 'genie';
   });
+
+  // Check if user is admin or superadmin (only they can see Genie Product Settings)
+  const isAdmin = hasRole(profile?.role, 'admin');
+  const isSuperAdmin = profile?.is_systemadmin === true;
+  const canViewGenieSettings = isAdmin || isSuperAdmin;
 
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -92,21 +98,21 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         }
 
         // Fetch packages
-        setLoadingPackages(true);
-        try {
-          const packagesResult = await getAllPackages();
-          console.log('Fetched packages:', packagesResult);
-          if (packagesResult && packagesResult.success && packagesResult.data && Array.isArray(packagesResult.data)) {
-            setPackages(packagesResult.data);
-            console.log('Packages set:', packagesResult.data.length);
-          } else if (packagesResult && packagesResult.error) {
-            console.error('Error from getAllPackages:', packagesResult.error);
-          }
-        } catch (error) {
-          console.error('Error fetching packages:', error);
-        } finally {
-          setLoadingPackages(false);
-        }
+        // setLoadingPackages(true);
+        // try {
+          // const packagesResult = await getAllPackages();
+          // console.log('Fetched packages:', packagesResult);
+          // if (packagesResult && packagesResult.success && packagesResult.data && Array.isArray(packagesResult.data)) {
+          //   setPackages(packagesResult.data);
+          //   console.log('Packages set:', packagesResult.data.length);
+          // } else if (packagesResult && packagesResult.error) {
+          //   console.error('Error from getAllPackages:', packagesResult.error);
+          // }
+        // } catch (error) {
+        //   console.error('Error fetching packages:', error);
+        // } finally {
+        //   setLoadingPackages(false);
+        // }
 
         // Fetch VAPI accounts
         setLoadingVapiAccounts(true);
@@ -129,6 +135,22 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
       fetchData();
     }
   }, [isOpen, isConsumerSelected]);
+
+  // Ensure consumer role is selected when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setFormData(prev => {
+        const currentRoles = prev.roles || [];
+        if (!currentRoles.includes('consumer')) {
+          return {
+            ...prev,
+            roles: ['consumer', ...currentRoles]
+          };
+        }
+        return prev;
+      });
+    }
+  }, [isOpen]);
 
   // Search resellers when user types 2+ characters
   useEffect(() => {
@@ -609,6 +631,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         email: '',
         password: '',
         confirmPassword: '',
+        roles: ['consumer'],
         phone: '',
         trial_expiry_date: '',
         country: '',
@@ -973,7 +996,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                   e.currentTarget.style.color = '#9ca3af';
                 }}
               >
-                {showPassword ? <Eye size={18} /> : <Eye size={18} style={{ opacity: 0.5 }} />}
+                {showPassword ? <Eye size={18} /> : <EyeOff size={18}  />}
               </button>
             </div>
             {errors.password && (
@@ -1066,7 +1089,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                   e.currentTarget.style.color = '#9ca3af';
                 }}
               >
-                {showConfirmPassword ? <Eye size={18} /> : <Eye size={18} style={{ opacity: 0.5 }} />}
+                {showConfirmPassword ? <Eye size={18} /> : <EyeOff size={18}  />}
               </button>
             </div>
             {errors.confirmPassword && (
@@ -1918,7 +1941,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
               {/* Packages Section (actual subscription) */}
               
               <div style={{ marginBottom: '20px' }}>
-            <label style={{
+            {/* <label style={{
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
@@ -1929,9 +1952,9 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
             }}>
               <Package size={16} style={{ color: '#6b7280' }} />
               Subscribed Packages <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
-            </label>
-            <div style={{ position: 'relative' }}>
-              <div
+            </label> */}
+            {/* <div style={{ position: 'relative' }}> */}
+              {/* <div
                 onClick={() => !isSubmitting && setShowPackagesDropdown(!showPackagesDropdown)}
                 style={{
                   width: '100%',
@@ -2005,10 +2028,10 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 }}>
                   <ChevronDown size={16} style={{ color: '#9ca3af' }} />
                 </div>
-              </div>
+              </div> */}
 
               {/* Packages Dropdown */}
-              {showPackagesDropdown && !isSubmitting && (
+              {/* {showPackagesDropdown && !isSubmitting && (
                 <div
                   style={{
                     position: 'absolute',
@@ -2096,8 +2119,8 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                     })
                   )}
                 </div>
-              )}
-            </div>
+              )} */}
+            {/* </div> */}
             {formData.subscribed_packages.length > 0 && (
               <p style={{
                 color: '#6b7280',
@@ -2114,8 +2137,8 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
             )}
           </div>
 
-          {/* Genie Product Settings Section */}
-          {isGenieProductSelected && (
+         
+          {isGenieProductSelected && canViewGenieSettings && (
             <div style={{ 
               marginBottom: '20px',
               padding: '16px',

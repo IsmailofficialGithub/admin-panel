@@ -29,9 +29,9 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
   const [countrySearch, setCountrySearch] = useState('');
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState(null);
-  const [showPackagesDropdown, setShowPackagesDropdown] = useState(false);
-  const [packages, setPackages] = useState([]);
-  const [loadingPackages, setLoadingPackages] = useState(false);
+  // const [showPackagesDropdown, setShowPackagesDropdown] = useState(false);
+  // const [packages, setPackages] = useState([]);
+  // const [loadingPackages, setLoadingPackages] = useState(false);
   const [showProductsDropdown, setShowProductsDropdown] = useState(false);
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
@@ -188,38 +188,38 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
   }, [isOpen]);
 
   // Fetch packages when modal opens and consumer role is selected
-  useEffect(() => {
-    if (isOpen && isConsumerSelected) {
-      const fetchPackages = async () => {
-        setLoadingPackages(true);
-        try {
-          const response = await apiClient.packages.getAll({ limit: 1000 }); // Get all packages
+  // useEffect(() => {
+  //   if (isOpen && isConsumerSelected) {
+  //     const fetchPackages = async () => {
+  //       setLoadingPackages(true);
+  //       try {
+  //         const response = await apiClient.packages.getAll({ limit: 1000 }); // Get all packages
           
-          // The axios interceptor already unwraps response.data, so response is the data object
-          // API response structure: { success: true, data: [...], count: 9, ... }
-          if (response?.success && Array.isArray(response.data)) {
-            setPackages(response.data);
-          } else if (Array.isArray(response?.data)) {
-            // Fallback: if response.data is an array directly
-            setPackages(response.data);
-          } else if (response?.error) {
-            console.error('❌ Error from getPackages:', response.error);
-            setPackages([]);
-          } else {
-            console.warn('⚠️ Unexpected packages response format:', response);
-            setPackages([]);
-          }
-        } catch (error) {
-          console.error('Error fetching packages:', error);
-          setPackages([]);
-        } finally {
-          setLoadingPackages(false);
-        }
-      };
+  //         // The axios interceptor already unwraps response.data, so response is the data object
+  //         // API response structure: { success: true, data: [...], count: 9, ... }
+  //         if (response?.success && Array.isArray(response.data)) {
+  //           setPackages(response.data);
+  //         } else if (Array.isArray(response?.data)) {
+  //           // Fallback: if response.data is an array directly
+  //           setPackages(response.data);
+  //         } else if (response?.error) {
+  //           console.error('❌ Error from getPackages:', response.error);
+  //           setPackages([]);
+  //         } else {
+  //           console.warn('⚠️ Unexpected packages response format:', response);
+  //           setPackages([]);
+  //         }
+  //       } catch (error) {
+  //         console.error('Error fetching packages:', error);
+  //         setPackages([]);
+  //       } finally {
+  //         setLoadingPackages(false);
+  //       }
+  //     };
 
-      fetchPackages();
-    }
-  }, [isOpen, isConsumerSelected]);
+  //     fetchPackages();
+  //   }
+  // }, [isOpen, isConsumerSelected]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -1645,8 +1645,8 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
           )}
 
           {/* Subscribed Packages Field (Multi-select) */}
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{
+          {/* <div style={{ marginBottom: '20px' }}> */}
+            {/* <label style={{
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
@@ -1659,9 +1659,9 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
               <span style={{ fontWeight: '600', color: '#374151' }}>Subscribed Packages</span>
               <span style={{ color: '#ef4444', fontWeight: '500', fontSize: '12px' }}>*</span>
               <span style={{ color: '#6b7280', fontWeight: '400', fontSize: '12px' }}>(Select packages to subscribe - this is what gets saved to database)</span>
-            </label>
-            <div style={{ position: 'relative' }}>
-              <div
+            </label> */}
+            {/* <div style={{ position: 'relative' }}> */}
+              {/* <div
                 onClick={() => setShowPackagesDropdown(!showPackagesDropdown)}
                 style={{
                   width: '100%',
@@ -1731,10 +1731,10 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                 }}>
                   <ChevronDown size={16} style={{ color: '#9ca3af' }} />
                 </div>
-              </div>
+              </div> */}
 
               {/* Packages Dropdown */}
-              {showPackagesDropdown && (
+              {/* {showPackagesDropdown && (
                 <>
                   <div
                     style={{
@@ -1836,23 +1836,23 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                     )}
                   </div>
                 </>
-              )}
-            </div>
-            {formData.subscribed_packages.length > 0 && (
-              <p style={{
-                color: '#6b7280',
-                fontSize: '12px',
-                marginTop: '6px',
-                marginBottom: 0,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}>
-                <span style={{ fontSize: '16px' }}>ℹ️</span>
-                {formData.subscribed_packages.length} package{formData.subscribed_packages.length !== 1 ? 's' : ''} selected
-              </p>
-            )}
-          </div>
+              )} */}
+            {/* </div> */}
+              {/* {formData.subscribed_packages.length > 0 && (
+                <p style={{
+                  color: '#6b7280',
+                  fontSize: '12px',
+                  marginTop: '6px',
+                  marginBottom: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}>
+                  <span style={{ fontSize: '16px' }}>ℹ️</span>
+                  {formData.subscribed_packages.length} package{formData.subscribed_packages.length !== 1 ? 's' : ''} selected
+                </p>
+              )} */}
+          {/* </div> */}
 
           {/* Email Display (Read-only) */}
           <div style={{

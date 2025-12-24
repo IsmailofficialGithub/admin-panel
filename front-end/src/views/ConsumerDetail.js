@@ -711,15 +711,16 @@ function ConsumerDetail() {
                   <thead>
                     <tr>
                       <th>Product Name</th>
-                      <th>Price</th>
+                      {/* <th>Price</th> */}
                       <th>Description</th>
                     </tr>
                   </thead>
                   <tbody>
                     {products.map((product, index) => (
+                      
                       <tr key={product.id || index}>
-                        <td>{product.name || 'N/A'}</td>
-                        <td>${product.price || 0}</td>
+                        <td>{product.product_name || 'N/A'}</td>
+                        {/* <td>${product.price || 0}</td> */}
                         <td>{product.description || 'N/A'}</td>
                       </tr>
                     ))}
