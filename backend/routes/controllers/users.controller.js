@@ -30,6 +30,7 @@ const USER_SELECT_FIELDS = [
   'user_id',
   'email',
   'full_name',
+  'nickname',
   'role',
   'phone',
   'country',
@@ -327,7 +328,7 @@ export const createUser = async (req, res) => {
     // ========================================
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
-    let { email, password, full_name, role, roles, phone, country, city, referred_by, subscribed_products, trial_expiry_date } = req.body;
+    let { email, password, full_name, role, roles, phone, country, city, referred_by, subscribed_products, trial_expiry_date, nickname } = req.body;
 
     // Validate required fields
     if (!email || !password || !full_name || !country || !city) {
@@ -480,6 +481,7 @@ export const createUser = async (req, res) => {
       country: country || null,
       city: city || null,
       referred_by: finalReferredBy || null,
+      nickname: nickname ? sanitizeString(nickname, 100) : null,
     };
 
     // If roles include consumer, handle trial_expiry and account_status
@@ -635,7 +637,7 @@ export const updateUser = async (req, res) => {
       });
     }
 
-    let { full_name, role, roles, phone, country, city } = req.body;
+    let { full_name, role, roles, phone, country, city, nickname } = req.body;
     
     console.log('📝 Update user - received data:', { 
       roles, 
@@ -734,6 +736,11 @@ export const updateUser = async (req, res) => {
     // Sanitize country and city
     updateData.country = sanitizeString(country, 100);
     updateData.city = sanitizeString(city, 100);
+    
+    // Handle nickname (optional)
+    if (nickname !== undefined) {
+      updateData.nickname = nickname ? sanitizeString(nickname, 100) : null;
+    }
 
     // ========================================
     // 3. DATABASE QUERY WITH TIMEOUT

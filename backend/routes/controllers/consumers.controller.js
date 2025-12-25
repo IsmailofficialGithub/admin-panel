@@ -349,7 +349,7 @@ export const updateConsumer = async (req, res) => {
       });
     }
 
-    let { full_name, phone, trial_expiry_date, country, city, subscribed_products, subscribed_packages, roles, productSettings } = req.body;
+    let { full_name, phone, trial_expiry_date, country, city, subscribed_products, subscribed_packages, roles, productSettings, nickname } = req.body;
     
     console.log('📝 Update consumer - received data:', { 
       roles, 
@@ -400,6 +400,11 @@ export const updateConsumer = async (req, res) => {
     // Sanitize country and city
     updateData.country = sanitizeString(country, 100);
     updateData.city = sanitizeString(city, 100);
+    
+    // Handle nickname (optional)
+    if (nickname !== undefined) {
+      updateData.nickname = nickname ? sanitizeString(nickname, 100) : null;
+    }
     
     if (trial_expiry_date !== undefined) {
       // Convert to timestamp if provided

@@ -394,7 +394,7 @@ export const createReseller = async (req, res) => {
     // ========================================
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
-    let { email, password, full_name, phone, country, city, roles, referred_by, subscribed_products, trial_expiry_date, productSettings } = req.body;
+    let { email, password, full_name, phone, country, city, roles, referred_by, subscribed_products, trial_expiry_date, productSettings, nickname } = req.body;
     console.log('=============================================')
 
     // Validate required fields
@@ -535,7 +535,8 @@ export const createReseller = async (req, res) => {
       referred_by: finalReferredBy || null,
       commission_rate: null, // Explicitly set to NULL to use default
       commission_updated_at: null,
-      account_status: accountStatus
+      account_status: accountStatus,
+      nickname: nickname ? sanitizeString(nickname, 100) : null
     };
     
     // If roles include consumer, handle trial_expiry and account_status
@@ -725,7 +726,7 @@ export const updateReseller = async (req, res) => {
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
     const { id } = req.params;
-    let { full_name, phone, country, city, roles } = req.body;
+    let { full_name, phone, country, city, roles, nickname } = req.body;
     
     console.log('📝 Update reseller - received data:', { 
       roles, 
@@ -756,6 +757,11 @@ export const updateReseller = async (req, res) => {
     updateData.phone = sanitizeString(phone, 20);
     updateData.country = sanitizeString(country, 100);
     updateData.city = sanitizeString(city, 100);
+    
+    // Handle nickname (optional)
+    if (nickname !== undefined) {
+      updateData.nickname = nickname ? sanitizeString(nickname, 100) : null;
+    }
 
     // Handle roles update if provided
     if (roles !== undefined) {
@@ -2759,7 +2765,7 @@ export const updateMyReseller = async (req, res) => {
     // ========================================
     const { id } = req.params;
     const resellerId = req.user.id;
-    let { full_name, phone, country, city } = req.body;
+    let { full_name, phone, country, city, nickname } = req.body;
 
     if (!id || !isValidUUID(id)) {
       return res.status(400).json({
@@ -2784,6 +2790,11 @@ export const updateMyReseller = async (req, res) => {
     updateData.phone = sanitizeString(phone, 20);
     updateData.country = sanitizeString(country, 100);
     updateData.city = sanitizeString(city, 100);
+    
+    // Handle nickname (optional)
+    if (nickname !== undefined) {
+      updateData.nickname = nickname ? sanitizeString(nickname, 100) : null;
+    }
 
     // ========================================
     // 2. VERIFY OWNERSHIP (with timeout)
@@ -2906,7 +2917,7 @@ export const createMyReseller = async (req, res) => {
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
     const resellerId = req.user.id;
-    let { email, password, full_name, phone, country, city } = req.body;
+    let { email, password, full_name, phone, country, city, nickname } = req.body;
 
     // Validate required fields
     if (!email || !password || !full_name || !country || !city) {
@@ -3000,6 +3011,7 @@ export const createMyReseller = async (req, res) => {
       country: country || null,
       city: city || null,
       referred_by: resellerId,
+      nickname: nickname ? sanitizeString(nickname, 100) : null,
       commission_rate: null,
       commission_updated_at: null,
       account_status: accountStatus

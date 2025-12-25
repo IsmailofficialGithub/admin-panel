@@ -123,6 +123,7 @@ export const updateUserRole = async (userId, updateData) => {
     } else if (updateData.role !== undefined) {
       cleanedData.role = updateData.role;
     }
+    if (updateData.nickname !== undefined) cleanedData.nickname = updateData.nickname;
     if (updateData.full_name !== undefined) cleanedData.full_name = updateData.full_name;
     if (updateData.country !== undefined) cleanedData.country = updateData.country;
     if (updateData.city !== undefined) cleanedData.city = updateData.city;

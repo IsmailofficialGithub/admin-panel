@@ -149,6 +149,7 @@ export const updateConsumer = async (consumerId, updateData) => {
     if (updateData.subscribed_packages !== undefined) cleanedData.subscribed_packages = updateData.subscribed_packages;
     if (updateData.subscribed_products !== undefined) cleanedData.subscribed_products = updateData.subscribed_products;
     if (updateData.productSettings !== undefined) cleanedData.productSettings = updateData.productSettings;
+    if (updateData.nickname !== undefined) cleanedData.nickname = updateData.nickname;
     // Support both roles array and single role (backward compatibility)
     if (updateData.roles !== undefined) {
       cleanedData.roles = updateData.roles;

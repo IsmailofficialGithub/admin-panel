@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Phone, Calendar, Globe, MapPin, ChevronDown, Package, CheckCircle, Shield } from 'lucide-react';
+import { X, User, Phone, Calendar, Globe, MapPin, ChevronDown, Package, CheckCircle, Shield, Tag } from 'lucide-react';
 import { countries, searchCountries } from '../../utils/countryData';
 import apiClient from '../../services/apiClient';
 import { normalizeRole } from '../../utils/roleUtils';
@@ -14,7 +14,8 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
     country: '',
     city: '',
     subscribed_packages: [],
-    roles: ['consumer'] // Default to consumer, but allow reseller too
+    roles: ['consumer'], // Default to consumer, but allow reseller too
+    nickname: ''
   });
   
   // Available roles for consumer form
@@ -92,7 +93,8 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         country: consumer.country || '',
         city: consumer.city || '',
         subscribed_packages: consumerPackages || [],
-        roles: finalRoles
+        roles: finalRoles,
+        nickname: consumer.nickname || ''
       });
       
       // If consumer has a country, find and set it
@@ -539,7 +541,8 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         trial_expiry_date: formData.trial_expiry_date || null,
         country: formData.country.trim() || null,
         city: formData.city.trim() || null,
-        roles: formData.roles || ['consumer'] // Send roles array
+        roles: formData.roles || ['consumer'], // Send roles array
+        nickname: formData.nickname ? formData.nickname.trim() : null
       };
 
       // Always include subscribed_packages (even if empty array)
@@ -738,6 +741,67 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                 marginBottom: 0
               }}>
                 {errors.full_name}
+              </p>
+            )}
+          </div>
+
+          {/* Nickname Field */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              Nickname / Label <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+            </label>
+            <div style={{ position: 'relative' }}>
+              <div style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#9ca3af'
+              }}>
+                <Tag size={18} />
+              </div>
+              <input
+                type="text"
+                name="nickname"
+                value={formData.nickname}
+                onChange={handleChange}
+                placeholder="Enter a nickname or label"
+                style={{
+                  width: '100%',
+                  padding: '10px 12px 10px 40px',
+                  border: errors.nickname ? '1px solid #ef4444' : '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.2s',
+                  boxSizing: 'border-box'
+                }}
+                onFocus={(e) => {
+                  if (!errors.nickname) {
+                    e.target.style.borderColor = '#74317e';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                  }
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = errors.nickname ? '#ef4444' : '#d1d5db';
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+            </div>
+            {errors.nickname && (
+              <p style={{
+                color: '#ef4444',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                {errors.nickname}
               </p>
             )}
           </div>

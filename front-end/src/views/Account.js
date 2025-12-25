@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card, Form, Button, Alert, Table } from 'react-bootstrap';
 import { useHistory } from 'react-router-dom';
-import { User, Mail, Phone, MapPin, Lock, Save, Edit2, Globe, ChevronDown, X, Search, Activity, Plus, Trash2, Clock, Eye } from 'lucide-react';
+import { User, Mail, Phone, MapPin, Lock, Save, Edit2, Globe, ChevronDown, X, Search, Activity, Plus, Trash2, Clock, Eye, Tag } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { createClient } from '../lib/supabase/Production/client';
 import toast from 'react-hot-toast';
@@ -22,7 +22,8 @@ const Account = () => {
     phone: '',
     country: '',
     city: '',
-    role: ''
+    role: '',
+    nickname: ''
   });
 
   const [passwordData, setPasswordData] = useState({
@@ -101,7 +102,8 @@ const Account = () => {
         phone: phoneWithoutCode,
         country: countryName,
         city: profile.city || '',
-        role: profile.role || ''
+        role: profile.role || '',
+        nickname: profile.nickname || ''
       });
       
       setSelectedCountry(country);
@@ -314,6 +316,7 @@ const Account = () => {
           phone: fullPhone,
           country: formData.country ? formData.country.trim() : null,
           city: formData.city ? formData.city.trim() : null,
+          nickname: formData.nickname ? formData.nickname.trim() : null,
           updated_at: new Date().toISOString()
         })
         .eq('user_id', user.id);
@@ -510,6 +513,45 @@ const Account = () => {
                       }}
                     />
                   </div>
+                </Form.Group>
+
+                {/* Nickname */}
+                <Form.Group style={{ marginBottom: '20px' }}>
+                  <Form.Label style={{
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    color: '#374151',
+                    marginBottom: '8px'
+                  }}>
+                    Nickname / Label
+                  </Form.Label>
+                  <div style={{ position: 'relative' }}>
+                    <Tag size={18} style={{
+                      position: 'absolute',
+                      left: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: '#9ca3af'
+                    }} />
+                    <Form.Control
+                      type="text"
+                      name="nickname"
+                      value={formData.nickname}
+                      onChange={handleChange}
+                      disabled={!isEditing}
+                      placeholder="Enter a nickname or label"
+                      style={{
+                        paddingLeft: '40px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        backgroundColor: isEditing ? '#fff' : '#f9fafb'
+                      }}
+                    />
+                  </div>
+                  <Form.Text style={{ fontSize: '12px', color: '#6c757d' }}>
+                    Optional: Add a custom nickname or label for easy identification
+                  </Form.Text>
                 </Form.Group>
 
                 {/* Email */}

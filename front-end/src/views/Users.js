@@ -98,6 +98,7 @@ const User = () => {
           country: user.country,
           city: user.city,
           phone: user.phone,
+          nickname: user.nickname,
           createdAt: user.created_at
         });
         setIsModalOpen(true);
@@ -133,6 +134,7 @@ const User = () => {
           full_name: updatedUser.full_name,
           roles: updatedUser.roles || updatedUser.role ? (Array.isArray(updatedUser.roles) ? updatedUser.roles : [updatedUser.role]) : ['user'],
           country: updatedUser.country,
+          nickname: updatedUser.nickname,
           city: updatedUser.city,
           phone: updatedUser.phone
         }
@@ -144,20 +146,24 @@ const User = () => {
         return;
       }
       
-      // Update the user in the local state
+      // Update the user in the local state - use API response data if available, otherwise use modal data
       setUsers(prevUsers =>
         prevUsers.map(user => {
           const userId = user.id || user.user_id;
           if (userId === updatedUser.id) {
+            // Prefer API response data, fallback to modal data
+            const updatedData = result.user || {};
             return {
               ...user,
-              name: updatedUser.full_name,
-              full_name: updatedUser.full_name,
-              email: updatedUser.email,
-              role: updatedUser.roles || updatedUser.role || ['user'],
-              country: updatedUser.country,
-              city: updatedUser.city,
-              phone: updatedUser.phone
+              name: updatedData.full_name || updatedUser.full_name,
+              full_name: updatedData.full_name || updatedUser.full_name,
+              nickname: updatedData.nickname !== undefined ? updatedData.nickname : (updatedUser.nickname || null),
+              email: updatedData.email || updatedUser.email || user.email,
+              role: updatedData.role || updatedUser.roles || updatedUser.role || ['user'],
+              country: updatedData.country !== undefined ? updatedData.country : (updatedUser.country || null),
+              city: updatedData.city !== undefined ? updatedData.city : (updatedUser.city || null),
+              phone: updatedData.phone !== undefined ? updatedData.phone : (updatedUser.phone || null),
+              updated_at: new Date().toISOString()
             };
           }
           return user;
@@ -676,7 +682,34 @@ const User = () => {
                       {userId?.toString().slice(0, 8) || '-'}
                     </td>
                     <td style={{ padding: '15px 24px', color: '#333', fontSize: '14px', fontWeight: '500' }}>
-                      {user.name || user.full_name || user.username || <span style={{ color: '#999', fontStyle: 'italic' }}>No name</span>}
+                      {(() => {
+                        const displayName = user.name || user.full_name || user.username;
+                        const fullName = user.full_name || user.name;
+                        // If nickname exists, show it as a small colored label
+                        if (user.nickname) {
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: '500', color: '#333' }}>
+                                {displayName || <span style={{ color: '#999', fontStyle: 'italic' }}>No name</span>}
+                              </span>
+                              <span style={{
+                                fontSize: '11px',
+                                fontWeight: '500',
+                                color: '#74317e',
+                                backgroundColor: '#f3e8f7',
+                                padding: '2px 8px',
+                                borderRadius: '12px',
+                                display: 'inline-block',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {user.nickname}
+                              </span>
+                            </div>
+                          );
+                        }
+                        // Otherwise just show the display name
+                        return displayName || <span style={{ color: '#999', fontStyle: 'italic' }}>No name</span>;
+                      })()}
                     </td>
                     <td style={{ padding: '15px 24px', color: '#666', fontSize: '14px' }}>
                       {user.email || <span style={{ color: '#999', fontStyle: 'italic' }}>No email</span>}
@@ -747,7 +780,7 @@ const User = () => {
                           minWidth: '180px'
                         }}>
                           <button
-                            onClick={() => handleAction('View Details', userId, user.name || user.full_name)}
+                            onClick={() => handleAction('View Details', userId, user.nickname || user.name || user.full_name)}
                             style={{
                               width: '100%',
                               padding: '10px 16px',
@@ -774,7 +807,7 @@ const User = () => {
                             margin: '4px 0' 
                           }} />
                           <button
-                            onClick={() => handleAction('Update', userId, user.name || user.full_name)}
+                            onClick={() => handleAction('Update', userId, user.nickname || user.name || user.full_name)}
                             style={{
                               width: '100%',
                               padding: '10px 16px',
@@ -796,7 +829,7 @@ const User = () => {
                             Update
                           </button>
                           <button
-                            onClick={() => handleAction('Reset Password', userId, user.name || user.full_name)}
+                            onClick={() => handleAction('Reset Password', userId, user.nickname || user.name || user.full_name)}
                             style={{
                               width: '100%',
                               padding: '10px 16px',
@@ -818,7 +851,7 @@ const User = () => {
                             Reset Password
                           </button>
                           <button
-                            onClick={() => handleAction('Deactivate Account', userId, user.name || user.full_name)}
+                            onClick={() => handleAction('Deactivate Account', userId, user.nickname || user.name || user.full_name)}
                             disabled={hasRole(user.role, 'admin')}
                             style={{
                               width: '100%',
@@ -857,7 +890,7 @@ const User = () => {
                             margin: '4px 0' 
                           }} />
                           <button
-                            onClick={() => handleAction('Delete', userId, user.name || user.full_name)}
+                            onClick={() => handleAction('Delete', userId, user.nickname || user.name || user.full_name)}
                             style={{
                               width: '100%',
                               padding: '10px 16px',

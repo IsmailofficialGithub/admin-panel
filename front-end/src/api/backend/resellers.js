@@ -74,7 +74,8 @@ export const createReseller = async (resellerData) => {
       country: resellerData.country || null,
       city: resellerData.city || null,
       phone: resellerData.phone || null,
-      roles: resellerData.roles || ['reseller'] // Send roles array
+      roles: resellerData.roles || ['reseller'], // Send roles array
+      nickname: resellerData.nickname || null
     };
     
     // Add consumer-specific fields if consumer role is selected
@@ -123,6 +124,7 @@ export const updateReseller = async (resellerId, updateData) => {
     const cleanedData = {};
     
     if (updateData.full_name !== undefined) cleanedData.full_name = updateData.full_name;
+    if (updateData.nickname !== undefined) cleanedData.nickname = updateData.nickname;
     if (updateData.country !== undefined) cleanedData.country = updateData.country;
     if (updateData.city !== undefined) cleanedData.city = updateData.city;
     if (updateData.phone !== undefined) cleanedData.phone = updateData.phone;
@@ -235,7 +237,8 @@ export const createMyReseller = async (resellerData) => {
       country: resellerData.country || null,
       city: resellerData.city || null,
       phone: resellerData.phone || null,
-      role: 'reseller'
+      role: 'reseller',
+      nickname: resellerData.nickname || null
     });
     
     if (response.success) {

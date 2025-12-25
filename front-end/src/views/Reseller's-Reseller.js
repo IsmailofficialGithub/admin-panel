@@ -96,6 +96,7 @@ const ResellersReseller = () => {
           phone: reseller.phone,
           country: reseller.country,
           city: reseller.city,
+          nickname: reseller.nickname,
           created_at: reseller.created_at
         });
         setIsUpdateModalOpen(true);
@@ -157,6 +158,7 @@ const ResellersReseller = () => {
       // Call API to update Reseller using user_id (reseller's own reseller)
       const result = await updateMyReseller(updatedReseller.user_id, {
         full_name: updatedReseller.full_name,
+        nickname: updatedReseller.nickname,
         phone: updatedReseller.phone,
         country: updatedReseller.country,
         city: updatedReseller.city
@@ -168,14 +170,19 @@ const ResellersReseller = () => {
         return;
       }
       
-      // Update the Reseller in the local state matching backend structure
+      // Update the Reseller in the local state - use API response data if available, otherwise use modal data
       setUsers(prevUsers =>
         prevUsers.map(user => {
           if (user.user_id === updatedReseller.user_id) {
+            // Prefer API response data, fallback to modal data
+            const updatedData = result.user || {};
             return {
               ...user,
-              full_name: updatedReseller.full_name,
-              phone: updatedReseller.phone || null,
+              full_name: updatedData.full_name || updatedReseller.full_name,
+              nickname: updatedData.nickname !== undefined ? updatedData.nickname : (updatedReseller.nickname || null),
+              phone: updatedData.phone !== undefined ? updatedData.phone : (updatedReseller.phone || null),
+              country: updatedData.country !== undefined ? updatedData.country : (updatedReseller.country || null),
+              city: updatedData.city !== undefined ? updatedData.city : (updatedReseller.city || null),
               updated_at: new Date().toISOString()
             };
           }
@@ -695,7 +702,33 @@ const ResellersReseller = () => {
                       {userId?.toString().slice(0, 8) || '-'}
                     </td>
                     <td style={{ padding: '15px 24px', color: '#333', fontSize: '14px', fontWeight: '500' }}>
-                      {user.full_name || <span style={{ color: '#999', fontStyle: 'italic' }}>No name</span>}
+                      {(() => {
+                        const displayName = user.full_name;
+                        // If nickname exists, show it as a small colored label
+                        if (user.nickname) {
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: '500', color: '#333' }}>
+                                {displayName || <span style={{ color: '#999', fontStyle: 'italic' }}>No name</span>}
+                              </span>
+                              <span style={{
+                                fontSize: '11px',
+                                fontWeight: '500',
+                                color: '#74317e',
+                                backgroundColor: '#f3e8f7',
+                                padding: '2px 8px',
+                                borderRadius: '12px',
+                                display: 'inline-block',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {user.nickname}
+                              </span>
+                            </div>
+                          );
+                        }
+                        // Otherwise just show the display name
+                        return displayName || <span style={{ color: '#999', fontStyle: 'italic' }}>No name</span>;
+                      })()}
                     </td>
                     <td style={{ padding: '15px 24px', color: '#666', fontSize: '14px' }}>
                       {user.email || <span style={{ color: '#999', fontStyle: 'italic' }}>No email</span>}

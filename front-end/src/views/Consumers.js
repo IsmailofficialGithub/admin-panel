@@ -265,7 +265,8 @@ const Consumers = () => {
           created_at: consumer.created_at,
           subscribed_products: consumer.subscribed_products || [],
           subscribed_packages: consumer.subscribed_packages || [],
-          role: consumer.role || ['consumer'] // Include role field from consumer data
+          role: consumer.role || ['consumer'], // Include role field from consumer data
+          nickname: consumer.nickname
         });
         setIsUpdateModalOpen(true);
       }
@@ -476,6 +477,7 @@ const Consumers = () => {
         trial_expiry_date: updatedConsumer.trial_expiry_date,
         country: updatedConsumer.country,
         city: updatedConsumer.city,
+        nickname: updatedConsumer.nickname,
         productSettings: updatedConsumer.productSettings || {},
         subscribed_products: updatedConsumer.subscribed_products || [],
         subscribed_packages: updatedConsumer.subscribed_packages || [], // Use subscribed_packages instead of subscribed_products
@@ -501,7 +503,10 @@ const Consumers = () => {
                 return {
                   ...user,
                   full_name: updatedConsumerData.data.full_name || updatedConsumer.full_name,
+                  nickname: updatedConsumerData.data.nickname || updatedConsumer.nickname || null,
                   phone: updatedConsumerData.data.phone || updatedConsumer.phone || null,
+                  country: updatedConsumerData.data.country || updatedConsumer.country || null,
+                  city: updatedConsumerData.data.city || updatedConsumer.city || null,
                   trial_expiry: updatedConsumerData.data.trial_expiry || updatedConsumer.trial_expiry_date || null,
                   subscribed_products: updatedConsumerData.data.subscribed_products || [],
                   subscribed_packages: updatedConsumerData.data.subscribed_packages || [],
@@ -519,7 +524,10 @@ const Consumers = () => {
             return {
               ...user,
               full_name: updatedConsumer.full_name,
+              nickname: updatedConsumer.nickname || null,
               phone: updatedConsumer.phone || null,
+              country: updatedConsumer.country || null,
+              city: updatedConsumer.city || null,
               trial_expiry: updatedConsumer.trial_expiry_date || null,
                   subscribed_products: updatedConsumer.subscribed_products || [],
                   subscribed_packages: updatedConsumer.subscribed_packages || [],
@@ -539,7 +547,10 @@ const Consumers = () => {
               return {
                 ...user,
                 full_name: updatedConsumer.full_name,
+                nickname: updatedConsumer.nickname || null,
                 phone: updatedConsumer.phone || null,
+                country: updatedConsumer.country || null,
+                city: updatedConsumer.city || null,
                 trial_expiry: updatedConsumer.trial_expiry_date || null,
                 subscribed_products: updatedConsumer.subscribed_products || [],
                 subscribed_packages: updatedConsumer.subscribed_packages || [],
@@ -1433,7 +1444,33 @@ const Consumers = () => {
                       {userId?.toString().slice(0, 8) || '-'}
                     </td>
                     <td style={{ padding: '15px 24px', color: '#333', fontSize: '14px', fontWeight: '500' }}>
-                      {user.full_name || <span style={{ color: '#999', fontStyle: 'italic' }}>No name</span>}
+                      {(() => {
+                        const displayName = user.full_name;
+                        // If nickname exists, show it as a small colored label
+                        if (user.nickname) {
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: '500', color: '#333' }}>
+                                {displayName || <span style={{ color: '#999', fontStyle: 'italic' }}>No name</span>}
+                              </span>
+                              <span style={{
+                                fontSize: '11px',
+                                fontWeight: '500',
+                                color: '#74317e',
+                                backgroundColor: '#f3e8f7',
+                                padding: '2px 8px',
+                                borderRadius: '12px',
+                                display: 'inline-block',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {user.nickname}
+                              </span>
+                            </div>
+                          );
+                        }
+                        // Otherwise just show the display name
+                        return displayName || <span style={{ color: '#999', fontStyle: 'italic' }}>No name</span>;
+                      })()}
                     </td>
                     <td style={{ padding: '15px 24px', color: '#666', fontSize: '14px' }}>
                       {user.email || <span style={{ color: '#999', fontStyle: 'italic' }}>No email</span>}
