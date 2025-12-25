@@ -617,6 +617,26 @@ export const updateConsumer = async (req, res) => {
                 sanitizedSettings.concurrency_limit = parseInt(settings.concurrency_limit);
               }
               
+              // Beeba product settings
+              if (settings.brands !== undefined && settings.brands !== null && settings.brands !== '') {
+                sanitizedSettings.brands = parseInt(settings.brands);
+              }
+              if (settings.posts !== undefined && settings.posts !== null && settings.posts !== '') {
+                sanitizedSettings.posts = parseInt(settings.posts);
+              }
+              if (settings.analysis !== undefined && settings.analysis !== null && settings.analysis !== '') {
+                sanitizedSettings.analysis = parseInt(settings.analysis);
+              }
+              if (settings.images !== undefined && settings.images !== null && settings.images !== '') {
+                sanitizedSettings.images = parseInt(settings.images);
+              }
+              if (settings.video !== undefined && settings.video !== null && settings.video !== '') {
+                sanitizedSettings.video = parseInt(settings.video);
+              }
+              if (settings.carasoul !== undefined && settings.carasoul !== null && settings.carasoul !== '') {
+                sanitizedSettings.carasoul = parseInt(settings.carasoul);
+              }
+              
               // Only add product_settings if there are valid settings
               if (Object.keys(sanitizedSettings).length > 0) {
                 record.product_settings = sanitizedSettings;

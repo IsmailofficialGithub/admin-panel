@@ -68,10 +68,17 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
     return product && product.name && product.name.toLowerCase() === 'genie';
   });
 
-  // Check if user is admin or superadmin (only they can see Genie Product Settings)
+  // Check if beeba product is selected (case-insensitive) - must be after products state is declared
+  const isBeebaProductSelected = selectedProducts.some(productId => {
+    const product = products.find(p => p.id === productId);
+    return product && product.name && product.name.toLowerCase() === 'beeba';
+  });
+
+  // Check if user is admin or superadmin (only they can see Genie and Beeba Product Settings)
   const isAdmin = hasRole(profile?.role, 'admin');
   const isSuperAdmin = profile?.is_systemadmin === true;
   const canViewGenieSettings = isAdmin || isSuperAdmin;
+  const canViewBeebaSettings = isAdmin || isSuperAdmin;
 
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -344,16 +351,66 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         ? prev.filter(id => id !== productId)
         : [...prev, productId];
       
+      const product = products.find(p => p.id === productId);
+      const productName = product?.name?.toLowerCase();
+      
       // If removing genie product, clear its settings
-      if (isSelected) {
-        const product = products.find(p => p.id === productId);
-        if (product && product.name && product.name.toLowerCase() === 'genie') {
-          setProductSettings(prevSettings => {
-            const newSettings = { ...prevSettings };
-            delete newSettings[productId];
-            return newSettings;
-          });
-        }
+      if (isSelected && productName === 'genie') {
+        setProductSettings(prevSettings => {
+          const newSettings = { ...prevSettings };
+          delete newSettings[productId];
+          return newSettings;
+        });
+      }
+      
+      // If removing beeba product, clear its settings
+      if (isSelected && productName === 'beeba') {
+        setProductSettings(prevSettings => {
+          const newSettings = { ...prevSettings };
+          delete newSettings[productId];
+          return newSettings;
+        });
+      }
+      
+      // If adding genie product, initialize with default values
+      if (!isSelected && productName === 'genie') {
+        setProductSettings(prevSettings => {
+          // Only set defaults if settings don't already exist for this product
+          if (!prevSettings[productId]) {
+            return {
+              ...prevSettings,
+              [productId]: {
+                list_limit: 1,
+                agent_number: 3,
+                vapi_account: 1,
+                duration_limit: 60,
+                concurrency_limit: 1
+              }
+            };
+          }
+          return prevSettings;
+        });
+      }
+      
+      // If adding beeba product, initialize with default values
+      if (!isSelected && productName === 'beeba') {
+        setProductSettings(prevSettings => {
+          // Only set defaults if settings don't already exist for this product
+          if (!prevSettings[productId]) {
+            return {
+              ...prevSettings,
+              [productId]: {
+                posts: 10,
+                video: 5,
+                brands: 3,
+                images: 10,
+                analysis: 3,
+                carasoul: 5
+              }
+            };
+          }
+          return prevSettings;
+        });
       }
       
       return newProducts;
@@ -366,7 +423,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
       ...prev,
       [productId]: {
         ...(prev[productId] || {}),
-        [field]: value === '' ? undefined : (field === 'vapi_account' || field === 'agent_number' || field === 'duration_limit' || field === 'list_limit' || field === 'concurrency_limit' ? parseInt(value) || undefined : value)
+        [field]: value === '' ? undefined : (field === 'vapi_account' || field === 'agent_number' || field === 'duration_limit' || field === 'list_limit' || field === 'concurrency_limit' || field === 'brands' || field === 'posts' || field === 'analysis' || field === 'images' || field === 'video' || field === 'carasoul' ? parseInt(value) || undefined : value)
       }
     }));
   };
@@ -376,6 +433,14 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
     return selectedProducts.find(productId => {
       const product = products.find(p => p.id === productId);
       return product && product.name && product.name.toLowerCase() === 'genie';
+    });
+  };
+
+  // Get beeba product ID
+  const getBeebaProductId = () => {
+    return selectedProducts.find(productId => {
+      const product = products.find(p => p.id === productId);
+      return product && product.name && product.name.toLowerCase() === 'beeba';
     });
   };
 
@@ -2227,7 +2292,13 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
               
               {(() => {
                 const genieProductId = getGenieProductId();
-                const settings = productSettings[genieProductId] || {};
+                const settings = productSettings[genieProductId] || {
+                  list_limit: 1,
+                  agent_number: 3,
+                  vapi_account: 1,
+                  duration_limit: 60,
+                  concurrency_limit: 1
+                };
                 
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -2438,6 +2509,304 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                         onChange={(e) => handleProductSettingChange(genieProductId, 'concurrency_limit', e.target.value)}
                         disabled={isSubmitting}
                         placeholder="Enter concurrency limit"
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '14px',
+                          outline: 'none',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box',
+                          backgroundColor: 'white',
+                          opacity: isSubmitting ? 0.6 : 1
+                        }}
+                        onFocus={(e) => {
+                          if (!isSubmitting) {
+                            e.target.style.borderColor = '#74317e';
+                            e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                          }
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#d1d5db';
+                          e.target.style.boxShadow = 'none';
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* Beeba Product Settings Section */}
+          {isBeebaProductSelected && canViewBeebaSettings && (
+            <div style={{ 
+              marginBottom: '20px',
+              padding: '16px',
+              backgroundColor: '#f9fafb',
+              borderRadius: '8px',
+              border: '1px solid #e5e7eb'
+            }}>
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '14px',
+                fontWeight: '600',
+                color: '#374151',
+                marginBottom: '16px'
+              }}>
+                <Package size={16} style={{ color: '#74317e' }} />
+                Beeba Product Settings <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+              </label>
+              
+              {(() => {
+                const beebaProductId = getBeebaProductId();
+                const settings = productSettings[beebaProductId] || {
+                  posts: 10,
+                  video: 5,
+                  brands: 3,
+                  images: 10,
+                  analysis: 3,
+                  carasoul: 5
+                };
+                
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {/* Brands */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: '#374151',
+                        marginBottom: '6px'
+                      }}>
+                        Brands
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={settings.brands || ''}
+                        onChange={(e) => handleProductSettingChange(beebaProductId, 'brands', e.target.value)}
+                        disabled={isSubmitting}
+                        placeholder="Enter brands limit"
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '14px',
+                          outline: 'none',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box',
+                          backgroundColor: 'white',
+                          opacity: isSubmitting ? 0.6 : 1
+                        }}
+                        onFocus={(e) => {
+                          if (!isSubmitting) {
+                            e.target.style.borderColor = '#74317e';
+                            e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                          }
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#d1d5db';
+                          e.target.style.boxShadow = 'none';
+                        }}
+                      />
+                    </div>
+
+                    {/* Posts */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: '#374151',
+                        marginBottom: '6px'
+                      }}>
+                        Posts
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={settings.posts || ''}
+                        onChange={(e) => handleProductSettingChange(beebaProductId, 'posts', e.target.value)}
+                        disabled={isSubmitting}
+                        placeholder="Enter posts limit"
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '14px',
+                          outline: 'none',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box',
+                          backgroundColor: 'white',
+                          opacity: isSubmitting ? 0.6 : 1
+                        }}
+                        onFocus={(e) => {
+                          if (!isSubmitting) {
+                            e.target.style.borderColor = '#74317e';
+                            e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                          }
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#d1d5db';
+                          e.target.style.boxShadow = 'none';
+                        }}
+                      />
+                    </div>
+
+                    {/* Analysis */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: '#374151',
+                        marginBottom: '6px'
+                      }}>
+                        Analysis
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={settings.analysis || ''}
+                        onChange={(e) => handleProductSettingChange(beebaProductId, 'analysis', e.target.value)}
+                        disabled={isSubmitting}
+                        placeholder="Enter analysis limit"
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '14px',
+                          outline: 'none',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box',
+                          backgroundColor: 'white',
+                          opacity: isSubmitting ? 0.6 : 1
+                        }}
+                        onFocus={(e) => {
+                          if (!isSubmitting) {
+                            e.target.style.borderColor = '#74317e';
+                            e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                          }
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#d1d5db';
+                          e.target.style.boxShadow = 'none';
+                        }}
+                      />
+                    </div>
+
+                    {/* Images */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: '#374151',
+                        marginBottom: '6px'
+                      }}>
+                        Images
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={settings.images || ''}
+                        onChange={(e) => handleProductSettingChange(beebaProductId, 'images', e.target.value)}
+                        disabled={isSubmitting}
+                        placeholder="Enter images limit"
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '14px',
+                          outline: 'none',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box',
+                          backgroundColor: 'white',
+                          opacity: isSubmitting ? 0.6 : 1
+                        }}
+                        onFocus={(e) => {
+                          if (!isSubmitting) {
+                            e.target.style.borderColor = '#74317e';
+                            e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                          }
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#d1d5db';
+                          e.target.style.boxShadow = 'none';
+                        }}
+                      />
+                    </div>
+
+                    {/* Video */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: '#374151',
+                        marginBottom: '6px'
+                      }}>
+                        Video
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={settings.video || ''}
+                        onChange={(e) => handleProductSettingChange(beebaProductId, 'video', e.target.value)}
+                        disabled={isSubmitting}
+                        placeholder="Enter video limit"
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '14px',
+                          outline: 'none',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box',
+                          backgroundColor: 'white',
+                          opacity: isSubmitting ? 0.6 : 1
+                        }}
+                        onFocus={(e) => {
+                          if (!isSubmitting) {
+                            e.target.style.borderColor = '#74317e';
+                            e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                          }
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#d1d5db';
+                          e.target.style.boxShadow = 'none';
+                        }}
+                      />
+                    </div>
+
+                    {/* Carasoul */}
+                    <div>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        color: '#374151',
+                        marginBottom: '6px'
+                      }}>
+                        Carasoul
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={settings.carasoul || ''}
+                        onChange={(e) => handleProductSettingChange(beebaProductId, 'carasoul', e.target.value)}
+                        disabled={isSubmitting}
+                        placeholder="Enter carasoul limit"
                         style={{
                           width: '100%',
                           padding: '8px 12px',
