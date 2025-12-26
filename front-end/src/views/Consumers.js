@@ -510,6 +510,8 @@ const Consumers = () => {
                   trial_expiry: updatedConsumerData.data.trial_expiry || updatedConsumer.trial_expiry_date || null,
                   subscribed_products: updatedConsumerData.data.subscribed_products || [],
                   subscribed_packages: updatedConsumerData.data.subscribed_packages || [],
+                  productSettings: updatedConsumerData.data.productSettings || updatedConsumer.productSettings || {},
+                  role: updatedConsumerData.data.role || updatedConsumer.roles || user.role || ['consumer'],
                   updated_at: new Date().toISOString()
                 };
               }
@@ -531,6 +533,8 @@ const Consumers = () => {
               trial_expiry: updatedConsumer.trial_expiry_date || null,
                   subscribed_products: updatedConsumer.subscribed_products || [],
                   subscribed_packages: updatedConsumer.subscribed_packages || [],
+                  productSettings: updatedConsumer.productSettings || {},
+                  role: updatedConsumer.roles || user.role || ['consumer'],
               updated_at: new Date().toISOString()
             };
           }
@@ -554,6 +558,8 @@ const Consumers = () => {
                 trial_expiry: updatedConsumer.trial_expiry_date || null,
                 subscribed_products: updatedConsumer.subscribed_products || [],
                 subscribed_packages: updatedConsumer.subscribed_packages || [],
+                productSettings: updatedConsumer.productSettings || {},
+                role: updatedConsumer.roles || user.role || ['consumer'],
                 updated_at: new Date().toISOString()
               };
             }

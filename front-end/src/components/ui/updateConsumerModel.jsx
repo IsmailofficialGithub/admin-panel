@@ -46,7 +46,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
   const [errors, setErrors] = useState({});
 
   useEffect(() => {
-    if (consumer) {
+    if (isOpen && consumer) {
       // Format date for input field (YYYY-MM-DD)
       let trialDate = '';
       if (consumer.trial_expiry || consumer.trial_expiry_date) {
@@ -134,7 +134,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
       setCountrySearch('');
       setErrors({});
     }
-  }, [consumer]);
+  }, [isOpen, consumer]);
 
 
 
