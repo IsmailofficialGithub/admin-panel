@@ -1,8 +1,44 @@
-import React from 'react';
-import { X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Loader2 } from 'lucide-react';
+import { getBotById } from '../../api/backend/genie';
+import toast from 'react-hot-toast';
 
 function BotDetailsModal({ bot, show, onClose }) {
+  const [botDetails, setBotDetails] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (show && bot?.id) {
+      fetchBotDetails();
+    } else {
+      setBotDetails(null);
+    }
+  }, [show, bot?.id]);
+
+  const fetchBotDetails = async () => {
+    if (!bot?.id) return;
+    
+    setLoading(true);
+    try {
+      const response = await getBotById(bot.id);
+      if (response?.error) {
+        toast.error(response.error || 'Failed to fetch bot details');
+        return;
+      }
+      setBotDetails(response?.data || bot);
+    } catch (error) {
+      console.error('Error fetching bot details:', error);
+      toast.error('Failed to fetch bot details');
+      // Fallback to passed bot data
+      setBotDetails(bot);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!show || !bot) return null;
+
+  const displayBot = botDetails || bot;
 
   const formatDate = (dateStr) => {
     if (!dateStr) return '-';
@@ -83,172 +119,531 @@ function BotDetailsModal({ bot, show, onClose }) {
 
           {/* Body */}
           <div style={{ padding: '24px' }}>
-            <div style={{ display: 'grid', gap: '24px' }}>
-              {/* Basic Information */}
-              <div>
-                <h4 style={{
-                  margin: '0 0 16px 0',
-                  fontSize: '16px',
-                  fontWeight: '600',
-                  color: '#74317e',
-                  borderBottom: '1px solid #e9ecef',
-                  paddingBottom: '8px'
-                }}>
-                  Basic Information
-                </h4>
-                <div style={{ display: 'grid', gap: '16px' }}>
-                  <div>
-                    <label style={{
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      color: '#6c757d',
-                      textTransform: 'uppercase',
-                      display: 'block',
-                      marginBottom: '6px'
-                    }}>
-                      Name
-                    </label>
-                    <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
-                      {bot.name || '-'}
-                    </p>
-                  </div>
-                  <div>
-                    <label style={{
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      color: '#6c757d',
-                      textTransform: 'uppercase',
-                      display: 'block',
-                      marginBottom: '6px'
-                    }}>
-                      Company Name
-                    </label>
-                    <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
-                      {bot.company_name || '-'}
-                    </p>
-                  </div>
-                  <div>
-                    <label style={{
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      color: '#6c757d',
-                      textTransform: 'uppercase',
-                      display: 'block',
-                      marginBottom: '6px'
-                    }}>
-                      Goal
-                    </label>
-                    <p style={{
-                      margin: 0,
-                      fontSize: '15px',
-                      color: '#212529',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word'
-                    }}>
-                      {bot.goal || '-'}
-                    </p>
+            {loading ? (
+              <div style={{ 
+                display: 'flex', 
+                flexDirection: 'column',
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                padding: '60px 20px' 
+              }}>
+                <Loader2 size={32} color="#74317e" style={{ 
+                  animation: 'spin 1s linear infinite',
+                  marginBottom: '16px'
+                }} />
+                <p style={{ margin: 0, color: '#6c757d', fontSize: '14px' }}>
+                  Loading bot details...
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: '24px' }}>
+                {/* Basic Information */}
+                <div>
+                  <h4 style={{
+                    margin: '0 0 16px 0',
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: '#74317e',
+                    borderBottom: '1px solid #e9ecef',
+                    paddingBottom: '8px'
+                  }}>
+                    Basic Information
+                  </h4>
+                  <div style={{ display: 'grid', gap: '16px' }}>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Name
+                      </label>
+                      <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
+                        {displayBot.name || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Company Name
+                      </label>
+                      <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
+                        {displayBot.company_name || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Website URL
+                      </label>
+                      <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
+                        {displayBot.website_url ? (
+                          <a 
+                            href={displayBot.website_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            style={{ color: '#74317e', textDecoration: 'none' }}
+                          >
+                            {displayBot.website_url}
+                          </a>
+                        ) : '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Goal
+                      </label>
+                      <p style={{
+                        margin: 0,
+                        fontSize: '15px',
+                        color: '#212529',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word'
+                      }}>
+                        {displayBot.goal || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Background
+                      </label>
+                      <p style={{
+                        margin: 0,
+                        fontSize: '15px',
+                        color: '#212529',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word'
+                      }}>
+                        {displayBot.background || '-'}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Configuration */}
-              <div>
-                <h4 style={{
-                  margin: '0 0 16px 0',
-                  fontSize: '16px',
-                  fontWeight: '600',
-                  color: '#74317e',
-                  borderBottom: '1px solid #e9ecef',
-                  paddingBottom: '8px'
-                }}>
-                  Configuration
-                </h4>
-                <div style={{ display: 'grid', gap: '16px' }}>
-                  <div>
-                    <label style={{
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      color: '#6c757d',
-                      textTransform: 'uppercase',
-                      display: 'block',
-                      marginBottom: '6px'
-                    }}>
-                      Voice
-                    </label>
-                    <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
-                      {bot.voice || '-'}
-                    </p>
-                  </div>
-                  <div>
-                    <label style={{
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      color: '#6c757d',
-                      textTransform: 'uppercase',
-                      display: 'block',
-                      marginBottom: '6px'
-                    }}>
-                      Language
-                    </label>
-                    <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
-                      {bot.language || '-'}
-                    </p>
+                {/* Voice & Language Configuration */}
+                <div>
+                  <h4 style={{
+                    margin: '0 0 16px 0',
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: '#74317e',
+                    borderBottom: '1px solid #e9ecef',
+                    paddingBottom: '8px'
+                  }}>
+                    Voice & Language Configuration
+                  </h4>
+                  <div style={{ display: 'grid', gap: '16px' }}>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Voice
+                      </label>
+                      <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
+                        {displayBot.voice || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Language
+                      </label>
+                      <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
+                        {displayBot.language || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Instruction Voice
+                      </label>
+                      <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
+                        {displayBot.instruction_voice || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Tone
+                      </label>
+                      <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
+                        {displayBot.tone || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Background Noise
+                      </label>
+                      <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
+                        {displayBot.background_noise || '-'}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Metadata */}
-              <div>
-                <h4 style={{
-                  margin: '0 0 16px 0',
-                  fontSize: '16px',
-                  fontWeight: '600',
-                  color: '#74317e',
-                  borderBottom: '1px solid #e9ecef',
-                  paddingBottom: '8px'
-                }}>
-                  Metadata
-                </h4>
-                <div style={{ display: 'grid', gap: '16px' }}>
-                  <div>
-                    <label style={{
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      color: '#6c757d',
-                      textTransform: 'uppercase',
-                      display: 'block',
-                      marginBottom: '6px'
-                    }}>
-                      Bot ID
-                    </label>
-                    <p style={{
-                      margin: 0,
-                      fontSize: '13px',
-                      color: '#6c757d',
-                      fontFamily: 'monospace',
-                      wordBreak: 'break-all'
-                    }}>
-                      {bot.id || '-'}
-                    </p>
+                {/* AI Model Configuration */}
+                <div>
+                  <h4 style={{
+                    margin: '0 0 16px 0',
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: '#74317e',
+                    borderBottom: '1px solid #e9ecef',
+                    paddingBottom: '8px'
+                  }}>
+                    AI Model Configuration
+                  </h4>
+                  <div style={{ display: 'grid', gap: '16px' }}>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Model
+                      </label>
+                      <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
+                        {displayBot.model || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Agent Type
+                      </label>
+                      <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
+                        {displayBot.agent_type || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Max Timeout
+                      </label>
+                      <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
+                        {displayBot.max_timeout || '-'}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <label style={{
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      color: '#6c757d',
-                      textTransform: 'uppercase',
-                      display: 'block',
-                      marginBottom: '6px'
-                    }}>
-                      Created At
-                    </label>
-                    <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
-                      {formatDate(bot.created_at)}
-                    </p>
+                </div>
+
+                {/* Script & Messages */}
+                <div>
+                  <h4 style={{
+                    margin: '0 0 16px 0',
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: '#74317e',
+                    borderBottom: '1px solid #e9ecef',
+                    paddingBottom: '8px'
+                  }}>
+                    Script & Messages
+                  </h4>
+                  <div style={{ display: 'grid', gap: '16px' }}>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Welcome Message
+                      </label>
+                      <p style={{
+                        margin: 0,
+                        fontSize: '15px',
+                        color: '#212529',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word'
+                      }}>
+                        {displayBot.welcome_message || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Script
+                      </label>
+                      <p style={{
+                        margin: 0,
+                        fontSize: '15px',
+                        color: '#212529',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        maxHeight: '200px',
+                        overflowY: 'auto',
+                        padding: '12px',
+                        backgroundColor: '#f8f9fa',
+                        borderRadius: '6px',
+                        fontFamily: 'monospace',
+                        fontSize: '13px'
+                      }}>
+                        {displayBot.script || '-'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Vapi Integration */}
+                <div>
+                  <h4 style={{
+                    margin: '0 0 16px 0',
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: '#74317e',
+                    borderBottom: '1px solid #e9ecef',
+                    paddingBottom: '8px'
+                  }}>
+                    Vapi Integration
+                  </h4>
+                  <div style={{ display: 'grid', gap: '16px' }}>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Vapi ID
+                      </label>
+                      <p style={{
+                        margin: 0,
+                        fontSize: '13px',
+                        color: '#6c757d',
+                        fontFamily: 'monospace',
+                        wordBreak: 'break-all'
+                      }}>
+                        {displayBot.vapi_id || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Vapi Account Assigned
+                      </label>
+                      <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
+                        {displayBot.vapi_account_assigned || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Account In Use
+                      </label>
+                      <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
+                        {displayBot.account_in_use ? (
+                          <span style={{
+                            padding: '4px 12px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            fontWeight: '500',
+                            backgroundColor: '#dcfce7',
+                            color: '#16a34a'
+                          }}>
+                            Yes
+                          </span>
+                        ) : (
+                          <span style={{
+                            padding: '4px 12px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            fontWeight: '500',
+                            backgroundColor: '#fee2e2',
+                            color: '#dc3545'
+                          }}>
+                            No
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Metadata */}
+                <div>
+                  <h4 style={{
+                    margin: '0 0 16px 0',
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: '#74317e',
+                    borderBottom: '1px solid #e9ecef',
+                    paddingBottom: '8px'
+                  }}>
+                    Metadata
+                  </h4>
+                  <div style={{ display: 'grid', gap: '16px' }}>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Bot ID
+                      </label>
+                      <p style={{
+                        margin: 0,
+                        fontSize: '13px',
+                        color: '#6c757d',
+                        fontFamily: 'monospace',
+                        wordBreak: 'break-all'
+                      }}>
+                        {displayBot.id || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Owner User ID
+                      </label>
+                      <p style={{
+                        margin: 0,
+                        fontSize: '13px',
+                        color: '#6c757d',
+                        fontFamily: 'monospace',
+                        wordBreak: 'break-all'
+                      }}>
+                        {displayBot.owner_user_id || '-'}
+                      </p>
+                    </div>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Created At
+                      </label>
+                      <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
+                        {formatDate(displayBot.created_at)}
+                      </p>
+                    </div>
+                    <div>
+                      <label style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#6c757d',
+                        textTransform: 'uppercase',
+                        display: 'block',
+                        marginBottom: '6px'
+                      }}>
+                        Updated At
+                      </label>
+                      <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
+                        {formatDate(displayBot.updated_at)}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Footer */}
@@ -280,6 +675,14 @@ function BotDetailsModal({ bot, show, onClose }) {
           </div>
         </div>
       </div>
+
+      {/* Styles */}
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
     </>
   );
 }

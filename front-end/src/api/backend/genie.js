@@ -264,9 +264,9 @@ export const getConversionMetrics = async (period = 'month') => {
 };
 
 /**
- * Get bot performance metrics
+ * Get agent performance metrics
  * @param {string} period - Period (week, month)
- * @returns {Promise<Object>} Bot performance data
+ * @returns {Promise<Object>} Agent performance data
  */
 export const getBotPerformance = async (period = 'month') => {
   try {
@@ -283,8 +283,8 @@ export const getBotPerformance = async (period = 'month') => {
 // =====================================================
 
 /**
- * Get all bots
- * @returns {Promise<Object>} Bots list
+ * Get all agents
+ * @returns {Promise<Object>} Agents list
  */
 export const getAllBots = async () => {
   try {
@@ -292,6 +292,21 @@ export const getAllBots = async () => {
     return response;
   } catch (error) {
     console.error('getAllBots Error:', error);
+    return { error: error.message };
+  }
+};
+
+/**
+ * Get bot by ID with all details
+ * @param {string} id - Bot ID
+ * @returns {Promise<Object>} Bot details
+ */
+export const getBotById = async (id) => {
+  try {
+    const response = await apiClient.genie.getBotById(id);
+    return response;
+  } catch (error) {
+    console.error('getBotById Error:', error);
     return { error: error.message };
   }
 };
@@ -334,6 +349,7 @@ export default {
   getBotPerformance,
   // Supporting
   getAllBots,
+  getBotById,
   getAllContactLists,
 };
 

@@ -2,13 +2,14 @@ import React, { useState, useEffect, lazy, Suspense } from "react";
 import { useHistory, useLocation } from "react-router-dom";
 import { usePermissions } from "hooks/usePermissions";
 import { useGenieWebSocket } from "hooks/useGenieWebSocket";
-import { Phone, Calendar, Star, BarChart2, Wifi, WifiOff, Zap } from "lucide-react";
+import { Phone, Calendar, Star, BarChart2, Wifi, WifiOff, Zap, Bot } from "lucide-react";
 
 // Lazy load tab components - only loads when tab is selected
 const CallsTab = lazy(() => import("components/Genie/CallsTab"));
 const CampaignsTab = lazy(() => import("components/Genie/CampaignsTab"));
 const LeadsTab = lazy(() => import("components/Genie/LeadsTab"));
 const AnalyticsTab = lazy(() => import("components/Genie/AnalyticsTab"));
+const AgentsTab = lazy(() => import("components/Genie/AgentsTab"));
 
 // Loading component for lazy loaded tabs
 const TabLoader = () => (
@@ -41,7 +42,7 @@ function Genie() {
   const getInitialTab = () => {
     const params = new URLSearchParams(location.search);
     const tabFromUrl = params.get('tab');
-    const validTabs = ['calls', 'campaigns', 'leads', 'analytics'];
+    const validTabs = ['calls', 'campaigns', 'leads', 'analytics', 'agents'];
     return validTabs.includes(tabFromUrl) ? tabFromUrl : 'calls';
   };
 
@@ -55,7 +56,8 @@ function Genie() {
     calls: initialTab === 'calls',
     campaigns: initialTab === 'campaigns',
     leads: initialTab === 'leads',
-    analytics: initialTab === 'analytics'
+    analytics: initialTab === 'analytics',
+    agents: initialTab === 'agents'
   });
 
   // Check permissions
@@ -63,6 +65,7 @@ function Genie() {
   const canViewCampaigns = hasPermission('genie.campaigns.view');
   const canViewLeads = hasPermission('genie.leads.view');
   const canViewAnalytics = hasPermission('genie.analytics.view');
+  const canViewAgents = hasPermission('genie.agents.view') || hasPermission('genie.bots.view');
 
   // Update URL when tab changes
   const handleTabChange = (tab) => {
@@ -82,7 +85,7 @@ function Genie() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const tabFromUrl = params.get('tab');
-    const validTabs = ['calls', 'campaigns', 'leads', 'analytics'];
+    const validTabs = ['calls', 'campaigns', 'leads', 'analytics', 'agents'];
     
     if (tabFromUrl && validTabs.includes(tabFromUrl) && tabFromUrl !== activeTab) {
       setActiveTab(tabFromUrl);
@@ -207,6 +210,11 @@ function Genie() {
         {loadedTabs.analytics && canViewAnalytics && (
           <div style={{ display: activeTab === 'analytics' ? 'block' : 'none' }}>
             <AnalyticsTab />
+          </div>
+        )}
+        {loadedTabs.agents && canViewAgents && (
+          <div style={{ display: activeTab === 'agents' ? 'block' : 'none' }}>
+            <AgentsTab />
           </div>
         )}
       </Suspense>
@@ -398,6 +406,29 @@ function Genie() {
               >
                 <Star size={16} />
                 Leads
+              </button>
+            )}
+            {canViewAgents && (
+              <button
+                onClick={() => handleTabChange('agents')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '16px 24px',
+                  border: 'none',
+                  backgroundColor: 'transparent',
+                  fontSize: '14px',
+                  fontWeight: activeTab === 'agents' ? '600' : '400',
+                  color: activeTab === 'agents' ? '#74317e' : '#666',
+                  cursor: 'pointer',
+                  borderBottom: activeTab === 'agents' ? '2px solid #74317e' : '2px solid transparent',
+                  marginBottom: '-2px',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <Bot size={16} />
+                Agents
               </button>
             )}
             {canViewAnalytics && (

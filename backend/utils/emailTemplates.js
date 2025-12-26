@@ -1019,9 +1019,86 @@ export const TicketReplyTemplate = ({
   });
 };
 
+/**
+ * Password Reset Magic Link Email Template
+ * From social.duhanashrah.ai
+ * @param {Object} params
+ * @param {string} params.full_name - User's full name
+ * @param {string} params.magic_link - Password reset magic link URL
+ * @returns {string} HTML email template
+ */
+export const PasswordResetMagicLinkTemplate = ({
+  full_name = "User",
+  magic_link = "#",
+} = {}) => {
+  const content = `
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+      <tr>
+        <td style="padding: 0 0 12px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+          Hello <strong style="color: #8a3b9a;">${full_name}</strong>,
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 0 0 20px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+          We received a request to reset your password for your social.duhanashrah.ai account. Click the button below to reset your password:
+        </td>
+      </tr>
+    </table>
+
+    <!-- Magic Link Info - Outlook compatible -->
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #8a3b9a;">
+      <tr>
+        <td style="padding: 20px; color: #232347; font-size: 15px; line-height: 1.6; font-family: Verdana, Geneva, sans-serif;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+            <tr>
+              <td style="padding: 0 0 10px 0; font-size: 16px; font-weight: bold; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+                Reset Your Password
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+                Click the button above to reset your password. This link will expire in 1 hour for security reasons.
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 12px 0 0 0; font-size: 13px; color: #66698c; font-family: Verdana, Geneva, sans-serif;">
+                If you didn't request this password reset, you can safely ignore this email. Your password will remain unchanged.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Alternative link (if button doesn't work) -->
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 16px 0 0 0;">
+      <tr>
+        <td style="padding: 0 0 8px 0; font-size: 14px; color: #66698c; font-family: Verdana, Geneva, sans-serif;">
+          If the button doesn't work, copy and paste this link into your browser:
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 0; word-break: break-all; font-size: 13px; color: #8a3b9a; font-family: 'Courier New', Courier, monospace;">
+          <a href="${magic_link}" style="color: #8a3b9a; text-decoration: underline;">${magic_link}</a>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  return BaseEmailTemplate({
+    title: 'Reset Your Password',
+    subtitle: 'Password reset request from social.duhanashrah.ai',
+    content,
+    buttonText: 'Reset Password',
+    buttonUrl: magic_link,
+    footerText: 'This email was sent from social.duhanashrah.ai. If you didn\'t request a password reset, please ignore this email.'
+  });
+};
+
 export default { 
   AdminEmailTemplateUserCreated, 
   PasswordResetTemplate, 
+  PasswordResetMagicLinkTemplate,
   TrialPeriodChangeTemplate, 
   TrialExtensionTemplate, 
   InviteEmailTemplate,

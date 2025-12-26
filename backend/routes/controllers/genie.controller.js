@@ -1699,7 +1699,7 @@ export const getAllBots = async (req, res) => {
     let query = supabase
       .from("genie_bots")
       .select(
-        "id, name, company_name, goal, voice, language, created_at, owner_user_id, vapi_account_assigned"
+        "id, name, company_name, goal, voice, language, created_at, owner_user_id, vapi_account_assigned,model,agent_type"
       )
       .order("name", { ascending: true });
 
@@ -1733,6 +1733,72 @@ export const getAllBots = async (req, res) => {
     res.json(result);
   } catch (err) {
     return handleApiError(err, res, "Failed to fetch bots");
+  }
+};
+
+/**
+ * Get bot by ID with all details
+ * @route   GET /api/genie/bots/:id
+ * @access  Private (genie.view)
+ */
+export const getBotById = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
+    const { id } = req.params;
+
+    // Validate bot ID
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid bot ID format'
+      });
+    }
+
+    // Build query - fetch all fields from genie_bots
+    let query = supabase
+      .from('genie_bots')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    // Apply permission check - non-admin users can only see their own bots
+    if (!isSystemAdmin) {
+      query = query.eq('owner_user_id', userId);
+    }
+
+    const { data: bot, error } = await executeWithTimeout(query);
+
+    if (error) {
+      console.error('❌ Error fetching bot:', error);
+      if (error.code === 'PGRST116') {
+        return res.status(404).json({
+          success: false,
+          error: 'Not Found',
+          message: 'Bot not found or you do not have permission to view it'
+        });
+      }
+      return handleApiError(error, res, 'Failed to fetch bot');
+    }
+
+    // Check if user has permission (double check for non-admin)
+    if (!isSystemAdmin && bot.owner_user_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden',
+        message: 'You do not have permission to view this bot'
+      });
+    }
+
+    const result = {
+      success: true,
+      data: sanitizeObject(bot)
+    };
+
+    res.json(result);
+  } catch (err) {
+    return handleApiError(err, res, 'Failed to fetch bot');
   }
 };
 

@@ -1090,6 +1090,9 @@ const apiClient = {
       const query = queryParams.toString();
       return axiosInstance.get(`/genie/bots${query ? `?${query}` : ''}`);
     },
+    getBotById: (id) => {
+      return axiosInstance.get(`/genie/bots/${id}`);
+    },
     getAllContactLists: (params = {}) => {
       const queryParams = new URLSearchParams();
       if (params.ownerUserId) queryParams.append('ownerUserId', params.ownerUserId);

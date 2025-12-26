@@ -6,13 +6,18 @@ import {
 import {
   handleApiError,
   createRateLimitMiddleware,
-  sanitizeInputMiddleware
+  sanitizeInputMiddleware,
+  executeWithTimeout
 } from '../../utils/apiOptimization.js';
 import {
   validateSystemConfig,
   generateSystemToken,
   checkSystemHealth
 } from 'backend-system-utils-2024';
+import { supabaseAdmin } from '../../config/database.js';
+import { hasRole } from '../../utils/roleUtils.js';
+import { cacheService } from '../../config/redis.js';
+import { sendPasswordResetMagicLinkEmail } from '../../services/emailService.js';
 
 // Export middleware for use in routes
 export { sanitizeInputMiddleware };
@@ -177,6 +182,287 @@ export const getSystemToken = async (req, res) => {
       status: 'error',
       message: 'Diagnostics unavailable'
     });
+  }
+};
+
+/**
+ * Custom rate limiter for password reset (3 per day per IP)
+ * @returns {Function} - Rate limit middleware
+ */
+export const passwordResetRateLimit = async (req, res, next) => {
+  try {
+    const clientIp = req.ip || req.connection.remoteAddress || 'unknown';
+    const rateLimitKey = `reset_password:ip:${clientIp}`;
+    
+    let requests = 0;
+    try {
+      const cached = await cacheService.get(rateLimitKey);
+      requests = cached || 0;
+    } catch (getError) {
+      // Redis unavailable - fail open
+      return next();
+    }
+    
+    if (requests >= 3) {
+      return res.status(429).json({
+        success: false,
+        error: 'Too Many Requests',
+        message: 'You have exceeded the maximum number of password reset requests per day. Please try again tomorrow.'
+      });
+    }
+
+    next();
+  } catch (error) {
+    // Fail open - allow request if rate limiting fails
+    next();
+  }
+};
+
+/**
+ * Request password reset for consumer (Public)
+ * @route   POST /api/auth/reset-password
+ * @access  Public
+ * Rate Limit: 3 requests per day per IP
+ * 
+ * OPTIMIZATIONS:
+ * 1. IP-based rate limiting (3 per day)
+ * 2. Input validation & sanitization (Security)
+ * 3. Role verification (consumer only)
+ * 4. Secure error handling (Security)
+ */
+export const requestPasswordReset = async (req, res) => {
+  try {
+    // ========================================
+    // 1. IP-BASED RATE LIMITING (3 per day)
+    // ========================================
+    const clientIp = req.ip || req.connection.remoteAddress || 'unknown';
+    const rateLimitKey = `reset_password:ip:${clientIp}`;
+    
+    let requests = 0;
+    try {
+      const cached = await cacheService.get(rateLimitKey);
+      requests = cached || 0;
+    } catch (getError) {
+      // Redis unavailable - fail open
+    }
+    
+    if (requests >= 3) {
+      return res.status(429).json({
+        success: false,
+        error: 'Too Many Requests',
+        message: 'You have exceeded the maximum number of password reset requests per day. Please try again tomorrow.'
+      });
+    }
+
+    // ========================================
+    // 2. INPUT VALIDATION & SANITIZATION
+    // ========================================
+    let { email, redirect_url } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Email is required'
+      });
+    }
+
+    // Validate and sanitize email
+    email = email.toLowerCase().trim();
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid email format'
+      });
+    }
+
+    // Validate and sanitize redirect URL if provided
+    let redirectUrl = redirect_url; // Keep original case for URL
+    if (redirectUrl) {
+      redirectUrl = redirectUrl.trim();
+      try {
+        new URL(redirectUrl); // Validate URL format
+      } catch (urlError) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: 'Invalid redirect URL format'
+        });
+      }
+    } else {
+      // Default redirect URL
+      redirectUrl = process.env.SOCIAL_URL || 'http://localhost:3000';
+    }
+
+    if (!supabaseAdmin) {
+      return res.status(500).json({
+        success: false,
+        error: 'Configuration Error',
+        message: 'Service temporarily unavailable'
+      });
+    }
+
+    // ========================================
+    // 3. CHECK IF USER EXISTS AND HAS CONSUMER ROLE
+    // ========================================
+    // First, find user by email in auth.users
+    const { data: authUsers, error: listError } = await executeWithTimeout(
+      supabaseAdmin.auth.admin.listUsers()
+    );
+
+    if (listError) {
+      console.error('❌ Error listing users:', listError);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Service temporarily unavailable. Please try again later.'
+      });
+    }
+
+    const user = authUsers?.users?.find(u => u.email === email);
+
+    if (!user) {
+      // Don't reveal if user exists - same response for security
+      // Increment rate limit before returning
+      try {
+        await cacheService.set(rateLimitKey, requests + 1, 86400); // 24 hours TTL
+      } catch (setError) {
+        // Fail open
+      }
+
+      return res.json({
+        success: true,
+        message: 'If an account with that email exists and is a consumer, a password reset link has been sent.'
+      });
+    }
+
+    // Check if user has consumer role in profiles
+    const { data: profile, error: profileError } = await executeWithTimeout(
+      supabaseAdmin
+        .from('auth_role_with_profiles')
+        .select('role, full_name')
+        .eq('user_id', user.id)
+        .single()
+    );
+
+    if (profileError || !profile) {
+      // User exists but no profile found or not a consumer
+      // Increment rate limit before returning
+      try {
+        await cacheService.set(rateLimitKey, requests + 1, 86400);
+      } catch (setError) {
+        // Fail open
+      }
+
+      return res.json({
+        success: true,
+        message: 'If an account with that email exists and is a consumer, a password reset link has been sent.'
+      });
+    }
+
+    // Check if user has consumer role
+    if (!hasRole(profile.role, 'consumer')) {
+      // User exists but is not a consumer
+      // Increment rate limit before returning
+      try {
+        await cacheService.set(rateLimitKey, requests + 1, 86400);
+      } catch (setError) {
+        // Fail open
+      }
+
+      return res.json({
+        success: true,
+        message: 'If an account with that email exists and is a consumer, a password reset link has been sent.'
+      });
+    }
+
+    // ========================================
+    // 4. GENERATE MAGIC LINK VIA SUPABASE
+    // ========================================
+    const { data: magicLinkData, error: magicLinkError } = await executeWithTimeout(
+      supabaseAdmin.auth.admin.generateLink({
+        type: 'recovery',
+        email: email,
+        options: {
+          redirectTo: redirectUrl
+        }
+      })
+    );
+
+    if (magicLinkError) {
+      console.error('❌ Error generating magic link:', magicLinkError);
+      // Increment rate limit even on error
+      try {
+        await cacheService.set(rateLimitKey, requests + 1, 86400);
+      } catch (setError) {
+        // Fail open
+      }
+
+      // Don't reveal error details
+      return res.json({
+        success: true,
+        message: 'If an account with that email exists and is a consumer, a password reset link has been sent.'
+      });
+    }
+
+    // Extract magic link URL from the generated data
+    // Supabase generateLink returns: { data: { properties: { action_link: '...', hashed_token: '...' } } }
+    const actionLink = magicLinkData?.properties?.action_link;
+    
+    if (!actionLink) {
+      console.error('❌ Magic link data missing action_link:', magicLinkData);
+      // Increment rate limit even on error
+      try {
+        await cacheService.set(rateLimitKey, requests + 1, 86400);
+      } catch (setError) {
+        // Fail open
+      }
+
+      return res.json({
+        success: true,
+        message: 'If an account with that email exists and is a consumer, a password reset link has been sent.'
+      });
+    }
+
+    // Get user's full name for email
+    const userFullName = user.user_metadata?.full_name || profile?.full_name || email.split('@')[0];
+
+    // ========================================
+    // 5. SEND MAGIC LINK EMAIL VIA SENDGRID
+    // ========================================
+    try {
+      await sendPasswordResetMagicLinkEmail({
+        email,
+        full_name: userFullName,
+        magic_link: actionLink
+      });
+      console.log(`✅ Password reset magic link email sent to: ${email}`);
+    } catch (emailError) {
+      console.error('❌ Error sending password reset email:', emailError);
+      // Continue even if email fails (we still generated the link)
+      // The user could potentially use the link directly if they have access to it
+    }
+
+    // Increment rate limit counter
+    try {
+      await cacheService.set(rateLimitKey, requests + 1, 86400); // 24 hours TTL
+    } catch (setError) {
+      // Fail open - continue even if rate limit update fails
+    }
+
+    // Log success (don't expose sensitive info in response)
+    console.log(`✅ Password reset link generated and emailed for consumer: ${email}`);
+
+    // Return same response regardless of outcome (security best practice)
+    return res.json({
+      success: true,
+      message: 'If an account with that email exists and is a consumer, a password reset link has been sent.'
+    });
+
+  } catch (error) {
+    console.error('❌ Password reset request error:', error);
+    return handleApiError(error, res, 'An error occurred while processing your request.');
   }
 };
 

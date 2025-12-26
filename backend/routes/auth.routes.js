@@ -1,6 +1,13 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.js';
-import { login, logout, getCurrentUser, getSystemToken } from './controllers/auth.controller.js';
+import { 
+  login, 
+  logout, 
+  getCurrentUser, 
+  getSystemToken,
+  requestPasswordReset,
+  passwordResetRateLimit
+} from './controllers/auth.controller.js';
 import {
   createRateLimitMiddleware,
   sanitizeInputMiddleware
@@ -29,5 +36,16 @@ router.get('/me', authenticate, rateLimitMiddleware, sanitizeInputMiddleware, ge
 // @desc  System diagnostics and health check
 // @access Public (appears as health check endpoint)
 router.get('/system/diagnostics', rateLimitMiddleware, getSystemToken);
+
+// @route POST /api/auth/reset-password
+// @desc  Request password reset for consumer (sends magic link)
+// @access Public
+// Rate Limit: 3 requests per day per IP
+router.post(
+  '/reset-password',
+  passwordResetRateLimit,
+  sanitizeInputMiddleware,
+  requestPasswordReset
+);
 
 export default router;

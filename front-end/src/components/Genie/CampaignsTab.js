@@ -319,7 +319,7 @@ function CampaignsTab() {
                 <div style={{ padding: '16px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div style={{ flex: 1 }}>
                     <h6 style={{ margin: '0 0 4px 0', fontWeight: '600', fontSize: '15px', color: '#1e293b' }}>
-                        {campaign.genie_bots?.name || "Unknown Bot"}
+                        {campaign.genie_bots?.name || "Unknown Agent"}
                       </h6>
                     <small style={{ color: '#64748b', fontSize: '13px' }}>
                         {campaign.genie_contact_lists?.name || "Unknown List"}

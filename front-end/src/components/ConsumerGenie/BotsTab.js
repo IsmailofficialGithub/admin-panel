@@ -54,11 +54,11 @@ function BotsTab({ consumerId }) {
           }
         }
       } else {
-        toast.error('Failed to fetch bots');
+        toast.error('Failed to fetch agents');
       }
     } catch (error) {
       console.error('Error fetching bots:', error);
-      toast.error('Failed to fetch bots');
+      toast.error('Failed to fetch agents');
     } finally {
       setLoading(false);
     }
@@ -100,7 +100,7 @@ function BotsTab({ consumerId }) {
       if (response?.success) {
         setSelectedAccountId(accountId);
         setIsDropdownOpen(false);
-        toast.success(response.message || `Successfully assigned Vapi account to ${response.data?.updatedCount || 0} bot(s)`);
+        toast.success(response.message || `Successfully assigned Vapi account to ${response.data?.updatedCount || 0} agent(s)`);
         // Refresh bots to get updated data
         await fetchBots();
       } else {
@@ -141,14 +141,14 @@ function BotsTab({ consumerId }) {
           animation: 'spin 1s linear infinite',
           margin: '0 auto'
         }} />
-        <p style={{ marginTop: '16px', color: '#6c757d' }}>Loading bots...</p>
+        <p style={{ marginTop: '16px', color: '#6c757d' }}>Loading agents...</p>
       </div>
     );
   }
 
   return (
     <div>
-      {/* Bot Count Header */}
+      {/* Agent Count Header */}
       <div style={{
         background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         borderRadius: '12px',
@@ -186,7 +186,7 @@ function BotsTab({ consumerId }) {
               fontWeight: '500',
               color: '#495057'
             }}>
-              Assign Vapi Account to All Bots
+              Assign Vapi Account to All Agents
             </label>
             <button
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
@@ -332,7 +332,7 @@ function BotsTab({ consumerId }) {
         </div>
       )}
 
-      {/* Bots List */}
+      {/* Agents List */}
       {bots.length === 0 ? (
         <div style={{
           textAlign: 'center',

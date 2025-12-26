@@ -26,6 +26,7 @@ import {
   getBotPerformance,
   // Supporting
   getAllBots,
+  getBotById,
   getAllContactLists,
   getVapiAccounts,
   updateBotsVapiAccount,
@@ -342,6 +343,21 @@ router.get(
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   getAllBots
+);
+
+/**
+ * @route   GET /api/genie/bots/:id
+ * @desc    Get bot by ID with all details
+ * @access  Private (genie.view)
+ */
+router.get(
+  '/bots/:id',
+  authenticate,
+  loadUserProfile,
+  requirePermission('genie.view'),
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
+  getBotById
 );
 
 /**

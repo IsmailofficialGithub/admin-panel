@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import {
   AdminEmailTemplateUserCreated,
   PasswordResetTemplate,
+  PasswordResetMagicLinkTemplate,
   TrialPeriodChangeTemplate,
   TrialExtensionTemplate,
   InvoiceCreatedTemplate,
@@ -139,6 +140,50 @@ export const sendPasswordResetEmail = async ({
     };
   } catch (error) {
     console.error("❌ Error sending password reset email:", error.response?.body || error);
+    throw error;
+  }
+};
+
+/**
+ * Send password reset magic link email (from social.duhanashrah.ai)
+ * @param {Object} params - Email parameters
+ * @param {string} params.email - Recipient email
+ * @param {string} params.full_name - User's full name
+ * @param {string} params.magic_link - Magic link URL for password reset
+ * @returns {Promise<Object>} Email send result
+ */
+export const sendPasswordResetMagicLinkEmail = async ({
+  email,
+  full_name,
+  magic_link,
+}) => {
+  try {
+    const htmlContent = PasswordResetMagicLinkTemplate({
+      full_name: full_name || email.split('@')[0],
+      magic_link,
+    });
+
+    const msg = {
+      to: email,
+      from: {
+        email: SENDER_EMAIL,
+        name: "social.duhanashrah.ai"
+      },
+      subject: `Reset Your Password - social.duhanashrah.ai`,
+      html: htmlContent,
+    };
+
+    console.log("📧 Sending password reset magic link email to:", email);
+    await sgMail.send(msg);
+    console.log("✅ Password reset magic link email sent successfully");
+
+    return {
+      success: true,
+      message: "Password reset magic link email sent successfully",
+      email,
+    };
+  } catch (error) {
+    console.error("❌ Error sending password reset magic link email:", error.response?.body || error);
     throw error;
   }
 };
@@ -599,6 +644,7 @@ export const sendCustomEmail = async ({ to, from, subject, html }) => {
 export default {
   sendWelcomeEmail,
   sendPasswordResetEmail,
+  sendPasswordResetMagicLinkEmail,
   sendTrialPeriodChangeEmail,
   sendTrialExtensionEmail,
   sendInviteEmail,
