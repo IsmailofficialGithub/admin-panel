@@ -167,9 +167,9 @@ export const sendPasswordResetMagicLinkEmail = async ({
       to: email,
       from: {
         email: SENDER_EMAIL,
-        name: "social.duhanashrah.ai"
+        name: "no-reply@duhanashrah.ai"
       },
-      subject: `Reset Your Password - social.duhanashrah.ai`,
+      subject: `Reset Your Password - no-reply@duhanashrah.ai`,
       html: htmlContent,
     };
 

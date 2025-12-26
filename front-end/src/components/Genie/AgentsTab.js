@@ -521,8 +521,8 @@ function AgentsTab() {
               }
             }}
           >
-            <Filter size={16} />
-            Filter
+            <Search size={16} />
+           
           </button>
         </div>
       </div>

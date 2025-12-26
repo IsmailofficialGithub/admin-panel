@@ -52,6 +52,129 @@ function BotDetailsModal({ bot, show, onClose }) {
     });
   };
 
+  // Helper function to format markdown-like text with styling
+  const formatMarkdownText = (text, maxHeight = '400px') => {
+    if (!text || text === '-') return '-';
+    
+    const lines = text.split('\n');
+    return (
+      <div style={{
+        maxHeight,
+        overflowY: 'auto',
+        padding: '16px',
+        backgroundColor: '#f8f9fa',
+        borderRadius: '8px',
+        border: '1px solid #e9ecef',
+        fontSize: '14px',
+        lineHeight: '1.6',
+        color: '#212529',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+      }}>
+        {lines.map((line, index) => {
+          let formattedLine = line;
+          
+          // Handle headers (## Header)
+          if (line.trim().startsWith('## ')) {
+            formattedLine = line.replace(/^##\s+/, '');
+            return (
+              <div key={index} style={{
+                marginTop: index > 0 ? '16px' : '0',
+                marginBottom: '8px',
+                fontSize: '16px',
+                fontWeight: '600',
+                color: '#74317e',
+                borderBottom: '1px solid #e0e0e0',
+                paddingBottom: '4px'
+              }}>
+                {formattedLine}
+              </div>
+            );
+          }
+          
+          // Handle headers (# Header)
+          if (line.trim().startsWith('# ')) {
+            formattedLine = line.replace(/^#\s+/, '');
+            return (
+              <div key={index} style={{
+                marginTop: index > 0 ? '20px' : '0',
+                marginBottom: '10px',
+                fontSize: '18px',
+                fontWeight: '600',
+                color: '#74317e'
+              }}>
+                {formattedLine}
+              </div>
+            );
+          }
+          
+          // Handle list items (starting with - or *)
+          if (/^[\s]*[-*]\s+/.test(line)) {
+            formattedLine = line.replace(/^[\s]*[-*]\s+/, '');
+            return (
+              <div key={index} style={{
+                marginLeft: '20px',
+                marginBottom: '4px',
+                paddingLeft: '8px',
+                position: 'relative'
+              }}>
+                <span style={{
+                  position: 'absolute',
+                  left: '0',
+                  color: '#74317e'
+                }}>•</span>
+                <span>{formattedLine}</span>
+              </div>
+            );
+          }
+          
+          // Handle numbered list items
+          if (/^[\s]*\d+[.)]\s+/.test(line)) {
+            formattedLine = line.replace(/^[\s]*\d+[.)]\s+/, '');
+            const match = line.match(/^[\s]*(\d+)[.)]\s+/);
+            const number = match ? match[1] : '';
+            return (
+              <div key={index} style={{
+                marginLeft: '20px',
+                marginBottom: '4px',
+                paddingLeft: '24px',
+                position: 'relative'
+              }}>
+                <span style={{
+                  position: 'absolute',
+                  left: '0',
+                  color: '#74317e',
+                  fontWeight: '500'
+                }}>{number}.</span>
+                <span>{formattedLine}</span>
+              </div>
+            );
+          }
+          
+          // Handle bold text (**text**)
+          formattedLine = formattedLine.replace(/\*\*(.+?)\*\*/g, '<strong style="font-weight: 600; color: #212529;">$1</strong>');
+          
+          // Handle italic text (*text*) - but avoid matching **
+          formattedLine = formattedLine.replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, '<em style="font-style: italic;">$1</em>');
+          
+          // Empty line
+          if (line.trim() === '') {
+            return <div key={index} style={{ marginBottom: '8px' }}>&nbsp;</div>;
+          }
+          
+          return (
+            <div 
+              key={index} 
+              style={{ marginBottom: '4px' }}
+              dangerouslySetInnerHTML={{ __html: formattedLine }}
+            />
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <>
       {/* Overlay */}
@@ -215,15 +338,7 @@ function BotDetailsModal({ bot, show, onClose }) {
                       }}>
                         Goal
                       </label>
-                      <p style={{
-                        margin: 0,
-                        fontSize: '15px',
-                        color: '#212529',
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word'
-                      }}>
-                        {displayBot.goal || '-'}
-                      </p>
+                      {formatMarkdownText(displayBot.goal, '300px')}
                     </div>
                     <div>
                       <label style={{
@@ -236,15 +351,7 @@ function BotDetailsModal({ bot, show, onClose }) {
                       }}>
                         Background
                       </label>
-                      <p style={{
-                        margin: 0,
-                        fontSize: '15px',
-                        color: '#212529',
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word'
-                      }}>
-                        {displayBot.background || '-'}
-                      </p>
+                      {formatMarkdownText(displayBot.background, '400px')}
                     </div>
                   </div>
                 </div>
@@ -303,9 +410,7 @@ function BotDetailsModal({ bot, show, onClose }) {
                       }}>
                         Instruction Voice
                       </label>
-                      <p style={{ margin: 0, fontSize: '15px', color: '#212529' }}>
-                        {displayBot.instruction_voice || '-'}
-                      </p>
+                      {formatMarkdownText(displayBot.instruction_voice, '300px')}
                     </div>
                     <div>
                       <label style={{
@@ -425,15 +530,7 @@ function BotDetailsModal({ bot, show, onClose }) {
                       }}>
                         Welcome Message
                       </label>
-                      <p style={{
-                        margin: 0,
-                        fontSize: '15px',
-                        color: '#212529',
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word'
-                      }}>
-                        {displayBot.welcome_message || '-'}
-                      </p>
+                      {formatMarkdownText(displayBot.welcome_message, '300px')}
                     </div>
                     <div>
                       <label style={{
@@ -446,22 +543,7 @@ function BotDetailsModal({ bot, show, onClose }) {
                       }}>
                         Script
                       </label>
-                      <p style={{
-                        margin: 0,
-                        fontSize: '15px',
-                        color: '#212529',
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
-                        maxHeight: '200px',
-                        overflowY: 'auto',
-                        padding: '12px',
-                        backgroundColor: '#f8f9fa',
-                        borderRadius: '6px',
-                        fontFamily: 'monospace',
-                        fontSize: '13px'
-                      }}>
-                        {displayBot.script || '-'}
-                      </p>
+                      {formatMarkdownText(displayBot.script, '400px')}
                     </div>
                   </div>
                 </div>
