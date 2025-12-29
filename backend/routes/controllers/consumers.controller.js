@@ -156,7 +156,7 @@ export const getAllConsumers = async (req, res) => {
 
           // Extract product IDs into array
           const productIds = productAccess?.map(pa => pa.product_id) || [];
-          
+
           // Build productSettings object from product_settings
           const productSettings = {};
           productAccess?.forEach(pa => {
@@ -164,7 +164,7 @@ export const getAllConsumers = async (req, res) => {
               productSettings[pa.product_id] = pa.product_settings;
             }
           });
-          
+
           return {
             ...consumer,
             subscribed_products: productIds,
@@ -287,7 +287,7 @@ export const getConsumerById = async (req, res) => {
       } else {
         // Extract product IDs into array
         consumer.subscribed_products = productAccess?.map(pa => pa.product_id) || [];
-        
+
         // Build productSettings object from product_settings
         const productSettings = {};
         productAccess?.forEach(pa => {
@@ -340,7 +340,7 @@ export const updateConsumer = async (req, res) => {
     // 1. INPUT VALIDATION
     // ========================================
     const { id } = req.params;
-    
+
     if (!id || !isValidUUID(id)) {
       return res.status(400).json({
         success: false,
@@ -350,10 +350,10 @@ export const updateConsumer = async (req, res) => {
     }
 
     let { full_name, phone, trial_expiry_date, country, city, subscribed_products, subscribed_packages, roles, productSettings, nickname } = req.body;
-    
-    console.log('📝 Update consumer - received data:', { 
-      roles, 
-      rolesType: typeof roles, 
+
+    console.log('📝 Update consumer - received data:', {
+      roles,
+      rolesType: typeof roles,
       isArray: Array.isArray(roles),
       subscribed_products,
       subscribed_packages,
@@ -361,7 +361,7 @@ export const updateConsumer = async (req, res) => {
     });
 
     // Validate required fields for update
-    if (!country ) {
+    if (!country) {
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
@@ -373,7 +373,7 @@ export const updateConsumer = async (req, res) => {
     // 2. SANITIZATION & VALIDATION
     // ========================================
     const updateData = {};
-    
+
     if (full_name !== undefined) {
       full_name = sanitizeString(full_name, 255);
       if (full_name && full_name.length < 2) {
@@ -385,7 +385,7 @@ export const updateConsumer = async (req, res) => {
       }
       updateData.full_name = full_name;
     }
-    
+
     // Validate and sanitize phone
     phone = phone.trim();
     if (!isValidPhone(phone)) {
@@ -396,16 +396,16 @@ export const updateConsumer = async (req, res) => {
       });
     }
     updateData.phone = phone;
-    
+
     // Sanitize country and city
     updateData.country = sanitizeString(country, 100);
     updateData.city = sanitizeString(city, 100);
-    
+
     // Handle nickname (optional)
     if (nickname !== undefined) {
       updateData.nickname = nickname ? sanitizeString(nickname, 100) : null;
     }
-    
+
     if (trial_expiry_date !== undefined) {
       // Convert to timestamp if provided
       if (trial_expiry_date) {
@@ -457,10 +457,10 @@ export const updateConsumer = async (req, res) => {
           rolesArray = ['consumer'];
         }
       }
-      
+
       const validRoles = ['consumer', 'reseller'];
       const userRoles = rolesArray.map(r => String(r).toLowerCase()).filter(r => validRoles.includes(r));
-      
+
       if (userRoles.length === 0) {
         return res.status(400).json({
           success: false,
@@ -468,14 +468,14 @@ export const updateConsumer = async (req, res) => {
           message: `At least one valid role is required. Valid roles: ${validRoles.join(', ')}`
         });
       }
-      
+
       // Remove duplicates and set as array
       updateData.role = [...new Set(userRoles)];
       console.log('✅ Roles processed and set in updateData:', updateData.role);
     } else {
       console.log('ℹ️ No roles provided in update request, keeping existing roles');
     }
-    
+
     // Get current consumer data before update to compare trial_expiry
     const currentConsumerPromise = supabase
       .from('auth_role_with_profiles')
@@ -509,7 +509,7 @@ export const updateConsumer = async (req, res) => {
       .maybeSingle();
 
     const { data: updatedConsumer, error } = await executeWithTimeout(updatePromise);
-      
+
     console.log("updatedConsumer", updatedConsumer);
 
     if (error) {
@@ -548,7 +548,7 @@ export const updateConsumer = async (req, res) => {
     if (subscribed_products !== undefined) {
       try {
         // Validate product IDs format
-        const validFormatProductIds = Array.isArray(subscribed_products) 
+        const validFormatProductIds = Array.isArray(subscribed_products)
           ? subscribed_products.filter(productId => isValidUUID(productId))
           : [];
 
@@ -593,14 +593,14 @@ export const updateConsumer = async (req, res) => {
               user_id: id,
               product_id: productId
             };
-            
+
             // Add product_settings if available for this product
             if (productSettings && typeof productSettings === 'object' && productSettings[productId]) {
               const settings = productSettings[productId];
-              
+
               // Validate and sanitize settings
               const sanitizedSettings = {};
-              
+
               if (settings.vapi_account !== undefined && settings.vapi_account !== null && settings.vapi_account !== '') {
                 sanitizedSettings.vapi_account = parseInt(settings.vapi_account);
               }
@@ -616,7 +616,7 @@ export const updateConsumer = async (req, res) => {
               if (settings.concurrency_limit !== undefined && settings.concurrency_limit !== null && settings.concurrency_limit !== '') {
                 sanitizedSettings.concurrency_limit = parseInt(settings.concurrency_limit);
               }
-              
+
               // Beeba product settings
               if (settings.brands !== undefined && settings.brands !== null && settings.brands !== '') {
                 sanitizedSettings.brands = parseInt(settings.brands);
@@ -636,13 +636,13 @@ export const updateConsumer = async (req, res) => {
               if (settings.carasoul !== undefined && settings.carasoul !== null && settings.carasoul !== '') {
                 sanitizedSettings.carasoul = parseInt(settings.carasoul);
               }
-              
+
               // Only add product_settings if there are valid settings
               if (Object.keys(sanitizedSettings).length > 0) {
                 record.product_settings = sanitizedSettings;
               }
             }
-            
+
             return record;
           });
 
@@ -685,11 +685,11 @@ export const updateConsumer = async (req, res) => {
 
     // Update package access - handle subscribed_packages (separate from products)
     const packagesToStore = subscribed_packages;
-    
+
     if (packagesToStore !== undefined) {
       try {
         // Validate package IDs format
-        const validFormatPackageIds = Array.isArray(packagesToStore) 
+        const validFormatPackageIds = Array.isArray(packagesToStore)
           ? packagesToStore.filter(packageId => isValidUUID(packageId))
           : [];
 
@@ -784,11 +784,11 @@ export const updateConsumer = async (req, res) => {
     // Send email if trial_expiry_date was changed
     if (trial_expiry_date !== undefined && currentConsumer) {
       const newTrialExpiry = updatedConsumer?.trial_expiry || null;
-      
+
       // Check if trial_expiry actually changed
       const oldDate = oldTrialExpiry ? new Date(oldTrialExpiry).toISOString() : null;
       const newDate = newTrialExpiry ? new Date(newTrialExpiry).toISOString() : null;
-      
+
       if (oldDate !== newDate && currentConsumer.email && currentConsumer.full_name) {
         try {
           await sendTrialPeriodChangeEmail({
@@ -911,7 +911,7 @@ export const deleteConsumer = async (req, res) => {
       try {
         const deleteAuthPromise = supabaseAdmin.auth.admin.deleteUser(id);
         const { error: authError } = await executeWithTimeout(deleteAuthPromise);
-        
+
         if (authError) {
           console.error('Error deleting user from auth:', authError);
           // Continue anyway since profile is deleted
@@ -1020,7 +1020,7 @@ export const updateConsumerAccountStatus = async (req, res) => {
         p_user_id: req.user.id,
         p_permission_name: 'consumers.manage_lifetime_access'
       });
-      
+
       if (!hasGrantPermission && !hasManagePermission) {
         return res.status(403).json({
           success: false,
@@ -1028,7 +1028,7 @@ export const updateConsumerAccountStatus = async (req, res) => {
           message: 'Permission required: consumers.grant_lifetime_access or consumers.manage_lifetime_access'
         });
       }
-      
+
       updateData.lifetime_access = true;
       console.log('♾️ Granting lifetime access (setting lifetime_access to true)');
     } else if (lifetime_access === false) {
@@ -1041,7 +1041,7 @@ export const updateConsumerAccountStatus = async (req, res) => {
         p_user_id: req.user.id,
         p_permission_name: 'consumers.manage_lifetime_access'
       });
-      
+
       if (!hasRevokePermission && !hasManagePermission) {
         return res.status(403).json({
           success: false,
@@ -1049,7 +1049,7 @@ export const updateConsumerAccountStatus = async (req, res) => {
           message: 'Permission required: consumers.revoke_lifetime_access or consumers.manage_lifetime_access'
         });
       }
-      
+
       // Allow explicitly revoking lifetime access
       updateData.lifetime_access = false;
       console.log('♾️ Revoking lifetime access (setting lifetime_access to false)');
@@ -1068,16 +1068,16 @@ export const updateConsumerAccountStatus = async (req, res) => {
         const createdAt = new Date(consumer.created_at);
         const maxTrialDate = new Date(createdAt);
         maxTrialDate.setDate(maxTrialDate.getDate() + 7);
-        
+
         const requestedExpiryDate = new Date(trial_expiry_date);
-        
+
         if (requestedExpiryDate > maxTrialDate) {
           return res.status(400).json({
             error: 'Bad Request',
             message: 'Trial cannot be extended beyond 7 days from account creation date. Use lifetime_access: true for unlimited access.'
           });
         }
-        
+
         updateData.trial_expiry = trial_expiry_date;
         console.log('📅 Setting trial_expiry to provided date:', trial_expiry_date);
       } else {
@@ -1153,14 +1153,14 @@ export const updateConsumerAccountStatus = async (req, res) => {
     // Send trial extension email if status is 'active' and trial was extended
     if (account_status === 'active' && trial_expiry_date && consumerInfo) {
       const newTrialExpiry = updatedConsumer?.trial_expiry || null;
-      
+
       if (oldTrialExpiry && newTrialExpiry && consumerInfo.email && consumerInfo.full_name) {
         try {
           // Calculate extension days
           const oldDate = new Date(oldTrialExpiry);
           const newDate = new Date(newTrialExpiry);
           const extensionDays = Math.ceil((newDate - oldDate) / (1000 * 60 * 60 * 24));
-          
+
           if (extensionDays > 0) {
             await sendTrialExtensionEmail({
               email: consumerInfo.email,
@@ -1284,10 +1284,12 @@ export const resetConsumerPassword = async (req, res) => {
     }
 
     // ========================================
-    // 3. GENERATE AND UPDATE PASSWORD (with timeout)
+    // 3. GENERATE OR USE MANUAL PASSWORD (with timeout)
     // ========================================
-    // Generate new password
-    const newPassword = generatePassword();
+    const { password: manualPassword } = req.body;
+
+    // Use manual password if provided, otherwise generate random
+    const newPassword = manualPassword || generatePassword();
 
     // Update password using admin client
     const updatePasswordPromise = supabaseAdmin.auth.admin.updateUserById(
@@ -1327,7 +1329,8 @@ export const resetConsumerPassword = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Password reset successfully. Email sent to consumer.'
+      message: 'Password reset successfully. Email sent to consumer.',
+      newPassword: newPassword
     });
   } catch (error) {
     return handleApiError(error, res, 'An error occurred while resetting the password.');
@@ -1540,11 +1543,11 @@ export const revokeLifetimeAccess = async (req, res) => {
     // 3. UPDATE LIFETIME ACCESS (with timeout)
     // ========================================
     const updateData = { lifetime_access: false };
-    
+
     // If revoking lifetime access, set trial expiry based on trial_days parameter
     const createdAt = new Date(consumer.created_at);
     const trialExpiry = new Date(createdAt);
-    
+
     if (trialDays !== null) {
       // Use provided trial_days
       trialExpiry.setDate(trialExpiry.getDate() + trialDays);
@@ -1829,21 +1832,92 @@ export const getConsumerProductSettings = async (req, res) => {
         message: 'Invalid consumer ID format'
       });
     }
+
     const consumerPromise = supabase
       .from('user_product_access')
-      .select('product_settings')
-      .eq('user_id', id)
-      .maybeSingle();
+      .select('product_id, product_settings')
+      .eq('user_id', id);
+
     const { data: productAccess, error: productAccessError } = await executeWithTimeout(consumerPromise, 5000);
 
     if (productAccessError) {
       return handleApiError(productAccessError, res, 'An error occurred while fetching the consumer product settings.');
     }
+
+    // Consolidate settings by product_id
+    const combinedSettings = {};
+    if (productAccess && Array.isArray(productAccess)) {
+      productAccess.forEach(record => {
+        if (record.product_id && record.product_settings) {
+          combinedSettings[record.product_id] = record.product_settings;
+        }
+      });
+    }
+
     return res.json({
       success: true,
-      data: productAccess?.product_settings || {}
+      message: 'Product settings retrieved successfully',
+      data: combinedSettings
     });
   } catch (error) {
     return handleApiError(error, res, 'An error occurred while fetching the consumer product settings.');
   }
 };
+
+export const updateConsumerProductSettings = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { settings } = req.body;
+
+    if (!id || !isValidUUID(id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid consumer ID format'
+      });
+    }
+
+    if (!settings || typeof settings !== 'object') {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Valid settings object is required'
+      });
+    }
+
+    // We need to update each product's settings separately
+    const updatePromises = Object.keys(settings).map(productId => {
+      if (!isValidUUID(productId)) return Promise.resolve();
+
+      return supabase
+        .from('user_product_access')
+        .update({ product_settings: settings[productId] })
+        .eq('user_id', id)
+        .eq('product_id', productId);
+    });
+
+    const results = await Promise.all(updatePromises);
+    const errors = results.filter(r => r?.error).map(r => r.error);
+
+    if (errors.length > 0) {
+      console.error('Errors updating product settings:', errors);
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Some product settings failed to update'
+      });
+    }
+
+    // Cache invalidation
+    await cacheService.del(CACHE_KEYS.CONSUMER_BY_ID(id));
+
+    return res.json({
+      success: true,
+      message: 'Product settings updated successfully',
+      data: settings
+    });
+  } catch (error) {
+    return handleApiError(error, res, 'An error occurred while updating the product settings.');
+  }
+};
+

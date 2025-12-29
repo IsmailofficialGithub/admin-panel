@@ -8,7 +8,7 @@ import { getAllVapiAccounts } from '../../api/backend/vapi';
 import { useAuth } from '../../hooks/useAuth';
 import { hasRole } from '../../utils/roleUtils';
 
-const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
+const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProductSettings }) => {
   const { profile } = useAuth();
   const [formData, setFormData] = useState({
     full_name: '',
@@ -20,13 +20,13 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
     roles: ['consumer'], // Default to consumer, but allow reseller too
     nickname: ''
   });
-  
+
   // Available roles for consumer form
   const availableRoles = [
     { value: 'consumer', label: 'Consumer' },
     { value: 'reseller', label: 'Reseller' }
   ];
-  
+
   // Check if consumer role is selected
   const isConsumerSelected = formData.roles?.includes('consumer') || false;
 
@@ -60,17 +60,19 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
           console.warn('Invalid trial date:', dateStr);
         }
       }
-      
+
       // Handle both subscribed_packages (new) and subscribed_products (backward compatibility)
       const consumerPackages = consumer.subscribed_packages || [];
       const consumerProducts = consumer.subscribed_products || [];
-      
-      
+
+
       // Initialize selected products from consumer data
       setSelectedProducts(Array.isArray(consumerProducts) ? consumerProducts : []);
-      
-      // Initialize productSettings from consumer data
-      if (consumer.productSettings && typeof consumer.productSettings === 'object') {
+
+      // Initialize productSettings from prop or consumer data
+      if (initialProductSettings && Object.keys(initialProductSettings).length > 0) {
+        setProductSettings(initialProductSettings);
+      } else if (consumer.productSettings && typeof consumer.productSettings === 'object') {
         // Normalize productSettings - ensure all keys are strings for consistent matching
         const normalizedSettings = {};
         Object.keys(consumer.productSettings).forEach(productId => {
@@ -82,13 +84,13 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
       } else {
         setProductSettings({});
       }
-      
+
       // Handle role - use normalizeRole utility to handle all formats (array, string, etc.)
       const consumerRoles = normalizeRole(consumer.role);
-      
+
       // Ensure at least consumer role is present (default to consumer if empty)
       const finalRoles = consumerRoles.length > 0 ? consumerRoles : ['consumer'];
-      
+
       setFormData({
         full_name: consumer.full_name || consumer.name || '',
         phone: '',
@@ -99,7 +101,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         roles: finalRoles,
         nickname: consumer.nickname || ''
       });
-      
+
       // If consumer has a country, find and set it
       if (consumer.country) {
         const country = countries.find(c => c.name === consumer.country);
@@ -130,7 +132,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
           setFormData(prev => ({ ...prev, phone: String(consumer.phone).trim() }));
         }
       }
-      
+
       setCountrySearch('');
       setErrors({});
     }
@@ -199,7 +201,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
   //       setLoadingPackages(true);
   //       try {
   //         const response = await apiClient.packages.getAll({ limit: 1000 }); // Get all packages
-          
+
   //         // The axios interceptor already unwraps response.data, so response is the data object
   //         // API response structure: { success: true, data: [...], count: 9, ... }
   //         if (response?.success && Array.isArray(response.data)) {
@@ -244,19 +246,19 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
     const value = e.target.value;
     // Only allow numbers
     const numericValue = value.replace(/\D/g, '');
-    
+
     setFormData(prev => ({ ...prev, phone: numericValue }));
-    
+
     // Clear phone error when user starts typing
     if (errors.phone) {
       setErrors(prev => ({ ...prev, phone: '' }));
     }
-    
+
     // Real-time validation feedback (optional - can be removed if too intrusive)
     if (selectedCountry && numericValue) {
       const expectedNationalLength = selectedCountry.nationalLength;
       const phoneDigits = numericValue.replace(/\D/g, '');
-      
+
       if (phoneDigits.length > expectedNationalLength) {
         // Don't set error here, just prevent further input
         // The validation will catch it on submit
@@ -266,13 +268,13 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
 
   const handleCountrySelect = (country) => {
     setSelectedCountry(country);
-    
+
     // Remove any existing country code from phone number
     let cleanPhone = formData.phone;
     if (selectedCountry && formData.phone && formData.phone.toString().startsWith(selectedCountry.phoneCode)) {
       cleanPhone = formData.phone.toString().substring(selectedCountry.phoneCode.length).trim();
     }
-    
+
     setFormData(prev => ({
       ...prev,
       country: country.name,
@@ -283,12 +285,12 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
     if (errors.country) {
       setErrors(prev => ({ ...prev, country: '' }));
     }
-    
+
     // Re-validate phone if it exists when country changes
     if (formData.phone && formData.phone.toString().trim()) {
       const phoneDigits = formData.phone.toString().replace(/\D/g, '');
       const expectedNationalLength = country.nationalLength;
-      
+
       if (phoneDigits.length !== expectedNationalLength) {
         setErrors(prev => ({
           ...prev,
@@ -325,7 +327,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
     }
   };
 
-  const filteredCountries = countrySearch 
+  const filteredCountries = countrySearch
     ? searchCountries(countrySearch)
     : countries;
 
@@ -335,11 +337,11 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
       // Convert both to strings for comparison to handle UUID string comparison issues
       const packageIdStr = String(packageId);
       const isSelected = prev.subscribed_packages.some(id => String(id) === packageIdStr);
-      
+
       const newPackages = isSelected
         ? prev.subscribed_packages.filter(id => String(id) !== packageIdStr)
         : [...prev.subscribed_packages, packageId];
-      
+
       return {
         ...prev,
         subscribed_packages: newPackages
@@ -356,13 +358,13 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
 
   // Handle product selection
   const handleProductToggle = (productId) => {
-    
+
     setSelectedProducts(prev => {
       const isSelected = prev.includes(productId);
       const newProducts = isSelected
         ? prev.filter(id => id !== productId)
         : [...prev, productId];
-      
+
       // Clean up productSettings if product is removed
       if (isSelected) {
         setProductSettings(prevSettings => {
@@ -371,7 +373,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
           return newSettings;
         });
       }
-      
+
       return newProducts;
     });
   };
@@ -379,6 +381,25 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
   // Check if product is selected
   const isProductSelected = (productId) => {
     return selectedProducts.includes(productId);
+  };
+
+  // Default settings for products
+  const DEFAULT_SETTINGS = {
+    genie: {
+      list_limit: 1,
+      agent_number: 3,
+      vapi_account: 1,
+      duration_limit: 60,
+      concurrency_limit: 1
+    },
+    beeba: {
+      brands: 3,
+      posts: 10,
+      analysis: 3,
+      images: 10,
+      video: 5,
+      carasoul: 5
+    }
   };
 
   // Handle product settings change
@@ -392,15 +413,28 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         processedValue = value;
       } else if (field === 'agent_number' || field === 'duration_limit' || field === 'list_limit' || field === 'concurrency_limit' || field === 'brands' || field === 'posts' || field === 'analysis' || field === 'images' || field === 'video' || field === 'carasoul') {
         // These are numeric fields
-        processedValue = parseInt(value) || undefined;
+        const parsed = parseInt(value);
+        processedValue = isNaN(parsed) ? undefined : parsed;
       } else {
         processedValue = value;
       }
-      
+
+      // Determine which defaults to use
+      let defaults = {};
+      const genieId = getGenieProductId();
+      const beebaId = getBeebaProductId();
+
+      if (String(productId) === String(genieId)) {
+        defaults = DEFAULT_SETTINGS.genie;
+      } else if (String(productId) === String(beebaId)) {
+        defaults = DEFAULT_SETTINGS.beeba;
+      }
+
       const newSettings = {
         ...prev,
         [productId]: {
-          ...(prev[productId] || {}),
+          ...defaults,
+          ...(prev[productId] || prev[String(productId)] || {}),
           [field]: processedValue
         }
       };
@@ -416,7 +450,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
       const product = products.find(p => p.id === id);
       return product?.name && product.name.toLowerCase().includes('genie');
     });
-    
+
     // Also check if any selected product has settings, even if not named "genie"
     if (!foundId && selectedProducts.length > 0 && Object.keys(productSettings).length > 0) {
       // Find first selected product that has settings
@@ -428,7 +462,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         return productWithSettings;
       }
     }
-    
+
     return foundId;
   };
 
@@ -446,7 +480,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
       const product = products.find(p => p.id === id);
       return product?.name && product.name.toLowerCase() === 'beeba';
     });
-    
+
     // Also check if any selected product has settings, even if not named "beeba"
     if (!foundId && selectedProducts.length > 0 && Object.keys(productSettings).length > 0) {
       // Find first selected product that has beeba settings
@@ -459,7 +493,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         return productWithSettings;
       }
     }
-    
+
     return foundId;
   };
 
@@ -474,13 +508,13 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
   const isSuperAdmin = profile?.is_systemadmin === true;
   const canViewGenieSettings = isAdmin || isSuperAdmin;
   const canViewBeebaSettings = isAdmin || isSuperAdmin;
-  
+
   // Handle role change
   const handleRoleChange = (roleValue) => {
     setFormData(prev => {
       const currentRoles = prev.roles || ['consumer'];
       const isSelected = currentRoles.includes(roleValue);
-      
+
       let newRoles;
       if (isSelected) {
         // Remove role if already selected
@@ -493,11 +527,11 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         // Add role
         newRoles = [...currentRoles, roleValue];
       }
-      
+
       // If consumer role is removed, clear consumer-specific fields
       const wasConsumer = currentRoles.includes('consumer');
       const isNowConsumer = newRoles.includes('consumer');
-      
+
       return {
         ...prev,
         roles: newRoles,
@@ -512,35 +546,35 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
 
   const validateForm = () => {
     const newErrors = {};
-    
+
     if (!formData.full_name.trim()) {
       newErrors.full_name = 'Full name is required';
     } else if (formData.full_name.trim().length < 2) {
       newErrors.full_name = 'Full name must be at least 2 characters';
     }
-    
+
     if (!formData.country.trim()) {
       newErrors.country = 'Country is required';
     }
-    
+
     // City validation (optional)
     // No validation needed - city is optional
-    
+
     // Phone validation (optional but must be valid if provided)
     // Check if phone has any value (even if just whitespace, we'll validate it)
     const phoneValue = formData.phone ? formData.phone.toString().trim() : '';
-    
+
     if (phoneValue) {
       // Get only digits from the entered phone number
       const phoneDigits = phoneValue.replace(/\D/g, '');
-      
+
       // Basic format validation - allow only digits, spaces, dashes, plus, parentheses
       if (!/^[\d\s\-\+\(\)]+$/.test(phoneValue)) {
         newErrors.phone = 'Please enter a valid phone number (only numbers allowed)';
       } else if (selectedCountry) {
         // Validate phone length based on country's nationalLength
         const expectedNationalLength = selectedCountry.nationalLength;
-        
+
         if (phoneDigits.length === 0) {
           newErrors.phone = 'Phone number cannot be empty';
         } else if (phoneDigits.length !== expectedNationalLength) {
@@ -555,7 +589,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         }
       }
     }
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -565,10 +599,10 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
     if (!isValid) {
       return;
     }
-    
+
     if (isValid) {
       // Combine country code with phone number
-      const fullPhone = selectedCountry && formData.phone 
+      const fullPhone = selectedCountry && formData.phone
         ? `${selectedCountry.phoneCode} ${formData.phone.trim()}`
         : formData.phone.trim() || null;
 
@@ -587,7 +621,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
 
       // Always include subscribed_packages (even if empty array)
       updateData.subscribed_packages = formData.subscribed_packages || [];
-      
+
       // Include subscribed_products if any products are selected
       if (selectedProducts.length > 0) {
         updateData.subscribed_products = selectedProducts;
@@ -602,12 +636,12 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
         const settings = productSettings[productId];
         return settings && Object.values(settings).some(value => value !== undefined && value !== null && value !== '');
       });
-      
+
       if (hasProductSettings) {
         updateData.productSettings = productSettings;
       }
-      
-      
+
+
       onUpdate(updateData);
       onClose();
     }
@@ -1053,7 +1087,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                   <ChevronDown size={18} />
                 </button>
               )}
-              
+
               {/* Country Dropdown */}
               {showCountryDropdown && !selectedCountry && (
                 <div style={{
@@ -1431,51 +1465,51 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                         </div>
                       ) : (
                         products.map((product) => (
-                        <div
-                          key={product.id}
-                          onClick={() => handleProductToggle(product.id)}
-                          style={{
-                            padding: '10px 12px',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px',
-                            transition: 'background-color 0.2s',
-                            backgroundColor: isProductSelected(product.id) ? '#eff6ff' : 'white'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = isProductSelected(product.id) ? '#dbeafe' : '#f9fafb';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = isProductSelected(product.id) ? '#eff6ff' : 'white';
-                          }}
-                        >
                           <div
+                            key={product.id}
+                            onClick={() => handleProductToggle(product.id)}
                             style={{
-                              width: '18px',
-                              height: '18px',
-                              border: isProductSelected(product.id) ? '2px solid #74317e' : '2px solid #d1d5db',
-                              borderRadius: '4px',
+                              padding: '10px 12px',
+                              cursor: 'pointer',
                               display: 'flex',
                               alignItems: 'center',
-                              justifyContent: 'center',
-                              backgroundColor: isProductSelected(product.id) ? '#74317e' : 'white',
-                              transition: 'all 0.2s'
+                              gap: '10px',
+                              transition: 'background-color 0.2s',
+                              backgroundColor: isProductSelected(product.id) ? '#eff6ff' : 'white'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = isProductSelected(product.id) ? '#dbeafe' : '#f9fafb';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = isProductSelected(product.id) ? '#eff6ff' : 'white';
                             }}
                           >
-                            {isProductSelected(product.id) && (
-                              <CheckCircle size={12} style={{ color: 'white' }} />
-                            )}
+                            <div
+                              style={{
+                                width: '18px',
+                                height: '18px',
+                                border: isProductSelected(product.id) ? '2px solid #74317e' : '2px solid #d1d5db',
+                                borderRadius: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: isProductSelected(product.id) ? '#74317e' : 'white',
+                                transition: 'all 0.2s'
+                              }}
+                            >
+                              {isProductSelected(product.id) && (
+                                <CheckCircle size={12} style={{ color: 'white' }} />
+                              )}
+                            </div>
+                            <span style={{
+                              fontSize: '14px',
+                              color: '#374151',
+                              fontWeight: isProductSelected(product.id) ? '500' : '400'
+                            }}>
+                              {product.name}
+                            </span>
                           </div>
-                          <span style={{
-                            fontSize: '14px',
-                            color: '#374151',
-                            fontWeight: isProductSelected(product.id) ? '500' : '400'
-                          }}>
-                            {product.name}
-                          </span>
-                        </div>
-                      ))
+                        ))
                       )}
                     </div>
                   </>
@@ -1500,7 +1534,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
 
           {/* Genie Product Settings Section */}
           {isConsumerSelected && isGenieProductSelected() && canViewGenieSettings && (
-            <div style={{ 
+            <div style={{
               marginBottom: '20px',
               padding: '16px',
               backgroundColor: '#f9fafb',
@@ -1519,27 +1553,15 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                 <Package size={16} style={{ color: '#74317e' }} />
                 Genie Product Settings <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
               </label>
-              
+
               {(() => {
                 const genieProductId = getGenieProductId();
                 // Try to find settings using both string and original ID format
                 const genieProductIdStr = genieProductId ? String(genieProductId) : null;
-                const settings = genieProductIdStr 
-                  ? (productSettings[genieProductIdStr] || productSettings[genieProductId] || {
-                      list_limit: 1,
-                      agent_number: 3,
-                      vapi_account: 1,
-                      duration_limit: 60,
-                      concurrency_limit: 1
-                    })
-                  : {
-                      list_limit: 1,
-                      agent_number: 3,
-                      vapi_account: 1,
-                      duration_limit: 60,
-                      concurrency_limit: 1
-                    };
-                
+                const settings = genieProductIdStr
+                  ? (productSettings[genieProductIdStr] || productSettings[genieProductId] || DEFAULT_SETTINGS.genie)
+                  : DEFAULT_SETTINGS.genie;
+
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     {/* VAPI Account */}
@@ -1762,7 +1784,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
 
           {/* Beeba Product Settings Section */}
           {isConsumerSelected && isBeebaProductSelected() && canViewBeebaSettings && (
-            <div style={{ 
+            <div style={{
               marginBottom: '20px',
               padding: '16px',
               backgroundColor: '#f9fafb',
@@ -1781,29 +1803,15 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                 <Package size={16} style={{ color: '#74317e' }} />
                 Beeba Product Settings <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
               </label>
-              
+
               {(() => {
                 const beebaProductId = getBeebaProductId();
                 // Try to find settings using both string and original ID format
                 const beebaProductIdStr = beebaProductId ? String(beebaProductId) : null;
-                const settings = beebaProductIdStr 
-                  ? (productSettings[beebaProductIdStr] || productSettings[beebaProductId] || {
-                      posts: 10,
-                      video: 5,
-                      brands: 3,
-                      images: 10,
-                      analysis: 3,
-                      carasoul: 5
-                    })
-                  : {
-                      posts: 10,
-                      video: 5,
-                      brands: 3,
-                      images: 10,
-                      analysis: 3,
-                      carasoul: 5
-                    };
-                
+                const settings = beebaProductIdStr
+                  ? (productSettings[beebaProductIdStr] || productSettings[beebaProductId] || DEFAULT_SETTINGS.beeba)
+                  : DEFAULT_SETTINGS.beeba;
+
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     {/* Brands */}
@@ -2047,7 +2055,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
 
           {/* Subscribed Packages Field (Multi-select) */}
           {/* <div style={{ marginBottom: '20px' }}> */}
-            {/* <label style={{
+          {/* <label style={{
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
@@ -2061,8 +2069,8 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
               <span style={{ color: '#ef4444', fontWeight: '500', fontSize: '12px' }}>*</span>
               <span style={{ color: '#6b7280', fontWeight: '400', fontSize: '12px' }}>(Select packages to subscribe - this is what gets saved to database)</span>
             </label> */}
-            {/* <div style={{ position: 'relative' }}> */}
-              {/* <div
+          {/* <div style={{ position: 'relative' }}> */}
+          {/* <div
                 onClick={() => setShowPackagesDropdown(!showPackagesDropdown)}
                 style={{
                   width: '100%',
@@ -2134,8 +2142,8 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                 </div>
               </div> */}
 
-              {/* Packages Dropdown */}
-              {/* {showPackagesDropdown && (
+          {/* Packages Dropdown */}
+          {/* {showPackagesDropdown && (
                 <>
                   <div
                     style={{
@@ -2238,8 +2246,8 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate }) => {
                   </div>
                 </>
               )} */}
-            {/* </div> */}
-              {/* {formData.subscribed_packages.length > 0 && (
+          {/* </div> */}
+          {/* {formData.subscribed_packages.length > 0 && (
                 <p style={{
                   color: '#6b7280',
                   fontSize: '12px',

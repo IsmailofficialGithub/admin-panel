@@ -3,11 +3,28 @@ import { useParams, useHistory, useLocation } from 'react-router-dom';
 import { Container, Row, Col, Card, Badge, Button, Table } from 'react-bootstrap';
 import { ArrowLeft, User, Mail, Phone, MapPin, Calendar, Package, Edit, Trash2, Key, FileText, DollarSign, Eye, Download, UserPlus, UserCog, History, ChevronDown, ChevronUp, Bot, PhoneCall, Target, Users, List, BarChart2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { getConsumerById, resetConsumerPassword, deleteConsumer } from '../api/backend';
+import {
+  getConsumerById,
+  resetConsumerPassword,
+  deleteConsumer,
+  updateConsumer,
+  updateConsumerAccountStatus,
+  grantLifetimeAccess,
+  revokeLifetimeAccess,
+  reassignConsumerToReseller,
+  getResellers,
+  getConsumerProductSettings,
+  updateConsumerProductSettings
+} from '../api/backend';
+import { getAllVapiAccounts } from '../api/backend/vapi';
 import { checkUserPermission } from '../api/backend/permissions';
 import { useAuth } from '../hooks/useAuth';
 import { usePermissions } from '../hooks/usePermissions';
 import apiClient from '../services/apiClient';
+import UpdateConsumerModal from '../components/ui/updateConsumerModel';
+import DeleteModal from '../components/ui/deleteModel';
+import CreateInvoiceModal from '../components/ui/createInvoiceModal';
+import { MoreVertical, CheckCircle, XCircle } from 'lucide-react';
 
 // Lazy load ConsumerGenie tab components
 const BotsTab = lazy(() => import('../components/ConsumerGenie/BotsTab'));
@@ -39,7 +56,57 @@ function ConsumerDetail() {
   const [expandedLogs, setExpandedLogs] = useState(new Set());
   const invoicesPerPage = 10;
   const activityLogsPerPage = 10;
-  
+
+  // Action state
+  const [permissions, setPermissions] = useState({
+    delete: false,
+    update: false,
+    read: false,
+    invoiceCreate: false,
+    grantLifetimeAccess: false,
+    revokeLifetimeAccess: false,
+    manageLifetimeAccess: false,
+    reassign: false,
+  });
+  const [openDropdown, setOpenDropdown] = useState(false);
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [statusUpdateData, setStatusUpdateData] = useState(null);
+  const [showStatusConfirmModal, setShowStatusConfirmModal] = useState(false);
+  const [selectedStatus, setSelectedStatus] = useState('');
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [showCreateInvoiceModal, setShowCreateInvoiceModal] = useState(false);
+  const [showExtendTrialModal, setShowExtendTrialModal] = useState(false);
+  const [extendTrialData, setExtendTrialData] = useState(null);
+  const [extendTrialDays, setExtendTrialDays] = useState('');
+  const [isExtendingTrial, setIsExtendingTrial] = useState(false);
+  const [showRevokeLifetimeModal, setShowRevokeLifetimeModal] = useState(false);
+  const [revokeLifetimeData, setRevokeLifetimeData] = useState(null);
+  const [revokeTrialDays, setRevokeTrialDays] = useState('7');
+  const [isRevokingLifetime, setIsRevokingLifetime] = useState(false);
+  const [showReassignModal, setShowReassignModal] = useState(false);
+  const [reassignData, setReassignData] = useState(null);
+  const [resellers, setResellers] = useState([]);
+  const [loadingResellers, setLoadingResellers] = useState(false);
+  const [selectedResellerId, setSelectedResellerId] = useState('');
+  const [resellerSearchTerm, setResellerSearchTerm] = useState('');
+  const [showResellerSuggestions, setShowResellerSuggestions] = useState(false);
+  const [isReassigning, setIsReassigning] = useState(false);
+
+  // Reset Password State
+  const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
+  const [typedEmail, setTypedEmail] = useState('');
+  const [manualPassword, setManualPassword] = useState('');
+  const [newGeneratedPassword, setNewGeneratedPassword] = useState('');
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [productSettings, setProductSettings] = useState({});
+  const [productSettingsLoading, setProductSettingsLoading] = useState(false);
+  const [isUpdatingProductSettings, setIsUpdatingProductSettings] = useState(false);
+  const [vapiAccounts, setVapiAccounts] = useState([]);
+  const [loadingVapiAccounts, setLoadingVapiAccounts] = useState(false);
+
   // Get initial Genie tab from URL or default to 'bots'
   const getInitialGenieTab = () => {
     const params = new URLSearchParams(location.search);
@@ -72,12 +139,12 @@ function ConsumerDetail() {
     if (!loadedGenieTabs[tab]) {
       setLoadedGenieTabs(prev => ({ ...prev, [tab]: true }));
     }
-    
+
     // Update URL without full page reload
     const params = new URLSearchParams(location.search);
     params.set('tab', tab);
     history.replace({ pathname: location.pathname, search: params.toString() });
-    
+
     // Scroll to Genie section smoothly
     setTimeout(() => {
       if (genieSectionRef.current) {
@@ -91,7 +158,7 @@ function ConsumerDetail() {
     const params = new URLSearchParams(location.search);
     const tabFromUrl = params.get('tab');
     const validTabs = ['bots', 'calls', 'campaigns', 'leads', 'lists', 'analytics'];
-    
+
     if (tabFromUrl && validTabs.includes(tabFromUrl) && tabFromUrl !== genieActiveTab) {
       setGenieActiveTab(tabFromUrl);
       setLoadedGenieTabs(prev => ({ ...prev, [tabFromUrl]: true }));
@@ -148,7 +215,7 @@ function ConsumerDetail() {
           hasReadPermission,
           permissionName: 'consumers.read'
         });
-        
+
         if (hasReadPermission) {
           setHasPermission(true);
           setCheckingPermission(false);
@@ -159,7 +226,7 @@ function ConsumerDetail() {
         const hasReadPermissionAPI = await checkUserPermission(user.id, 'consumers.read');
         console.log('🔍 ConsumerDetail API permission check result:', hasReadPermissionAPI);
         setHasPermission(hasReadPermissionAPI === true);
-        
+
         // Redirect if no permission
         if (!hasReadPermissionAPI) {
           console.error('❌ ConsumerDetail: Permission denied for user', user.id);
@@ -183,14 +250,73 @@ function ConsumerDetail() {
     checkPermission();
   }, [isAdmin, isReseller, user, profile, history, isLoadingPermissions, hasPermissionFromHook]);
 
+  // Sync permissions state for action buttons
+  useEffect(() => {
+    if (isLoadingPermissions || !profile) return;
+
+    if (profile.is_systemadmin === true) {
+      setPermissions({
+        delete: true,
+        update: true,
+        read: true,
+        invoiceCreate: true,
+        grantLifetimeAccess: true,
+        revokeLifetimeAccess: true,
+        manageLifetimeAccess: true,
+        reassign: true,
+      });
+      return;
+    }
+
+    setPermissions({
+      delete: hasPermissionFromHook('consumers.delete'),
+      update: hasPermissionFromHook('consumers.update'),
+      read: hasPermissionFromHook('consumers.read'),
+      invoiceCreate: hasPermissionFromHook('invoices.create'),
+      grantLifetimeAccess: hasPermissionFromHook('consumers.grant_lifetime_access') || hasPermissionFromHook('consumers.manage_lifetime_access'),
+      revokeLifetimeAccess: hasPermissionFromHook('consumers.revoke_lifetime_access') || hasPermissionFromHook('consumers.manage_lifetime_access'),
+      manageLifetimeAccess: hasPermissionFromHook('consumers.manage_lifetime_access'),
+      reassign: hasPermissionFromHook('consumers.reassign')
+    });
+  }, [isLoadingPermissions, profile, hasPermissionFromHook]);
+
+  // Fetch resellers for reassign modal
+  useEffect(() => {
+    if (resellerSearchTerm.length >= 2) {
+      const fetchResellers = async () => {
+        setLoadingResellers(true);
+        try {
+          const result = await getResellers({ search: resellerSearchTerm });
+          if (!result?.error) {
+            setResellers(result || []);
+            setShowResellerSuggestions(true);
+          }
+        } catch (error) {
+          console.error('Error searching resellers:', error);
+        } finally {
+          setLoadingResellers(false);
+        }
+      };
+      const timer = setTimeout(fetchResellers, 500);
+      return () => clearTimeout(timer);
+    } else {
+      setResellers([]);
+      setShowResellerSuggestions(false);
+    }
+  }, [resellerSearchTerm]);
+
   useEffect(() => {
     // Only fetch data if user has permission (or is reseller)
     if (checkingPermission) return;
     if (!hasPermission && isAdmin) return; // Don't fetch if admin doesn't have permission
-    
+
     fetchConsumerData();
     fetchConsumerProducts();
     fetchConsumerInvoices();
+    if (isAdmin) {
+      fetchProductSettings();
+      fetchVapiAccounts();
+    }
   }, [id, checkingPermission, hasPermission, isAdmin]);
 
   useEffect(() => {
@@ -207,7 +333,7 @@ function ConsumerDetail() {
     setLoading(true);
     try {
       let result;
-      
+
       // If reseller, use reseller's consumer endpoint
       if (isReseller) {
         result = await apiClient.resellers.getMyConsumers();
@@ -280,24 +406,156 @@ function ConsumerDetail() {
     }
   };
 
+  const fetchVapiAccounts = async () => {
+    setLoadingVapiAccounts(true);
+    try {
+      const result = await getAllVapiAccounts();
+      if (result && result.success) {
+        setVapiAccounts(result.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching VAPI accounts:', error);
+    } finally {
+      setLoadingVapiAccounts(false);
+    }
+  };
+
+  const fetchProductSettings = async () => {
+    setProductSettingsLoading(true);
+    try {
+      const result = await getConsumerProductSettings(id);
+      if (result && !result.error) {
+        setProductSettings(result.data || {});
+      }
+    } catch (error) {
+      console.error('Error fetching product settings:', error);
+    } finally {
+      setProductSettingsLoading(false);
+    }
+  };
+
+  const DEFAULT_SETTINGS = {
+    genie: {
+      list_limit: 1,
+      agent_number: 3,
+      vapi_account: '',
+      duration_limit: 60,
+      concurrency_limit: 1
+    },
+    beeba: {
+      brands: 3,
+      posts: 10,
+      analysis: 3,
+      images: 10,
+      video: 5,
+      carasoul: 5
+    }
+  };
+
+  const handleProductSettingChange = (productId, field, value) => {
+    setProductSettings(prev => {
+      let processedValue;
+      if (value === '') {
+        processedValue = undefined;
+      } else if (field === 'vapi_account') {
+        processedValue = value;
+      } else if (['agent_number', 'duration_limit', 'list_limit', 'concurrency_limit', 'brands', 'posts', 'analysis', 'images', 'video', 'carasoul'].includes(field)) {
+        const parsed = parseInt(value);
+        processedValue = isNaN(parsed) ? undefined : parsed;
+      } else {
+        processedValue = value;
+      }
+
+      // Determine which defaults to use
+      let defaults = {};
+      const genieId = getGenieProductId();
+      const beebaId = getBeebaProductId();
+
+      if (String(productId) === String(genieId)) {
+        defaults = DEFAULT_SETTINGS.genie;
+      } else if (String(productId) === String(beebaId)) {
+        defaults = DEFAULT_SETTINGS.beeba;
+      }
+
+      const newSettings = {
+        ...prev,
+        [productId]: {
+          ...defaults,
+          ...(prev[productId] || prev[String(productId)] || {}),
+          [field]: processedValue
+        }
+      };
+      return newSettings;
+    });
+  };
+
+  const getGenieProductId = () => {
+    const genieProduct = products.find(p => (p.name || p.product_name || '').toLowerCase().includes('genie'));
+    return genieProduct?.id || genieProduct?.product_id;
+  };
+
+  const isGenieProductSelected = () => {
+    return !!getGenieProductId();
+  };
+
+  const getBeebaProductId = () => {
+    const beebaProduct = products.find(p => (p.name || p.product_name || '').toLowerCase() === 'beeba');
+    return beebaProduct?.id || beebaProduct?.product_id;
+  };
+
+  const isBeebaProductSelected = () => {
+    return !!getBeebaProductId();
+  };
+
+  const handleUpdateProductSettings = async (settings) => {
+    let settingsToSave = settings;
+
+    // If it's a string, try to parse it first
+    if (typeof settings === 'string') {
+      try {
+        settingsToSave = JSON.parse(settings);
+      } catch (err) {
+        toast.error('Invalid JSON format in Product Settings');
+        return;
+      }
+    }
+
+    setIsUpdatingProductSettings(true);
+    const loadingToast = toast.loading('Updating product settings...');
+    try {
+      const result = await updateConsumerProductSettings(id, settingsToSave);
+      if (result && !result.error) {
+        setProductSettings(result.data || {});
+        toast.success(result.message || 'Product settings updated successfully', { id: loadingToast });
+      } else {
+        toast.error(result.error || 'Failed to update product settings', { id: loadingToast });
+      }
+    } catch (error) {
+      console.error('Error updating product settings:', error);
+      toast.error('Failed to update product settings', { id: loadingToast });
+    } finally {
+      setIsUpdatingProductSettings(false);
+    }
+  };
+
   const fetchActivityLogs = async () => {
     if (!isAdmin || !id) {
       console.log('Skipping fetchActivityLogs - isAdmin:', isAdmin, 'id:', id);
       return;
     }
-    
+
     setActivityLogsLoading(true);
     try {
       console.log('🔍 Fetching activity logs for consumer ID:', id);
       // Fetch activity logs with filters for this consumer
       const response = await apiClient.activityLogs.getAll(`?target_id=${id}&table_name=profiles&page=${activityLogsPage}&limit=${activityLogsPerPage}`);
       console.log('📋 Activity logs API response:', response);
-      
+
       if (response && response.success && response.data) {
         const logs = Array.isArray(response.data) ? response.data : [];
         console.log('✅ Activity logs received:', logs.length, 'Total:', response.total || 0);
         console.log('📊 Logs:', logs.map(log => ({ action: log.action_type, table: log.table_name, id: log.id, actor: log.actor_name })));
-        
+
         setActivityLogs(logs);
         setActivityLogsTotal(response.total || logs.length);
       } else {
@@ -412,44 +670,213 @@ function ConsumerDetail() {
     }
   };
 
-  const handleResetPassword = async () => {
-    if (!window.confirm(`Are you sure you want to reset password for ${consumer?.full_name || consumer?.email}?`)) {
-      return;
-    }
+  const handleAction = async (action) => {
+    setOpenDropdown(false);
 
-    try {
-      const result = await resetConsumerPassword(id);
-      if (result.success) {
-        toast.success('Password reset email sent successfully!');
-      } else {
-        toast.error(result.error || 'Failed to reset password');
+    if (action === 'Update') {
+      setIsUpdateModalOpen(true);
+    } else if (action === 'Delete') {
+      setShowDeleteModal(true);
+    } else if (action === 'Update Status') {
+      setStatusUpdateData({ id, name: consumer.full_name, currentStatus: consumer.account_status });
+      setShowStatusDropdown(true);
+    } else if (action === 'Reset Password') {
+      setTypedEmail('');
+      setManualPassword('');
+      setNewGeneratedPassword('');
+      setShowResetPasswordModal(true);
+    } else if (action === 'Create Invoice') {
+      setShowCreateInvoiceModal(true);
+    } else if (action === 'Extend Trial') {
+      setExtendTrialData({ id, name: consumer.full_name, consumer });
+      setExtendTrialDays('');
+      setShowExtendTrialModal(true);
+    } else if (action === 'Grant Lifetime Access') {
+      if (consumer.lifetime_access === true) {
+        toast.error('This consumer already has lifetime access.');
+        return;
       }
-    } catch (error) {
-      console.error('Error resetting password:', error);
-      toast.error('Failed to reset password');
+      if (window.confirm(`Are you sure you want to grant lifetime access to "${consumer.full_name}"?`)) {
+        const loadingToast = toast.loading(`Granting lifetime access...`);
+        try {
+          const result = await grantLifetimeAccess(id);
+          if (result.error) {
+            toast.error(`Error: ${result.error}`, { id: loadingToast });
+          } else {
+            setConsumer(prev => ({ ...prev, lifetime_access: true, account_status: 'active' }));
+            toast.success(`Lifetime access granted!`, { id: loadingToast });
+          }
+        } catch (error) {
+          console.error('Error granting lifetime access:', error);
+          toast.error('Failed to grant lifetime access.', { id: loadingToast });
+        }
+      }
+    } else if (action === 'Revoke Lifetime Access') {
+      setRevokeLifetimeData({ id, name: consumer.full_name, consumer });
+      setRevokeTrialDays('7');
+      setShowRevokeLifetimeModal(true);
+    } else if (action === 'Reassign to Reseller') {
+      setReassignData({ id, name: consumer.full_name, consumer });
+      setSelectedResellerId('');
+      setResellerSearchTerm('');
+      setShowReassignModal(true);
     }
   };
 
-  const handleDelete = async () => {
-    if (!window.confirm(`Are you sure you want to delete ${consumer?.full_name || consumer?.email}? This action cannot be undone.`)) {
+  const handleUpdateConsumer = async (updatedData) => {
+    try {
+      const loadingToast = toast.loading(`Updating consumer...`);
+      const result = await updateConsumer(id, {
+        ...updatedData,
+        subscribed_packages: updatedData.subscribed_packages || [],
+        roles: updatedData.roles || ['consumer']
+      });
+
+      if (result.error) {
+        toast.error(`Error: ${result.error}`, { id: loadingToast });
+        return;
+      }
+
+      toast.success(`Consumer updated successfully!`, { id: loadingToast });
+      setIsUpdateModalOpen(false);
+      fetchConsumerData(); // Refresh data
+    } catch (err) {
+      console.error('Error updating consumer:', err);
+      toast.error(`Error: ${err.message || 'Failed to update'}`);
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    try {
+      setIsDeleting(true);
+      const loadingToast = toast.loading(`Deleting consumer...`);
+      const result = await deleteConsumer(id);
+
+      if (result.error) {
+        toast.error(`Error: ${result.error}`, { id: loadingToast });
+        setIsDeleting(false);
+        return;
+      }
+
+      toast.success(`Consumer deleted successfully!`, { id: loadingToast });
+      setShowDeleteModal(false);
+      setIsDeleting(false);
+      history.push(isReseller ? '/reseller/consumers' : '/admin/consumers');
+    } catch (err) {
+      console.error('Error deleting consumer:', err);
+      toast.error(`Error: ${err.message || 'Failed to delete'}`);
+      setIsDeleting(false);
+    }
+  };
+
+  const handleResetPasswordConfirm = async () => {
+    if (typedEmail.toLowerCase() !== consumer.email.toLowerCase()) {
+      toast.error('Email address does not match.');
       return;
     }
 
     try {
-      const result = await deleteConsumer(id);
-      if (result.success) {
-        toast.success('Consumer deleted successfully!');
-        if (isReseller) {
-          history.push('/reseller/consumers');
-        } else {
-          history.push('/admin/consumers');
-        }
-      } else {
-        toast.error(result.error || 'Failed to delete consumer');
+      setIsResettingPassword(true);
+      const loadingToast = toast.loading(`Resetting password...`);
+      const result = await resetConsumerPassword(id, manualPassword || null);
+
+      if (result.error) {
+        toast.error(`Error: ${result.error}`, { id: loadingToast });
+        setIsResettingPassword(false);
+        return;
       }
-    } catch (error) {
-      console.error('Error deleting consumer:', error);
-      toast.error('Failed to delete consumer');
+
+      setNewGeneratedPassword(result.newPassword);
+      toast.success(`Password reset successfully!`, { id: loadingToast });
+      setIsResettingPassword(false);
+    } catch (err) {
+      console.error('Error resetting password:', err);
+      toast.error('Failed to reset password.');
+      setIsResettingPassword(false);
+    }
+  };
+
+  const handleStatusSelect = (status) => {
+    setSelectedStatus(status);
+    setShowStatusDropdown(false);
+    setShowStatusConfirmModal(true);
+  };
+
+  const handleConfirmStatusUpdate = async () => {
+    try {
+      setIsUpdatingStatus(true);
+      const loadingToast = toast.loading(`Updating status...`);
+      const result = await updateConsumerAccountStatus(id, selectedStatus, null);
+
+      if (result.error) {
+        toast.error(`Error: ${result.error}`, { id: loadingToast });
+        setIsUpdatingStatus(false);
+        return;
+      }
+
+      setConsumer(prev => ({ ...prev, account_status: selectedStatus }));
+      toast.success(`Status updated to ${selectedStatus}!`, { id: loadingToast });
+      setShowStatusConfirmModal(false);
+      setIsUpdatingStatus(false);
+    } catch (err) {
+      console.error('Error updating status:', err);
+      toast.error('Failed to update status.');
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  const handleExtendTrial = async () => {
+    try {
+      if (!extendTrialDays) return;
+      setIsExtendingTrial(true);
+      const currentExpiry = new Date(consumer.trial_expiry);
+      const newExpiry = new Date(currentExpiry);
+      newExpiry.setDate(newExpiry.getDate() + parseInt(extendTrialDays));
+      const trialExpiryDate = newExpiry.toISOString();
+
+      const result = await updateConsumerAccountStatus(id, consumer.account_status, trialExpiryDate);
+
+      if (result.error) {
+        toast.error(`Error: ${result.error}`);
+        setIsExtendingTrial(false);
+        return;
+      }
+
+      setConsumer(prev => ({ ...prev, trial_expiry: result.data?.trial_expiry || trialExpiryDate }));
+      toast.success(`Trial extended!`);
+      setShowExtendTrialModal(false);
+      setIsExtendingTrial(false);
+    } catch (err) {
+      console.error('Error extending trial:', err);
+      toast.error('Failed to extend trial.');
+      setIsExtendingTrial(false);
+    }
+  };
+
+  const handleReassign = async () => {
+    if (!selectedResellerId) {
+      toast.error('Please select a reseller');
+      return;
+    }
+    try {
+      setIsReassigning(true);
+      const loadingToast = toast.loading(`Reassigning consumer...`);
+      const result = await reassignConsumerToReseller(id, selectedResellerId);
+
+      if (result.error) {
+        toast.error(`Error: ${result.error}`, { id: loadingToast });
+        setIsReassigning(false);
+        return;
+      }
+
+      toast.success(`Consumer reassigned successfully!`, { id: loadingToast });
+      setShowReassignModal(false);
+      setIsReassigning(false);
+      fetchConsumerData(); // Refresh to show new reseller info
+    } catch (err) {
+      console.error('Error reassigning consumer:', err);
+      toast.error('Failed to reassign consumer.');
+      setIsReassigning(false);
     }
   };
 
@@ -569,23 +996,135 @@ function ConsumerDetail() {
           </div>
         </div>
         {isAdmin && (
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ position: 'relative' }}>
             <Button
-              variant="outline-warning"
-              onClick={handleResetPassword}
+              variant="outline-secondary"
+              onClick={() => setOpenDropdown(!openDropdown)}
               style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
             >
-              <Key size={18} />
-              Reset Password
+              <MoreVertical size={18} />
+              Actions
             </Button>
-            <Button
-              variant="outline-danger"
-              onClick={handleDelete}
-              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-            >
-              <Trash2 size={18} />
-              Delete
-            </Button>
+
+            {openDropdown && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                right: 0,
+                marginTop: '8px',
+                backgroundColor: 'white',
+                border: '1px solid #e0e0e0',
+                borderRadius: '8px',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                zIndex: 1050,
+                minWidth: '220px',
+                padding: '8px 0'
+              }}>
+                {permissions.update && (
+                  <>
+                    <button
+                      onClick={() => handleAction('Update')}
+                      style={dropdownItemStyle}
+                    >
+                      <Edit size={16} /> Update
+                    </button>
+                    <button
+                      onClick={() => handleAction('Update Status')}
+                      style={dropdownItemStyle}
+                    >
+                      <CheckCircle size={16} /> Update Status
+                    </button>
+                    <button
+                      onClick={() => handleAction('Reset Password')}
+                      style={dropdownItemStyle}
+                    >
+                      <Key size={16} /> Reset Password
+                    </button>
+                    <div style={dividerStyle} />
+                  </>
+                )}
+
+                {permissions.invoiceCreate && (
+                  <button
+                    onClick={() => handleAction('Create Invoice')}
+                    style={{ ...dropdownItemStyle, color: '#74317e' }}
+                  >
+                    <FileText size={16} /> Create Invoice
+                  </button>
+                )}
+
+                {permissions.update && (
+                  <>
+                    <button
+                      onClick={() => handleAction('Extend Trial')}
+                      disabled={consumer.lifetime_access === true}
+                      style={{
+                        ...dropdownItemStyle,
+                        opacity: consumer.lifetime_access === true ? 0.5 : 1,
+                        cursor: consumer.lifetime_access === true ? 'not-allowed' : 'pointer'
+                      }}
+                    >
+                      <Calendar size={16} /> Extend Trial
+                    </button>
+
+                    {(permissions.grantLifetimeAccess || permissions.manageLifetimeAccess) && !consumer.lifetime_access && (
+                      <button
+                        onClick={() => handleAction('Grant Lifetime Access')}
+                        style={{ ...dropdownItemStyle, color: '#28a745', fontWeight: '500' }}
+                      >
+                        <CheckCircle size={16} /> Grant Lifetime Access
+                      </button>
+                    )}
+
+                    {(permissions.revokeLifetimeAccess || permissions.manageLifetimeAccess) && consumer.lifetime_access && (
+                      <button
+                        onClick={() => handleAction('Revoke Lifetime Access')}
+                        style={{ ...dropdownItemStyle, color: '#dc3545', fontWeight: '500' }}
+                      >
+                        <XCircle size={16} /> Revoke Lifetime Access
+                      </button>
+                    )}
+                  </>
+                )}
+
+                {permissions.reassign && (
+                  <button
+                    onClick={() => handleAction('Reassign to Reseller')}
+                    style={{ ...dropdownItemStyle, color: '#74317e' }}
+                  >
+                    <UserCog size={16} /> Reassign to Reseller
+                  </button>
+                )}
+
+                {permissions.delete && (
+                  <>
+                    <div style={dividerStyle} />
+                    <button
+                      onClick={() => handleAction('Delete')}
+                      style={{ ...dropdownItemStyle, color: '#dc3545' }}
+                    >
+                      <Trash2 size={16} /> Delete
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Backdrop for closing dropdown */}
+            {openDropdown && (
+              <div
+                onClick={() => setOpenDropdown(false)}
+                style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  zIndex: 1040,
+                  backgroundColor: 'transparent'
+                }}
+              />
+            )}
           </div>
         )}
       </div>
@@ -658,8 +1197,8 @@ function ConsumerDetail() {
                         </p>
                         {daysRemaining !== null && (
                           <Badge bg={isTrialExpired ? 'danger' : 'success'} style={{ marginTop: '4px' }}>
-                            {isTrialExpired 
-                              ? `Expired ${Math.abs(daysRemaining)} days ago` 
+                            {isTrialExpired
+                              ? `Expired ${Math.abs(daysRemaining)} days ago`
                               : `${daysRemaining} days remaining`}
                           </Badge>
                         )}
@@ -677,6 +1216,16 @@ function ConsumerDetail() {
                   </div>
                   <div>
                     {getAccountStatusBadge(consumer.account_status || 'active')}
+                  </div>
+                </Col>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', textTransform: 'uppercase' }}>
+                      Role
+                    </span>
+                  </div>
+                  <div>
+                    {consumer.role.join(', ').toLowerCase() || 'consumer'}
                   </div>
                 </Col>
               </Row>
@@ -717,7 +1266,7 @@ function ConsumerDetail() {
                   </thead>
                   <tbody>
                     {products.map((product, index) => (
-                      
+
                       <tr key={product.id || index}>
                         <td>{product.product_name || 'N/A'}</td>
                         {/* <td>${product.price || 0}</td> */}
@@ -729,6 +1278,194 @@ function ConsumerDetail() {
               )}
             </Card.Body>
           </Card>
+
+          {/* Product Settings Section - Admin Only */}
+          {isAdmin && (isGenieProductSelected() || isBeebaProductSelected()) && (
+            <Card style={{ marginBottom: '24px' }}>
+              <Card.Header style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #e9ecef', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h5 style={{ margin: 0, fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <UserCog size={20} />
+                  Product Settings {profile?.is_systemadmin ? '(Edit Mode)' : '(View Only)'}
+                </h5>
+                {profile?.is_systemadmin && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    style={{ backgroundColor: '#74317e', border: 'none' }}
+                    onClick={() => handleUpdateProductSettings(productSettings)}
+                    disabled={isUpdatingProductSettings}
+                  >
+                    {isUpdatingProductSettings ? 'Saving...' : 'Save Settings'}
+                  </Button>
+                )}
+              </Card.Header>
+              <Card.Body style={{ padding: '24px' }}>
+                {productSettingsLoading ? (
+                  <div style={{ textAlign: 'center', padding: '20px' }}>
+                    <div style={{
+                      width: '40px',
+                      height: '40px',
+                      border: '4px solid #f3f3f3',
+                      borderTop: '4px solid #74317e',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite',
+                      margin: '0 auto'
+                    }} />
+                  </div>
+                ) : (
+                  <div>
+                    {/* Genie Product Settings */}
+                    {isGenieProductSelected() && (() => {
+                      const genieProductId = getGenieProductId();
+                      const dbSettings = productSettings[genieProductId] || productSettings[String(genieProductId)] || {};
+                      const settings = { ...DEFAULT_SETTINGS.genie, ...dbSettings };
+                      return (
+                        <div style={{ marginBottom: '24px', padding: '20px', backgroundColor: '#f9f9f9', borderRadius: '8px', border: '1px solid #e9ecef' }}>
+                          <h6 style={{ fontWeight: '600', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px', color: '#74317e' }}>
+                            <Bot size={18} />
+                            Genie Settings
+                          </h6>
+                          <Row>
+                            <Col md={6} className="mb-3">
+                              <label style={{ fontSize: '13px', fontWeight: '500', display: 'block', marginBottom: '6px' }}>Vapi Account</label>
+                              <select
+                                className="form-control"
+                                value={settings.vapi_account ?? ''}
+                                onChange={(e) => handleProductSettingChange(genieProductId, 'vapi_account', e.target.value)}
+                                disabled={!profile?.is_systemadmin}
+                              >
+                                <option value="">Select Account</option>
+                                {vapiAccounts.map(account => (
+                                  <option key={account.id} value={account.id}>{account.account_name}</option>
+                                ))}
+                              </select>
+                            </Col>
+                            <Col md={6} className="mb-3">
+                              <label style={{ fontSize: '13px', fontWeight: '500', display: 'block', marginBottom: '6px' }}>Agent Number Limit</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                value={settings.agent_number ?? ''}
+                                onChange={(e) => handleProductSettingChange(genieProductId, 'agent_number', e.target.value)}
+                                disabled={!profile?.is_systemadmin}
+                              />
+                            </Col>
+                            <Col md={4} className="mb-3">
+                              <label style={{ fontSize: '13px', fontWeight: '500', display: 'block', marginBottom: '6px' }}>List Limit</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                value={settings.list_limit ?? ''}
+                                onChange={(e) => handleProductSettingChange(genieProductId, 'list_limit', e.target.value)}
+                                disabled={!profile?.is_systemadmin}
+                              />
+                            </Col>
+                            <Col md={4} className="mb-3">
+                              <label style={{ fontSize: '13px', fontWeight: '500', display: 'block', marginBottom: '6px' }}>Duration Limit (min)</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                value={settings.duration_limit ?? ''}
+                                onChange={(e) => handleProductSettingChange(genieProductId, 'duration_limit', e.target.value)}
+                                disabled={!profile?.is_systemadmin}
+                              />
+                            </Col>
+                            <Col md={4} className="mb-3">
+                              <label style={{ fontSize: '13px', fontWeight: '500', display: 'block', marginBottom: '6px' }}>Concurrency Limit</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                value={settings.concurrency_limit ?? ''}
+                                onChange={(e) => handleProductSettingChange(genieProductId, 'concurrency_limit', e.target.value)}
+                                disabled={!profile?.is_systemadmin}
+                              />
+                            </Col>
+                          </Row>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Beeba Product Settings */}
+                    {isBeebaProductSelected() && (() => {
+                      const beebaProductId = getBeebaProductId();
+                      const dbSettings = productSettings[beebaProductId] || productSettings[String(beebaProductId)] || {};
+                      const settings = { ...DEFAULT_SETTINGS.beeba, ...dbSettings };
+                      return (
+                        <div style={{ marginBottom: '0', padding: '20px', backgroundColor: '#f9f9f9', borderRadius: '8px', border: '1px solid #e9ecef' }}>
+                          <h6 style={{ fontWeight: '600', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px', color: '#74317e' }}>
+                            <Bot size={18} />
+                            Beeba Settings
+                          </h6>
+                          <Row>
+                            <Col md={4} className="mb-3">
+                              <label style={{ fontSize: '13px', fontWeight: '500', display: 'block', marginBottom: '6px' }}>Brands</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                value={settings.brands ?? ''}
+                                onChange={(e) => handleProductSettingChange(beebaProductId, 'brands', e.target.value)}
+                                disabled={!profile?.is_systemadmin}
+                              />
+                            </Col>
+                            <Col md={4} className="mb-3">
+                              <label style={{ fontSize: '13px', fontWeight: '500', display: 'block', marginBottom: '6px' }}>Posts</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                value={settings.posts ?? ''}
+                                onChange={(e) => handleProductSettingChange(beebaProductId, 'posts', e.target.value)}
+                                disabled={!profile?.is_systemadmin}
+                              />
+                            </Col>
+                            <Col md={4} className="mb-3">
+                              <label style={{ fontSize: '13px', fontWeight: '500', display: 'block', marginBottom: '6px' }}>Analysis</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                value={settings.analysis ?? ''}
+                                onChange={(e) => handleProductSettingChange(beebaProductId, 'analysis', e.target.value)}
+                                disabled={!profile?.is_systemadmin}
+                              />
+                            </Col>
+                            <Col md={4} className="mb-3">
+                              <label style={{ fontSize: '13px', fontWeight: '500', display: 'block', marginBottom: '6px' }}>Images</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                value={settings.images ?? ''}
+                                onChange={(e) => handleProductSettingChange(beebaProductId, 'images', e.target.value)}
+                                disabled={!profile?.is_systemadmin}
+                              />
+                            </Col>
+                            <Col md={4} className="mb-3">
+                              <label style={{ fontSize: '13px', fontWeight: '500', display: 'block', marginBottom: '6px' }}>Video</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                value={settings.video ?? ''}
+                                onChange={(e) => handleProductSettingChange(beebaProductId, 'video', e.target.value)}
+                                disabled={!profile?.is_systemadmin}
+                              />
+                            </Col>
+                            <Col md={4} className="mb-3">
+                              <label style={{ fontSize: '13px', fontWeight: '500', display: 'block', marginBottom: '6px' }}>Carasoul</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                value={settings.carasoul ?? ''}
+                                onChange={(e) => handleProductSettingChange(beebaProductId, 'carasoul', e.target.value)}
+                                disabled={!profile?.is_systemadmin}
+                              />
+                            </Col>
+                          </Row>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </Card.Body>
+            </Card>
+          )}
 
           {/* Invoices Section */}
           <Card style={{ marginBottom: '24px' }}>
@@ -781,7 +1518,7 @@ function ConsumerDetail() {
                               {formatCurrency(invoice.total)}
                             </td>
                             <td>
-                              <Badge 
+                              <Badge
                                 style={{
                                   backgroundColor: statusStyle.bg,
                                   color: statusStyle.text,
@@ -828,7 +1565,7 @@ function ConsumerDetail() {
                                     try {
                                       toast.loading(`Downloading invoice...`);
                                       const response = await apiClient.invoices.downloadInvoicePDF(invoice.id);
-                                      
+
                                       if (!response?.data) {
                                         toast.error('Failed to download invoice PDF');
                                         return;
@@ -883,7 +1620,7 @@ function ConsumerDetail() {
                   </Table>
                 </div>
               )}
-              
+
               {/* Pagination */}
               {!invoicesLoading && invoicesTotal > invoicesPerPage && (
                 <div style={{
@@ -972,7 +1709,7 @@ function ConsumerDetail() {
                             const isExpanded = expandedLogs.has(log.id);
                             const hasChanges = log.changed_fields && Object.keys(log.changed_fields).length > 0;
                             const changesCount = hasChanges ? Object.keys(log.changed_fields).length : 0;
-                            
+
                             return (
                               <React.Fragment key={log.id}>
                                 <tr>
@@ -1022,9 +1759,9 @@ function ConsumerDetail() {
                                   </td>
                                   <td style={{ fontSize: '12px', maxWidth: '300px' }}>
                                     {hasChanges ? (
-                                      <div style={{ 
-                                        backgroundColor: '#f8f9fa', 
-                                        padding: '6px 8px', 
+                                      <div style={{
+                                        backgroundColor: '#f8f9fa',
+                                        padding: '6px 8px',
                                         borderRadius: '4px',
                                         display: 'inline-block'
                                       }}>
@@ -1042,9 +1779,9 @@ function ConsumerDetail() {
                                 {isExpanded && hasChanges && (
                                   <tr>
                                     <td colSpan={6} style={{ padding: '12px 16px', backgroundColor: '#f8f9fa' }}>
-                                      <div style={{ 
-                                        backgroundColor: 'white', 
-                                        padding: '12px', 
+                                      <div style={{
+                                        backgroundColor: 'white',
+                                        padding: '12px',
                                         borderRadius: '6px',
                                         border: '1px solid #e5e7eb',
                                         maxHeight: '300px',
@@ -1057,7 +1794,7 @@ function ConsumerDetail() {
                                           // Handle old/new structure from backend
                                           const oldValue = value?.old !== undefined ? value.old : (typeof value === 'object' && value !== null && !Array.isArray(value) ? null : value);
                                           const newValue = value?.new !== undefined ? value.new : (typeof value === 'object' && value !== null && !Array.isArray(value) ? null : value);
-                                          
+
                                           return (
                                             <div key={key} style={{ marginBottom: '8px', paddingBottom: '8px', borderBottom: '1px solid #e5e7eb' }}>
                                               <strong style={{ color: '#374151', fontSize: '12px' }}>{key}:</strong>
@@ -1088,7 +1825,7 @@ function ConsumerDetail() {
                         </tbody>
                       </Table>
                     </div>
-                    
+
                     {/* Pagination */}
                     {activityLogsTotal > activityLogsPerPage && (
                       <div style={{
@@ -1256,6 +1993,7 @@ function ConsumerDetail() {
       {/* Genie Agents & Activity - Admin Only - Full Width */}
       {isAdmin && (
         <Card ref={genieSectionRef} style={{ marginBottom: '24px' }}>
+          {/* ... Genie section content (keep existing) */}
           <Card.Header style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #e9ecef' }}>
             <h5 style={{ margin: 0, fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Bot size={20} />
@@ -1263,7 +2001,6 @@ function ConsumerDetail() {
             </h5>
           </Card.Header>
           <Card.Body style={{ padding: 0 }}>
-            {/* Tabs */}
             <div style={{
               display: 'flex',
               gap: '0',
@@ -1316,8 +2053,7 @@ function ConsumerDetail() {
                 );
               })}
             </div>
-            
-            {/* Tab Content */}
+
             <div style={{ padding: '24px' }}>
               <Suspense fallback={
                 <div style={{ textAlign: 'center', padding: '40px' }}>
@@ -1333,7 +2069,6 @@ function ConsumerDetail() {
                   <p style={{ marginTop: '16px', color: '#6c757d' }}>Loading...</p>
                 </div>
               }>
-                {/* Keep tabs mounted once loaded, just hide them - this preserves state and prevents API re-calls */}
                 {(loadedGenieTabs.bots || genieActiveTab === 'bots') && (
                   <div style={{ display: genieActiveTab === 'bots' ? 'block' : 'none' }}>
                     <BotsTab consumerId={id} />
@@ -1369,9 +2104,388 @@ function ConsumerDetail() {
           </Card.Body>
         </Card>
       )}
+
+      {/* Operation Modals */}
+      <UpdateConsumerModal
+        isOpen={isUpdateModalOpen}
+        onClose={() => setIsUpdateModalOpen(false)}
+        consumer={{
+          ...consumer,
+          user_id: id,
+          id: id,
+          productSettings: consumer.productSettings || {},
+          role: consumer.role || ['consumer']
+        }}
+        onUpdate={handleUpdateConsumer}
+        initialProductSettings={productSettings}
+        isAdmin={isAdmin}
+      />
+
+      <DeleteModal
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={handleDeleteUser}
+        userName={consumer.full_name}
+        userId={id}
+        isDeleting={isDeleting}
+      />
+
+      <CreateInvoiceModal
+        isOpen={showCreateInvoiceModal}
+        onClose={() => setShowCreateInvoiceModal(false)}
+        onCreate={async () => {
+          toast.success('Invoice created successfully!');
+          fetchConsumerInvoices(); // Refresh invoices
+          return { success: true };
+        }}
+        consumer={{ ...consumer, user_id: id }}
+      />
+
+      {/* Status Update Modal (Simplified from inline version) */}
+      {showStatusDropdown && statusUpdateData && (
+        <StatusSelectionModal
+          onClose={() => setShowStatusDropdown(false)}
+          onSelect={handleStatusSelect}
+          data={statusUpdateData}
+        />
+      )}
+
+      {showStatusConfirmModal && statusUpdateData && selectedStatus && (
+        <StatusConfirmModal
+          isOpen={showStatusConfirmModal}
+          onClose={() => setShowStatusConfirmModal(false)}
+          onConfirm={handleConfirmStatusUpdate}
+          status={selectedStatus}
+          name={statusUpdateData.name}
+          loading={isUpdatingStatus}
+        />
+      )}
+
+      {showExtendTrialModal && extendTrialData && (
+        <ExtendTrialModal
+          isOpen={showExtendTrialModal}
+          onClose={() => setShowExtendTrialModal(false)}
+          onConfirm={handleExtendTrial}
+          data={extendTrialData}
+          days={extendTrialDays}
+          setDays={setExtendTrialDays}
+          loading={isExtendingTrial}
+        />
+      )}
+
+      {showRevokeLifetimeModal && revokeLifetimeData && (
+        <RevokeLifetimeModal
+          isOpen={showRevokeLifetimeModal}
+          onClose={() => setShowRevokeLifetimeModal(false)}
+          onConfirm={async (days) => {
+            setIsRevokingLifetime(true);
+            const loadingToast = toast.loading(`Revoking lifetime access...`);
+            try {
+              const result = await revokeLifetimeAccess(id, days);
+              if (result.error) {
+                toast.error(`Error: ${result.error}`, { id: loadingToast });
+              } else {
+                setConsumer(prev => ({ ...prev, lifetime_access: false, trial_expiry: result.data?.trial_expiry }));
+                toast.success(`Revoked!`, { id: loadingToast });
+                setShowRevokeLifetimeModal(false);
+              }
+            } catch (err) {
+              toast.error('Failed to revoke.');
+            } finally {
+              setIsRevokingLifetime(false);
+            }
+          }}
+          data={revokeLifetimeData}
+          loading={isRevokingLifetime}
+        />
+      )}
+
+      {showReassignModal && reassignData && (
+        <ReassignResellerModal
+          isOpen={showReassignModal}
+          onClose={() => setShowReassignModal(false)}
+          onConfirm={handleReassign}
+          data={reassignData}
+          loading={isReassigning}
+          searchTerm={resellerSearchTerm}
+          setSearchTerm={setResellerSearchTerm}
+          resellers={resellers}
+          selectedId={selectedResellerId}
+          setSelectedId={setSelectedResellerId}
+          loadingResellers={loadingResellers}
+          showSuggestions={showResellerSuggestions}
+          setShowSuggestions={setShowResellerSuggestions}
+        />
+      )}
+
+      {showResetPasswordModal && (
+        <ResetPasswordModal
+          isOpen={showResetPasswordModal}
+          onClose={() => {
+            setShowResetPasswordModal(false);
+            setTypedEmail('');
+            setManualPassword('');
+            setNewGeneratedPassword('');
+          }}
+          onConfirm={handleResetPasswordConfirm}
+          typedEmail={typedEmail}
+          setTypedEmail={setTypedEmail}
+          manualPassword={manualPassword}
+          setManualPassword={setManualPassword}
+          loading={isResettingPassword}
+          consumer={consumer}
+          newPassword={newGeneratedPassword}
+        />
+      )}
     </Container>
   );
 }
+
+// Inline Helper Components for Modals
+const StatusSelectionModal = ({ onClose, onSelect, data }) => (
+  <>
+    <div onClick={onClose} style={modalOverlayStyle} />
+    <div style={modalContainerStyle}>
+      <div style={modalHeaderStyle}>
+        <h3 style={{ margin: 0, fontSize: '20px' }}>Update Account Status</h3>
+        <p style={{ margin: '8px 0 0 0', color: '#666' }}>Select status for <strong>{data.name}</strong></p>
+      </div>
+      <div style={{ padding: '16px' }}>
+        <button onClick={() => onSelect('active')} style={statusButtonStyle('#28a745')}>Active</button>
+        <button onClick={() => onSelect('deactive')} style={statusButtonStyle('#dc3545')}>Deactive</button>
+        <button onClick={() => onSelect('expired_subscription')} style={statusButtonStyle('#dc3545')}>Expired Subscription</button>
+      </div>
+      <div style={modalFooterStyle}>
+        <button onClick={onClose} style={cancelButtonStyle}>Cancel</button>
+      </div>
+    </div>
+  </>
+);
+
+const StatusConfirmModal = ({ isOpen, onClose, onConfirm, status, name, loading }) => (
+  <>
+    <div onClick={onClose} style={modalOverlayStyle} />
+    <div style={modalContainerStyle}>
+      <div style={modalHeaderStyle}>
+        <h3 style={{ margin: 0, fontSize: '20px' }}>Confirm Status Update</h3>
+      </div>
+      <div style={{ padding: '24px' }}>
+        <p>Update <strong>{name}</strong> status to <strong style={{ color: '#74317e' }}>{status.replace('_', ' ')}</strong>?</p>
+      </div>
+      <div style={modalFooterStyle}>
+        <button onClick={onClose} disabled={loading} style={cancelButtonStyle}>Cancel</button>
+        <button onClick={onConfirm} disabled={loading} style={primaryButtonStyle}>
+          {loading ? 'Updating...' : 'Confirm'}
+        </button>
+      </div>
+    </div>
+  </>
+);
+
+const ExtendTrialModal = ({ isOpen, onClose, onConfirm, data, days, setDays, loading }) => {
+  const trialExpiry = new Date(data.consumer.trial_expiry);
+  const createdAt = new Date(data.consumer.created_at);
+  const daysFromCreation = Math.ceil((trialExpiry - createdAt) / (1000 * 60 * 60 * 24));
+  const availableDays = Math.min(3, Math.max(0, 7 - daysFromCreation));
+
+  return (
+    <>
+      <div onClick={onClose} style={modalOverlayStyle} />
+      <div style={modalContainerStyle}>
+        <div style={modalHeaderStyle}>
+          <h3 style={{ margin: 0, fontSize: '20px' }}>Extend Trial</h3>
+        </div>
+        <div style={{ padding: '24px' }}>
+          <p>Extend trial for <strong>{data.name}</strong> (Available: {availableDays} days)</p>
+          <select value={days} onChange={(e) => setDays(e.target.value)} style={inputStyle}>
+            <option value="">Select days</option>
+            {[1, 2, 3].filter(d => d <= availableDays).map(d => (
+              <option key={d} value={d}>{d} Day{d !== 1 ? 's' : ''}</option>
+            ))}
+          </select>
+        </div>
+        <div style={modalFooterStyle}>
+          <button onClick={onClose} disabled={loading} style={cancelButtonStyle}>Cancel</button>
+          <button onClick={onConfirm} disabled={loading || !days} style={primaryButtonStyle}>
+            {loading ? 'Extending...' : 'Extend'}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+};
+
+const RevokeLifetimeModal = ({ isOpen, onClose, onConfirm, data, loading }) => {
+  const [days, setDays] = useState('7');
+  return (
+    <>
+      <div onClick={onClose} style={modalOverlayStyle} />
+      <div style={modalContainerStyle}>
+        <div style={modalHeaderStyle}><h3 style={{ margin: 0, color: '#dc3545' }}>Revoke Lifetime Access</h3></div>
+        <div style={{ padding: '24px' }}>
+          <p>Set trial days for <strong>{data.name}</strong> after revocation:</p>
+          <input type="number" value={days} onChange={(e) => setDays(e.target.value)} style={inputStyle} min="1" max="365" />
+        </div>
+        <div style={modalFooterStyle}>
+          <button onClick={onClose} style={cancelButtonStyle}>Cancel</button>
+          <button onClick={() => onConfirm(parseInt(days))} style={{ ...primaryButtonStyle, backgroundColor: '#dc3545' }}>
+            {loading ? 'Revoking...' : 'Revoke'}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+};
+
+const ReassignResellerModal = ({ onClose, onConfirm, data, loading, searchTerm, setSearchTerm, resellers, selectedId, setSelectedId, loadingResellers, showSuggestions, setShowSuggestions }) => (
+  <>
+    <div onClick={onClose} style={modalOverlayStyle} />
+    <div style={modalContainerStyle}>
+      <div style={modalHeaderStyle}><h3>Reassign Reseller</h3></div>
+      <div style={{ padding: '24px' }}>
+        <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search reseller..." style={inputStyle} onFocus={() => setShowSuggestions(true)} />
+        {showSuggestions && resellers.length > 0 && (
+          <div style={suggestionDropdownStyle}>
+            {resellers.map(r => (
+              <div key={r.user_id} onClick={() => { setSelectedId(r.user_id); setSearchTerm(r.full_name || r.email); setShowSuggestions(false); }} style={suggestionItemStyle}>
+                {r.full_name || r.email}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div style={modalFooterStyle}>
+        <button onClick={onClose} style={cancelButtonStyle}>Cancel</button>
+        <button onClick={onConfirm} disabled={!selectedId || loading} style={primaryButtonStyle}>Confirm</button>
+      </div>
+    </div>
+  </>
+);
+
+const ResetPasswordModal = ({ onClose, onConfirm, typedEmail, setTypedEmail, manualPassword, setManualPassword, loading, consumer, newPassword }) => (
+  <>
+    <div onClick={onClose} style={modalOverlayStyle} />
+    <div style={{ ...modalContainerStyle, minWidth: '450px' }}>
+      <div style={modalHeaderStyle}>
+        <h3 style={{ margin: 0, color: '#f0ad4e' }}>Reset Password</h3>
+      </div>
+      <div style={{ padding: '24px' }}>
+        {!newPassword ? (
+          <>
+            <p style={{ marginBottom: '16px' }}>
+              Are you sure you want to reset password for <strong>{consumer?.full_name}</strong>?
+              To confirm, please type the consumer's email address: <br />
+              <code style={{ backgroundColor: '#f4f4f4', padding: '2px 4px', borderRadius: '4px' }}>{consumer?.email}</code>
+            </p>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#666', marginBottom: '4px' }}>Confirm Email</label>
+              <input
+                type="email"
+                value={typedEmail}
+                onChange={(e) => setTypedEmail(e.target.value)}
+                placeholder="Type consumer email here..."
+                style={inputStyle}
+                disabled={loading}
+              />
+            </div>
+
+            <div style={{ borderTop: '1px solid #eee', pt: '16px', marginTop: '16px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#666', marginBottom: '4px', marginTop: '16px' }}>
+                Manual Password (Optional)
+              </label>
+              <p style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>Leave blank to randomly generate a password (min 8 chars).</p>
+              <input
+                type="text"
+                value={manualPassword}
+                onChange={(e) => setManualPassword(e.target.value)}
+                placeholder="Enter new password manually..."
+                style={inputStyle}
+                disabled={loading}
+              />
+            </div>
+          </>
+        ) : (
+          <div style={{ textAlign: 'center' }}>
+            <div style={{
+              backgroundColor: '#dff0d8',
+              color: '#3c763d',
+              padding: '16px',
+              borderRadius: '8px',
+              marginBottom: '16px',
+              border: '1px solid #d6e9c6'
+            }}>
+              <p style={{ margin: 0, fontWeight: '600' }}>Password Reset Successfully!</p>
+              <p style={{ margin: '8px 0 0 0', fontSize: '14px' }}>New password has been set and sent to consumer's email.</p>
+            </div>
+            <p style={{ marginBottom: '8px', fontSize: '14px', color: '#666' }}>Active Password:</p>
+            <div style={{
+              backgroundColor: '#f9f9f9',
+              padding: '12px',
+              borderRadius: '8px',
+              fontSize: '20px',
+              fontWeight: 'bold',
+              fontFamily: 'monospace',
+              letterSpacing: '1px',
+              border: '1px dashed #ccc'
+            }}>
+              {newPassword}
+            </div>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(newPassword);
+                toast.success('Password copied to clipboard!');
+              }}
+              style={{
+                marginTop: '12px',
+                padding: '6px 12px',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                backgroundColor: 'white',
+                fontSize: '12px',
+                cursor: 'pointer'
+              }}
+            >
+              Copy Password
+            </button>
+          </div>
+        )}
+      </div>
+      <div style={modalFooterStyle}>
+        {!newPassword ? (
+          <>
+            <button onClick={onClose} disabled={loading} style={cancelButtonStyle}>Cancel</button>
+            <button
+              onClick={onConfirm}
+              disabled={loading || typedEmail.toLowerCase() !== consumer?.email?.toLowerCase() || (manualPassword && manualPassword.length < 8)}
+              style={{ ...primaryButtonStyle, backgroundColor: '#f0ad4e' }}
+            >
+              {loading ? 'Resetting...' : 'Reset Password'}
+            </button>
+          </>
+        ) : (
+          <button onClick={onClose} style={primaryButtonStyle}>Close</button>
+        )}
+      </div>
+    </div>
+  </>
+);
+
+// Styles
+const dropdownItemStyle = {
+  width: '100%', padding: '10px 20px', border: 'none', backgroundColor: 'transparent', textAlign: 'left',
+  cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '10px', color: '#333'
+};
+const dividerStyle = { height: '1px', backgroundColor: '#e0e0e0', margin: '4px 0' };
+const modalOverlayStyle = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 9998 };
+const modalContainerStyle = { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', backgroundColor: 'white', borderRadius: '12px', zIndex: 9999, minWidth: '400px' };
+const modalHeaderStyle = { padding: '20px', borderBottom: '1px solid #eee' };
+const modalFooterStyle = { padding: '20px', borderTop: '1px solid #eee', display: 'flex', justifyContent: 'flex-end', gap: '10px' };
+const statusButtonStyle = (color) => ({ width: '100%', padding: '12px', marginBottom: '8px', border: `2px solid ${color}`, borderRadius: '8px', backgroundColor: 'white', color: color, fontWeight: '500', cursor: 'pointer' });
+const cancelButtonStyle = { padding: '10px 20px', border: '1px solid #ddd', borderRadius: '6px', backgroundColor: 'white' };
+const primaryButtonStyle = { padding: '10px 20px', border: 'none', borderRadius: '6px', backgroundColor: '#74317e', color: 'white' };
+const inputStyle = { width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '6px' };
+const suggestionDropdownStyle = { border: '1px solid #ddd', borderRadius: '4px', maxHeight: '150px', overflowY: 'auto', marginTop: '4px' };
+const suggestionItemStyle = { padding: '8px', cursor: 'pointer', borderBottom: '1px solid #eee' };
 
 export default ConsumerDetail;
 

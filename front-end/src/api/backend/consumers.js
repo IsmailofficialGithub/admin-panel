@@ -16,18 +16,18 @@ export const getConsumers = async (filters = {}) => {
   try {
     const { account_status, search } = filters;
     const params = new URLSearchParams();
-    
+
     if (account_status && account_status !== 'all') {
       params.append('account_status', account_status);
     }
-    
+
     if (search && search.trim() !== '') {
       params.append('search', search.trim());
     }
-    
+
     const queryString = params.toString();
     const url = queryString ? `/consumers?${queryString}` : '/consumers';
-    
+
     const response = await apiClient.consumers.getAll(queryString ? `?${queryString}` : '');
     // Backend returns { success: true, count: X, data: [...] }
     // Extract the consumers array from response.data
@@ -78,33 +78,33 @@ export const createConsumer = async (consumerData) => {
       roles: consumerData.roles || ['consumer'], // Send roles array
       trial_expiry_date: consumerData.trial_expiry_date || null
     };
-    
+
     // Add referred_by if provided (reseller ID or admin ID)
     if (consumerData.referred_by !== undefined && consumerData.referred_by !== null && consumerData.referred_by !== '') {
       requestData.referred_by = consumerData.referred_by;
     }
-    
+
     // Add subscribed_packages if provided (preferred) or subscribed_products (backward compatibility)
     if (consumerData.subscribed_packages !== undefined) {
       requestData.subscribed_packages = consumerData.subscribed_packages || [];
     } else if (consumerData.subscribed_products !== undefined) {
       requestData.subscribed_packages = consumerData.subscribed_products || [];
     }
-    
+
     // Add subscribed_products if provided (for product access)
     if (consumerData.subscribed_products !== undefined) {
       requestData.subscribed_products = consumerData.subscribed_products || [];
     }
-    
+
     // Add productSettings if provided
     if (consumerData.productSettings !== undefined) {
       requestData.productSettings = consumerData.productSettings;
     }
-    
+
     console.log('createConsumer sending data:', requestData);
-    
+
     const response = await apiClient.resellers.createConsumer(requestData);
-    
+
     if (response.success) {
       return {
         success: true,
@@ -112,7 +112,7 @@ export const createConsumer = async (consumerData) => {
         message: response.message || 'Consumer created successfully'
       };
     }
-    
+
     // Extract error message from response
     const errorMessage = response.message || response.error || 'Failed to create consumer';
     return { success: false, error: errorMessage };
@@ -139,7 +139,7 @@ export const updateConsumer = async (consumerId, updateData) => {
   try {
     // Clean up the update data - only send fields that are provided
     const cleanedData = {};
-    
+
     if (updateData.full_name !== undefined) cleanedData.full_name = updateData.full_name;
     if (updateData.country !== undefined) cleanedData.country = updateData.country;
     if (updateData.city !== undefined) cleanedData.city = updateData.city;
@@ -156,11 +156,11 @@ export const updateConsumer = async (consumerId, updateData) => {
     } else if (updateData.role !== undefined) {
       cleanedData.role = updateData.role;
     }
-    
+
     console.log('updateConsumer sending data:', cleanedData);
-    
+
     const response = await apiClient.consumers.update(consumerId, cleanedData);
-    
+
     if (response.success) {
       return {
         success: true,
@@ -168,7 +168,7 @@ export const updateConsumer = async (consumerId, updateData) => {
         message: response.message
       };
     }
-    
+
     return { error: 'Failed to update consumer' };
   } catch (error) {
     console.error('updateConsumer Error:', error);
@@ -184,14 +184,14 @@ export const updateConsumer = async (consumerId, updateData) => {
 export const deleteConsumer = async (consumerId) => {
   try {
     const response = await apiClient.consumers.delete(consumerId);
-    
+
     if (response.success) {
       return {
         success: true,
         message: response.message
       };
     }
-    
+
     return { error: 'Failed to delete consumer' };
   } catch (error) {
     console.error('deleteConsumer Error:', error);
@@ -204,17 +204,18 @@ export const deleteConsumer = async (consumerId) => {
  * @param {string} consumerId - Consumer ID
  * @returns {Promise<Object>} Success status
  */
-export const resetConsumerPassword = async (consumerId) => {
+export const resetConsumerPassword = async (consumerId, password = null) => {
   try {
-    const response = await apiClient.consumers.resetPassword(consumerId);
-    
+    const response = await apiClient.consumers.resetPassword(consumerId, password);
+
     if (response.success) {
       return {
         success: true,
-        message: response.message
+        message: response.message,
+        newPassword: response.newPassword
       };
     }
-    
+
     return { error: 'Failed to reset password' };
   } catch (error) {
     console.error('resetConsumerPassword Error:', error);
@@ -233,7 +234,7 @@ export const resetConsumerPassword = async (consumerId) => {
 export const updateConsumerAccountStatus = async (consumerId, accountStatus, trialExpiryDate = null, lifetimeAccess = false) => {
   try {
     const response = await apiClient.consumers.updateAccountStatus(consumerId, accountStatus, trialExpiryDate, lifetimeAccess);
-    
+
     if (response.success) {
       return {
         success: true,
@@ -241,7 +242,7 @@ export const updateConsumerAccountStatus = async (consumerId, accountStatus, tri
         data: response.data
       };
     }
-    
+
     return { error: 'Failed to update account status' };
   } catch (error) {
     console.error('updateConsumerAccountStatus Error:', error);
@@ -257,7 +258,7 @@ export const updateConsumerAccountStatus = async (consumerId, accountStatus, tri
 export const grantLifetimeAccess = async (consumerId) => {
   try {
     const response = await apiClient.consumers.grantLifetimeAccess(consumerId);
-    
+
     if (response.success) {
       return {
         success: true,
@@ -265,7 +266,7 @@ export const grantLifetimeAccess = async (consumerId) => {
         data: response.data
       };
     }
-    
+
     return { error: 'Failed to grant lifetime access' };
   } catch (error) {
     console.error('grantLifetimeAccess Error:', error);
@@ -282,7 +283,7 @@ export const grantLifetimeAccess = async (consumerId) => {
 export const revokeLifetimeAccess = async (consumerId, trialDays = null) => {
   try {
     const response = await apiClient.consumers.revokeLifetimeAccess(consumerId, trialDays);
-    
+
     if (response.success) {
       return {
         success: true,
@@ -290,7 +291,7 @@ export const revokeLifetimeAccess = async (consumerId, trialDays = null) => {
         data: response.data
       };
     }
-    
+
     return { error: 'Failed to revoke lifetime access' };
   } catch (error) {
     console.error('revokeLifetimeAccess Error:', error);
@@ -307,7 +308,7 @@ export const revokeLifetimeAccess = async (consumerId, trialDays = null) => {
 export const reassignConsumerToReseller = async (consumerId, resellerId) => {
   try {
     const response = await apiClient.consumers.reassign(consumerId, { reseller_id: resellerId });
-    
+
     if (response.success) {
       return {
         success: true,
@@ -315,10 +316,53 @@ export const reassignConsumerToReseller = async (consumerId, resellerId) => {
         data: response.data
       };
     }
-    
+
     return { error: response.message || 'Failed to reassign consumer' };
   } catch (error) {
-    console.error('reassignConsumerToReseller Error:', error);
+    return { error: error.message };
+  }
+};
+
+/**
+ * Get consumer product settings
+ * @param {string} consumerId - Consumer ID
+ * @returns {Promise<Object>} Product settings
+ */
+export const getConsumerProductSettings = async (consumerId) => {
+  try {
+    const response = await apiClient.consumers.getProductSettings(consumerId);
+    if (response.success) {
+      return {
+        success: true,
+        data: response.data || {}
+      };
+    }
+    return { error: 'Failed to fetch product settings' };
+  } catch (error) {
+    console.error('getConsumerProductSettings Error:', error);
+    return { error: error.message };
+  }
+};
+
+/**
+ * Update consumer product settings
+ * @param {string} consumerId - Consumer ID
+ * @param {Object} settings - Settings object
+ * @returns {Promise<Object>} Success status
+ */
+export const updateConsumerProductSettings = async (consumerId, settings) => {
+  try {
+    const response = await apiClient.consumers.updateProductSettings(consumerId, settings);
+    if (response.success) {
+      return {
+        success: true,
+        message: response.message || 'Product settings updated successfully',
+        data: response.data
+      };
+    }
+    return { error: 'Failed to update product settings' };
+  } catch (error) {
+    console.error('updateConsumerProductSettings Error:', error);
     return { error: error.message };
   }
 };
@@ -333,6 +377,8 @@ export default {
   updateConsumerAccountStatus,
   grantLifetimeAccess,
   revokeLifetimeAccess,
-  reassignConsumerToReseller
+  reassignConsumerToReseller,
+  getConsumerProductSettings,
+  updateConsumerProductSettings
 };
 

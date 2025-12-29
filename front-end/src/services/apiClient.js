@@ -6,7 +6,7 @@
 import axios from 'axios';
 import { supabase } from '../lib/supabase/Production/client';
 
-const API_BASE_URL = process.env.REACT_APP_Server_Url ;
+const API_BASE_URL = process.env.REACT_APP_Server_Url;
 
 /**
  * Token cache - updated by auth state listener
@@ -22,14 +22,14 @@ const getTokenFromStorage = () => {
     // if (process.env.NODE_ENV === 'development') {
     //   console.log('🔍 Searching localStorage, total keys:', localStorage.length);
     // }
-    
+
     // Check all localStorage keys for Supabase auth data
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       // if (process.env.NODE_ENV === 'development') {
       //   console.log('🔑 LocalStorage key:', key);
       // }
-      
+
       // Look for Supabase auth keys (various formats)
       if (key && (key.includes('supabase') || key.includes('auth') || key.includes('sb-'))) {
         try {
@@ -39,13 +39,13 @@ const getTokenFromStorage = () => {
             // if (process.env.NODE_ENV === 'development') {
             //   console.log('📦 Parsed data from key:', key, parsed);
             // }
-            
+
             // Try different token paths in Supabase storage structure
-            const token = parsed?.access_token || 
-                         parsed?.currentSession?.access_token ||
-                         parsed?.[0]?.access_token ||
-                         parsed?.session?.access_token;
-            
+            const token = parsed?.access_token ||
+              parsed?.currentSession?.access_token ||
+              parsed?.[0]?.access_token ||
+              parsed?.session?.access_token;
+
             if (token) {
               // if (process.env.NODE_ENV === 'development') {
               //   console.log('✅ Found token in key:', key);
@@ -125,13 +125,13 @@ axiosInstance.interceptors.request.use(
     // if (process.env.NODE_ENV === 'development') {
     //   console.log('🔄 API Request:', config.method.toUpperCase(), config.url);
     // }
-    
+
     // For FormData, let the browser set Content-Type with boundary
     // Don't set Content-Type header for FormData
     if (config.data instanceof FormData) {
       delete config.headers['Content-Type'];
     }
-    
+
     // Try to get fresh token
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -193,11 +193,11 @@ axiosInstance.interceptors.response.use(
       // In production, only log essential error info
       console.error('❌ API Error:', error.response?.status, error.config?.url);
     }
-    
+
     // Handle 403 Forbidden errors (account deactivated)
     if (error.response?.status === 403) {
       const errorMessage = error.response?.data?.message || '';
-      
+
       // Check if account is deactivated
       if (errorMessage.includes('deactivated') || errorMessage.includes('account has been deactivated')) {
         // Sign out and clear storage
@@ -205,31 +205,31 @@ axiosInstance.interceptors.response.use(
         await new Promise(resolve => setTimeout(resolve, 200));
         localStorage.clear();
         sessionStorage.clear();
-        
+
         // Clear cookies
         document.cookie.split(";").forEach((c) => {
           const cookieName = c.split("=")[0].trim();
           document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=${window.location.hostname};`;
           document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
         });
-        
+
         // Redirect to login
         setTimeout(() => {
           window.location.href = '/login';
         }, 500);
-        
+
         throw new Error('Your account has been deactivated. Please contact the administrator.');
       }
     }
-    
+
     if (error.response) {
       // Server responded with error status
       const status = error.response.status;
       const errorData = error.response.data || {};
-      
+
       // Handle specific HTTP status codes with better error messages
       let message = errorData.message || errorData.error || 'Request failed';
-      
+
       switch (status) {
         case 429:
           // Too Many Requests - Rate limit exceeded
@@ -265,7 +265,7 @@ axiosInstance.interceptors.response.use(
           // Use the message from the response if available
           message = errorData.message || errorData.error || `Request failed with status ${status}`;
       }
-      
+
       console.error('API Error:', { status, message, url: error.config?.url });
       throw new Error(message);
     } else if (error.request) {
@@ -365,7 +365,7 @@ const apiClient = {
     /**
      * Reset consumer password
      */
-    resetPassword: (id) => axiosInstance.post(`/consumers/${id}/reset-password`),
+    resetPassword: (id, password = null) => axiosInstance.post(`/consumers/${id}/reset-password`, password ? { password } : {}),
 
     /**
      * Update consumer account status
@@ -397,6 +397,20 @@ const apiClient = {
       return axiosInstance.post(`/consumers/${id}/revoke-lifetime-access`, {
         trial_days: trialDays
       });
+    },
+
+    /**
+     * Get consumer product settings
+     */
+    getProductSettings: (id) => {
+      return axiosInstance.get(`/consumers/${id}/product-settings`);
+    },
+
+    /**
+     * Update consumer product settings
+     */
+    updateProductSettings: (id, settings) => {
+      return axiosInstance.patch(`/consumers/${id}/product-settings`, { settings });
     },
 
     /**
@@ -453,7 +467,7 @@ const apiClient = {
     createConsumer: (consumerData) => axiosInstance.post('/resellers/create-consumer', consumerData),
 
     // ========== RESELLER'S OWN CONSUMERS ==========
-    
+
     /**
      * Get all consumers created by the logged-in reseller
      */
@@ -480,7 +494,7 @@ const apiClient = {
     resetMyConsumerPassword: (id) => axiosInstance.post(`/resellers/my-consumers/${id}/reset-password`),
 
     // ========== RESELLER'S OWN RESELLERS ==========
-    
+
     /**
      * Get all resellers created by the logged-in reseller
      */
@@ -650,19 +664,19 @@ const apiClient = {
      */
     submitPayment: async (invoiceId, paymentData, proofFile) => {
       const formData = new FormData();
-      
+
       // Add all payment fields
       Object.keys(paymentData).forEach(key => {
         if (paymentData[key] !== null && paymentData[key] !== undefined && paymentData[key] !== '') {
           formData.append(key, paymentData[key]);
         }
       });
-      
+
       // Add file if present
       if (proofFile) {
         formData.append('proof', proofFile);
       }
-      
+
       // Content-Type will be set automatically by axios for FormData
       return axiosInstance.post(`/invoices/${invoiceId}/payments`, formData);
     },
@@ -1042,7 +1056,7 @@ const apiClient = {
       // Add timestamp to prevent caching (304 responses)
       queryParams.append('_t', Date.now());
       const query = queryParams.toString();
-      
+
       // Use fetch for file download (more reliable for blobs)
       // Get token from Supabase session (same way as axiosInstance)
       let token = cachedToken;
@@ -1054,7 +1068,7 @@ const apiClient = {
           console.error('Error getting session for export:', e);
         }
       }
-      
+
       const baseURL = axiosInstance.defaults.baseURL || '';
       const response = await fetch(`${baseURL}/genie/leads/export?${query}`, {
         method: 'GET',
@@ -1063,11 +1077,11 @@ const apiClient = {
           'Cache-Control': 'no-cache',
         },
       });
-      
+
       if (!response.ok) {
         throw new Error(`Export failed: ${response.status}`);
       }
-      
+
       const blob = await response.blob();
       return { data: blob };
     },
@@ -1100,7 +1114,7 @@ const apiClient = {
       return axiosInstance.get(`/genie/contact-lists${query ? `?${query}` : ''}`);
     },
     getVapiAccounts: () => axiosInstance.get('/genie/vapi-accounts'),
-    assignVapiAccountToBots: (ownerUserId, vapiAccountId) => 
+    assignVapiAccountToBots: (ownerUserId, vapiAccountId) =>
       axiosInstance.patch('/genie/bots/assign-vapi-account', { ownerUserId, vapiAccountId }),
   },
 };
