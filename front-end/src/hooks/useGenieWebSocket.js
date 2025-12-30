@@ -35,6 +35,8 @@ export const useGenieWebSocket = () => {
 
   // Channel refs
   const channelsRef = useRef([]);
+  const reconnectTimeoutsRef = useRef([]);
+  const reconnectAttemptsRef = useRef({});
 
   // Initialize Supabase Realtime subscriptions
   useEffect(() => {
@@ -43,16 +45,33 @@ export const useGenieWebSocket = () => {
     }
 
     console.log('🔌 Initializing Genie Supabase Realtime subscriptions');
+    
+    const maxReconnectAttempts = 5;
+    const reconnectDelay = 3000; // 3 seconds
+    
+    // Initialize reconnect attempts for each channel
+    reconnectAttemptsRef.current = {
+      'call-logs': 0,
+      'campaigns': 0,
+      'leads': 0
+    };
 
     // Subscribe to call_logs changes for this user
+    // Use a unique channel name per user to avoid conflicts
     const callLogsChannel = supabase
-      .channel('genie-call-logs')
+      .channel(`genie-call-logs-${user.id}`, {
+        config: {
+          broadcast: { self: true },
+          presence: { key: user.id }
+        }
+      })
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'call_logs',
+          // Filter by owner_user_id - if this causes issues, remove the filter temporarily
           filter: `owner_user_id=eq.${user.id}`,
         },
         (payload) => {
@@ -94,20 +113,49 @@ export const useGenieWebSocket = () => {
           }
         }
       )
-      .subscribe((status) => {
-        console.log('📞 Call logs channel status:', status);
+      .subscribe((status, err) => {
+        console.log('📞 Call logs channel status:', status, err ? `Error: ${err.message}` : '');
         if (status === 'SUBSCRIBED') {
           setIsConnected(true);
           setConnectionError(null);
+          reconnectAttemptsRef.current['call-logs'] = 0;
+          console.log('✅ Call logs channel subscribed successfully');
         } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT') {
           setIsConnected(false);
-          setConnectionError('Connection error. Attempting to reconnect...');
+          const errorMsg = err?.message || 'Connection error';
+          console.error('❌ Call logs channel error:', errorMsg, err);
+          
+          // Special handling for binding mismatch errors
+          if (errorMsg.includes('mismatch between server and client bindings')) {
+            console.warn('⚠️ Realtime server may need time to sync new tables.');
+            console.warn('⚠️ Solutions: 1) Wait 1-2 minutes and refresh, 2) Restart Supabase project, 3) Try without filter');
+          }
+          
+          const attempts = reconnectAttemptsRef.current['call-logs'];
+          setConnectionError(`Connection error: ${errorMsg}. ${attempts < maxReconnectAttempts ? 'Attempting to reconnect...' : 'Max reconnection attempts reached.'}`);
+          
+          // Longer delay for binding mismatch errors
+          if (attempts < maxReconnectAttempts) {
+            reconnectAttemptsRef.current['call-logs']++;
+            const newAttempts = reconnectAttemptsRef.current['call-logs'];
+            const delay = errorMsg.includes('mismatch') ? reconnectDelay * newAttempts * 3 : reconnectDelay * newAttempts;
+            console.log(`🔄 Attempting to reconnect call logs channel (attempt ${newAttempts}/${maxReconnectAttempts}) in ${delay}ms...`);
+            const timeoutId = setTimeout(() => {
+              callLogsChannel.subscribe();
+            }, delay);
+            reconnectTimeoutsRef.current.push(timeoutId);
+          }
         }
       });
 
     // Subscribe to genie_scheduled_calls changes for this user
     const campaignsChannel = supabase
-      .channel('genie-campaigns')
+      .channel(`genie-campaigns-${user.id}`, {
+        config: {
+          broadcast: { self: true },
+          presence: { key: user.id }
+        }
+      })
       .on(
         'postgres_changes',
         {
@@ -143,21 +191,39 @@ export const useGenieWebSocket = () => {
           }
         }
       )
-      .subscribe((status) => {
-        console.log('📅 Campaigns channel status:', status);
-        // Update connection status based on campaigns channel too
+      .subscribe((status, err) => {
+        console.log('📅 Campaigns channel status:', status, err ? `Error: ${err.message}` : '');
         if (status === 'SUBSCRIBED') {
           setIsConnected(true);
           setConnectionError(null);
+          reconnectAttemptsRef.current['campaigns'] = 0;
         } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT') {
           setIsConnected(false);
-          setConnectionError('Connection error. Attempting to reconnect...');
+          const errorMsg = err?.message || 'Connection error';
+          console.error('❌ Campaigns channel error:', errorMsg);
+          const attempts = reconnectAttemptsRef.current['campaigns'];
+          setConnectionError(`Connection error: ${errorMsg}. ${attempts < maxReconnectAttempts ? 'Attempting to reconnect...' : 'Max reconnection attempts reached.'}`);
+          
+          if (attempts < maxReconnectAttempts) {
+            reconnectAttemptsRef.current['campaigns']++;
+            const newAttempts = reconnectAttemptsRef.current['campaigns'];
+            console.log(`🔄 Attempting to reconnect campaigns channel (attempt ${newAttempts}/${maxReconnectAttempts})...`);
+            const timeoutId = setTimeout(() => {
+              campaignsChannel.subscribe();
+            }, reconnectDelay * newAttempts);
+            reconnectTimeoutsRef.current.push(timeoutId);
+          }
         }
       });
 
     // Subscribe to genie_leads changes for this user
     const leadsChannel = supabase
-      .channel('genie-leads')
+      .channel(`genie-leads-${user.id}`, {
+        config: {
+          broadcast: { self: true },
+          presence: { key: user.id }
+        }
+      })
       .on(
         'postgres_changes',
         {
@@ -185,15 +251,28 @@ export const useGenieWebSocket = () => {
           }
         }
       )
-      .subscribe((status) => {
-        console.log('🎯 Leads channel status:', status);
-        // Update connection status based on leads channel too
+      .subscribe((status, err) => {
+        console.log('🎯 Leads channel status:', status, err ? `Error: ${err.message}` : '');
         if (status === 'SUBSCRIBED') {
           setIsConnected(true);
           setConnectionError(null);
+          reconnectAttemptsRef.current['leads'] = 0;
         } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT') {
           setIsConnected(false);
-          setConnectionError('Connection error. Attempting to reconnect...');
+          const errorMsg = err?.message || 'Connection error';
+          console.error('❌ Leads channel error:', errorMsg);
+          const attempts = reconnectAttemptsRef.current['leads'];
+          setConnectionError(`Connection error: ${errorMsg}. ${attempts < maxReconnectAttempts ? 'Attempting to reconnect...' : 'Max reconnection attempts reached.'}`);
+          
+          if (attempts < maxReconnectAttempts) {
+            reconnectAttemptsRef.current['leads']++;
+            const newAttempts = reconnectAttemptsRef.current['leads'];
+            console.log(`🔄 Attempting to reconnect leads channel (attempt ${newAttempts}/${maxReconnectAttempts})...`);
+            const timeoutId = setTimeout(() => {
+              leadsChannel.subscribe();
+            }, reconnectDelay * newAttempts);
+            reconnectTimeoutsRef.current.push(timeoutId);
+          }
         }
       });
 
@@ -203,11 +282,18 @@ export const useGenieWebSocket = () => {
     // Cleanup on unmount
     return () => {
       console.log('🔌 Cleaning up Genie Supabase Realtime subscriptions');
+      // Clear all reconnection timeouts
+      reconnectTimeoutsRef.current.forEach((timeoutId) => {
+        clearTimeout(timeoutId);
+      });
+      reconnectTimeoutsRef.current = [];
+      // Remove all channels
       channelsRef.current.forEach((channel) => {
         supabase.removeChannel(channel);
       });
       channelsRef.current = [];
       setIsConnected(false);
+      setConnectionError(null);
     };
   }, [user?.id]);
 

@@ -67,7 +67,7 @@ const BaseEmailTemplate = ({
             <!-- Header -->
             <tr>
               <td align="center" style="padding: 32px 0 16px 0; background-color: #ffffff;">
-                <img src="https://duhanashrah.ai/wp-content/uploads/2025/10/Asset-3@2x.png" alt="DuhaNashrahAi" width="600" style="display: block; height: auto; max-height: 101px;" />
+                <img src="https://duhanashrah.ai/wp-content/uploads/2025/10/Asset-3@2x.png" alt="DuhaNashrahAi" width="450" style="display: block; height: auto; max-height: 101px;" />
               </td>
             </tr>
 
