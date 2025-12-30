@@ -68,6 +68,12 @@ const Consumers = () => {
   const [resellerSearchTerm, setResellerSearchTerm] = useState('');
   const [showResellerSuggestions, setShowResellerSuggestions] = useState(false);
   const [isReassigning, setIsReassigning] = useState(false);
+  const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
+  const [resetPasswordData, setResetPasswordData] = useState(null);
+  const [typedEmail, setTypedEmail] = useState('');
+  const [manualPassword, setManualPassword] = useState('');
+  const [newGeneratedPassword, setNewGeneratedPassword] = useState('');
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [permissions, setPermissions] = useState({
     create: false, // Start as false, update after checking
     delete: false,
@@ -280,21 +286,13 @@ const Consumers = () => {
         setShowStatusDropdown(true);
       }
     } else if (action === 'Reset Password') {
-      // Handle reset password
-      const loadingToast = toast.loading(`Resetting password for ${userName}...`);
-      
-      try {
-        const result = await resetConsumerPassword(userId);
-        
-        if (result.error) {
-          toast.error(`Error: ${result.error}`, { id: loadingToast });
-        } else {
-          toast.success(`Password reset successfully! Email sent to consumer.`, { id: loadingToast });
-        }
-      } catch (error) {
-        console.error('Error resetting password:', error);
-        toast.error('Failed to reset password. Please try again.', { id: loadingToast });
-      }
+      // Handle reset password - show modal
+      const consumer = users.find(u => u.user_id === userId);
+      setResetPasswordData({ id: userId, name: userName, email: consumer?.email, consumer });
+      setTypedEmail('');
+      setManualPassword('');
+      setNewGeneratedPassword('');
+      setShowResetPasswordModal(true);
     } else if (action === 'Create Invoice') {
       const consumer = users.find(u => u.user_id === userId);
       if (consumer) {
@@ -932,6 +930,35 @@ const Consumers = () => {
       setSelectedResellerId('');
     }
   }, [resellerSearchTerm, reassignData?.consumer?.referred_by]);
+
+  const handleResetPasswordConfirm = async () => {
+    if (!resetPasswordData) return;
+    
+    if (typedEmail.toLowerCase() !== resetPasswordData.email?.toLowerCase()) {
+      toast.error('Email address does not match.');
+      return;
+    }
+
+    try {
+      setIsResettingPassword(true);
+      const loadingToast = toast.loading(`Resetting password...`);
+      const result = await resetConsumerPassword(resetPasswordData.id, manualPassword || null);
+
+      if (result.error) {
+        toast.error(`Error: ${result.error}`, { id: loadingToast });
+        setIsResettingPassword(false);
+        return;
+      }
+
+      setNewGeneratedPassword(result.newPassword);
+      toast.success(`Password reset successfully!`, { id: loadingToast });
+      setIsResettingPassword(false);
+    } catch (err) {
+      console.error('Error resetting password:', err);
+      toast.error('Failed to reset password.');
+      setIsResettingPassword(false);
+    }
+  };
 
   const handleReassign = async () => {
     if (!reassignData || !selectedResellerId) {
@@ -3197,9 +3224,209 @@ const Consumers = () => {
           </div>
         </>
       )}
+
+      {/* Reset Password Modal */}
+      {showResetPasswordModal && resetPasswordData && (
+        <ResetPasswordModal
+          isOpen={showResetPasswordModal}
+          onClose={() => {
+            if (!isResettingPassword) {
+              setShowResetPasswordModal(false);
+              setResetPasswordData(null);
+              setTypedEmail('');
+              setManualPassword('');
+              setNewGeneratedPassword('');
+            }
+          }}
+          onConfirm={handleResetPasswordConfirm}
+          typedEmail={typedEmail}
+          setTypedEmail={setTypedEmail}
+          manualPassword={manualPassword}
+          setManualPassword={setManualPassword}
+          loading={isResettingPassword}
+          consumer={resetPasswordData}
+          newPassword={newGeneratedPassword}
+        />
+      )}
     </div>
     </>
   );
 };
+
+// Reset Password Modal Component
+const ResetPasswordModal = ({ onClose, onConfirm, typedEmail, setTypedEmail, manualPassword, setManualPassword, loading, consumer, newPassword }) => (
+  <>
+    <div onClick={onClose} style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      zIndex: 9998
+    }} />
+    <div style={{
+      position: 'fixed',
+      top: '50%',
+      left: '50%',
+      transform: 'translate(-50%, -50%)',
+      backgroundColor: 'white',
+      borderRadius: '12px',
+      zIndex: 9999,
+      minWidth: '450px'
+    }}>
+      <div style={{
+        padding: '20px',
+        borderBottom: '1px solid #eee'
+      }}>
+        <h3 style={{ margin: 0, color: '#f0ad4e' }}>Reset Password</h3>
+      </div>
+      <div style={{ padding: '24px' }}>
+        {!newPassword ? (
+          <>
+            <p style={{ marginBottom: '16px' }}>
+              Are you sure you want to reset password for <strong>{consumer?.name}</strong>?<br />
+              To confirm, please type the consumer's email address: <br />
+              <code style={{ backgroundColor: '#f4f4f4', padding: '2px 4px', borderRadius: '4px' }}>{consumer?.email}</code>
+            </p>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#666', marginBottom: '4px' }}>Confirm Email</label>
+              <input
+                type="email"
+                value={typedEmail}
+                onChange={(e) => setTypedEmail(e.target.value)}
+                placeholder="Type consumer email here..."
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  border: '1px solid #ddd',
+                  borderRadius: '6px'
+                }}
+                disabled={loading}
+              />
+            </div>
+
+            <div style={{ borderTop: '1px solid #eee', paddingTop: '16px', marginTop: '16px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#666', marginBottom: '4px' }}>
+                Manual Password (Optional)
+              </label>
+              <p style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>Leave blank to randomly generate a password (min 8 chars).</p>
+              <input
+                type="text"
+                value={manualPassword}
+                onChange={(e) => setManualPassword(e.target.value)}
+                placeholder="Enter new password manually..."
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  border: '1px solid #ddd',
+                  borderRadius: '6px'
+                }}
+                disabled={loading}
+              />
+            </div>
+          </>
+        ) : (
+          <div style={{ textAlign: 'center' }}>
+            <div style={{
+              backgroundColor: '#dff0d8',
+              color: '#3c763d',
+              padding: '16px',
+              borderRadius: '8px',
+              marginBottom: '16px',
+              border: '1px solid #d6e9c6'
+            }}>
+              <p style={{ margin: 0, fontWeight: '600' }}>Password Reset Successfully!</p>
+              <p style={{ margin: '8px 0 0 0', fontSize: '14px' }}>New password has been set and sent to consumer's email.</p>
+            </div>
+            <p style={{ marginBottom: '8px', fontSize: '14px', color: '#666' }}>Active Password:</p>
+            <div style={{
+              backgroundColor: '#f9f9f9',
+              padding: '12px',
+              borderRadius: '8px',
+              fontSize: '20px',
+              fontWeight: 'bold',
+              fontFamily: 'monospace',
+              letterSpacing: '1px',
+              border: '1px dashed #ccc'
+            }}>
+              {newPassword}
+            </div>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(newPassword);
+                toast.success('Password copied to clipboard!');
+              }}
+              style={{
+                marginTop: '12px',
+                padding: '6px 12px',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                backgroundColor: 'white',
+                fontSize: '12px',
+                cursor: 'pointer'
+              }}
+            >
+              Copy Password
+            </button>
+          </div>
+        )}
+      </div>
+      <div style={{
+        padding: '20px',
+        borderTop: '1px solid #eee',
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '10px'
+      }}>
+        {!newPassword ? (
+          <>
+            <button
+              onClick={onClose}
+              disabled={loading}
+              style={{
+                padding: '10px 20px',
+                border: '1px solid #ddd',
+                borderRadius: '6px',
+                backgroundColor: 'white',
+                cursor: loading ? 'not-allowed' : 'pointer'
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={loading || typedEmail.toLowerCase() !== consumer?.email?.toLowerCase() || (manualPassword && manualPassword.length < 8)}
+              style={{
+                padding: '10px 20px',
+                border: 'none',
+                borderRadius: '6px',
+                backgroundColor: (loading || typedEmail.toLowerCase() !== consumer?.email?.toLowerCase() || (manualPassword && manualPassword.length < 8)) ? '#9ca3af' : '#f0ad4e',
+                color: 'white',
+                cursor: (loading || typedEmail.toLowerCase() !== consumer?.email?.toLowerCase() || (manualPassword && manualPassword.length < 8)) ? 'not-allowed' : 'pointer'
+              }}
+            >
+              {loading ? 'Resetting...' : 'Reset Password'}
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={onClose}
+            style={{
+              padding: '10px 20px',
+              border: 'none',
+              borderRadius: '6px',
+              backgroundColor: '#74317e',
+              color: 'white',
+              cursor: 'pointer'
+            }}
+          >
+            Close
+          </button>
+        )}
+      </div>
+    </div>
+  </>
+);
 
 export default Consumers;

@@ -1083,9 +1083,12 @@ export const resetResellerPassword = async (req, res) => {
     }
 
     // ========================================
-    // 3. GENERATE AND UPDATE PASSWORD
+    // 3. GENERATE OR USE MANUAL PASSWORD
     // ========================================
-    const newPassword = generatePassword();
+    const { password: manualPassword } = req.body;
+
+    // Use manual password if provided, otherwise generate random
+    const newPassword = manualPassword || generatePassword();
 
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
       id,
@@ -1114,7 +1117,8 @@ export const resetResellerPassword = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Password reset successfully. Email sent to reseller.'
+      message: 'Password reset successfully. Email sent to reseller.',
+      newPassword: newPassword
     });
   } catch (error) {
     return handleApiError(error, res, 'An error occurred while resetting the password.');

@@ -2012,7 +2012,7 @@ function ConsumerDetail() {
           <Card.Header style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #e9ecef' }}>
             <h5 style={{ margin: 0, fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Bot size={20} />
-              Genie Agents & Activity
+              Genie
             </h5>
           </Card.Header>
           <Card.Body style={{ padding: 0 }}>
@@ -2033,7 +2033,7 @@ function ConsumerDetail() {
                   analytics: BarChart2
                 };
                 const labels = {
-                  bots: 'Bots',
+                  bots: 'Agents',
                   calls: 'Calls',
                   campaigns: 'Campaigns',
                   leads: 'Leads',

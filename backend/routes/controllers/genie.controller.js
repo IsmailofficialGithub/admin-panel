@@ -854,6 +854,7 @@ export const updateCampaign = async (req, res) => {
     const { id } = req.params;
     const { scheduledAt, status, timezone } = req.body;
     const userId = req.user.id;
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
 
     if (!isValidUUID(id)) {
       return res.status(400).json({
@@ -868,14 +869,18 @@ export const updateCampaign = async (req, res) => {
     if (status) updateData.status = sanitizeString(status, 50);
     if (timezone) updateData.tz = sanitizeString(timezone, 50);
 
+    // Build query - system admins can update any campaign, others can only update their own
+    let query = supabase
+      .from("genie_scheduled_calls")
+      .update(updateData)
+      .eq("id", id);
+    
+    if (!isSystemAdmin) {
+      query = query.eq("owner_user_id", userId);
+    }
+
     const { data: campaign, error } = await executeWithTimeout(
-      supabase
-        .from("genie_scheduled_calls")
-        .update(updateData)
-        .eq("id", id)
-        .eq("owner_user_id", userId)
-        .select()
-        .single()
+      query.select().single()
     );
 
     if (error) {

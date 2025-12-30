@@ -180,14 +180,15 @@ export const deleteReseller = async (resellerId) => {
  * @param {string} resellerId - Reseller ID
  * @returns {Promise<Object>} Success status
  */
-export const resetResellerPassword = async (resellerId) => {
+export const resetResellerPassword = async (resellerId, password = null) => {
   try {
-    const response = await apiClient.resellers.resetPassword(resellerId);
+    const response = await apiClient.resellers.resetPassword(resellerId, password);
     
     if (response.success) {
       return {
         success: true,
-        message: response.message
+        message: response.message,
+        newPassword: response.newPassword
       };
     }
     

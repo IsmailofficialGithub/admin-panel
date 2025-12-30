@@ -68,21 +68,21 @@ function BotsTab({ consumerId }) {
     setLoadingAccounts(true);
     try {
       const response = await apiClient.genie.getVapiAccounts();
-      console.log('📋 Vapi accounts response:', response);
+      console.log('📋  accounts response:', response);
       if (response?.success) {
         const accounts = response.data || [];
-        console.log(`✅ Loaded ${accounts.length} Vapi account(s)`, accounts);
+        console.log(`✅ Loaded ${accounts.length}  account(s)`, accounts);
         setVapiAccounts(accounts);
         if (accounts.length === 0) {
-          console.warn('⚠️ No Vapi accounts found. Make sure data exists in vapi_accounts table.');
+          console.warn('⚠️ No accounts found. Make sure data exists in accounts table.');
         }
       } else {
-        console.error('❌ Failed to fetch Vapi accounts:', response);
-        toast.error('Failed to fetch Vapi accounts');
+        console.error('❌ Failed to fetch accounts:', response);
+        toast.error('Failed to fetch accounts');
       }
     } catch (error) {
-      console.error('❌ Error fetching Vapi accounts:', error);
-      toast.error(error.response?.data?.message || 'Failed to fetch Vapi accounts');
+      console.error('❌ Error fetching accounts:', error);
+      toast.error(error.response?.data?.message || 'Failed to fetch accounts');
     } finally {
       setLoadingAccounts(false);
     }
@@ -90,7 +90,7 @@ function BotsTab({ consumerId }) {
 
   const handleAssignAccount = async (accountId) => {
     if (!canManageVapiAccounts) {
-      toast.error('You do not have permission to assign Vapi accounts');
+      toast.error('You do not have permission to assign accounts');
       return;
     }
 
@@ -100,15 +100,15 @@ function BotsTab({ consumerId }) {
       if (response?.success) {
         setSelectedAccountId(accountId);
         setIsDropdownOpen(false);
-        toast.success(response.message || `Successfully assigned Vapi account to ${response.data?.updatedCount || 0} agent(s)`);
+        toast.success(response.message || `Successfully assigned account to ${response.data?.updatedCount || 0} agent(s)`);
         // Refresh bots to get updated data
         await fetchBots();
       } else {
-        toast.error('Failed to assign Vapi account');
+        toast.error('Failed to assign  account');
       }
     } catch (error) {
-      console.error('Error assigning Vapi account:', error);
-      toast.error(error.response?.data?.message || 'Failed to assign Vapi account');
+      console.error('Error assigning account:', error);
+      toast.error(error.response?.data?.message || 'Failed to assign account');
     } finally {
       setAssigning(false);
     }
@@ -186,7 +186,7 @@ function BotsTab({ consumerId }) {
               fontWeight: '500',
               color: '#495057'
             }}>
-              Assign Vapi Account to All Agents
+              Assign Account to All Agents
             </label>
             <button
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
@@ -220,7 +220,7 @@ function BotsTab({ consumerId }) {
                  loadingAccounts ? 'Loading accounts...' :
                  selectedAccountId 
                    ? vapiAccounts.find(acc => acc.id === selectedAccountId)?.Account_name || 'Select account'
-                   : 'Select Vapi account'}
+                   : 'Select account'}
               </span>
               <ChevronDown size={20} style={{ 
                 transform: isDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
@@ -322,7 +322,7 @@ function BotsTab({ consumerId }) {
                     color: '#6c757d',
                     textAlign: 'center'
                   }}>
-                    No Vapi accounts available
+                    No Accounts available
                   </div>
                 )}
                 </div>

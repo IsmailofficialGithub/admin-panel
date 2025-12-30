@@ -127,10 +127,17 @@ export const createCampaign = async (data) => {
 export const updateCampaign = async (id, data) => {
   try {
     const response = await apiClient.genie.updateCampaign(id, data);
+    // Axios wraps response in data property
+    if (response && response.data) {
+      return response.data;
+    }
     return response;
   } catch (error) {
     console.error('updateCampaign Error:', error);
-    return { error: error.message };
+    return { 
+      success: false,
+      error: error.response?.data?.message || error.response?.data?.error || error.message 
+    };
   }
 };
 
@@ -142,10 +149,61 @@ export const updateCampaign = async (id, data) => {
 export const cancelCampaign = async (id) => {
   try {
     const response = await apiClient.genie.cancelCampaign(id);
+    // Axios wraps response in data property
+    if (response && response.data) {
+      return response.data;
+    }
     return response;
   } catch (error) {
     console.error('cancelCampaign Error:', error);
-    return { error: error.message };
+    return { 
+      success: false,
+      error: error.response?.data?.message || error.response?.data?.error || error.message 
+    };
+  }
+};
+
+/**
+ * Pause campaign
+ * @param {string} id - Campaign ID
+ * @returns {Promise<Object>} Result
+ */
+export const pauseCampaign = async (id) => {
+  try {
+    const response = await apiClient.genie.updateCampaign(id, { status: 'paused' });
+    // Axios wraps response in data property
+    if (response && response.data) {
+      return response.data;
+    }
+    return response;
+  } catch (error) {
+    console.error('pauseCampaign Error:', error);
+    return { 
+      success: false,
+      error: error.response?.data?.message || error.response?.data?.error || error.message 
+    };
+  }
+};
+
+/**
+ * Resume campaign
+ * @param {string} id - Campaign ID
+ * @returns {Promise<Object>} Result
+ */
+export const resumeCampaign = async (id) => {
+  try {
+    const response = await apiClient.genie.updateCampaign(id, { status: 'in_progress' });
+    // Axios wraps response in data property
+    if (response && response.data) {
+      return response.data;
+    }
+    return response;
+  } catch (error) {
+    console.error('resumeCampaign Error:', error);
+    return { 
+      success: false,
+      error: error.response?.data?.message || error.response?.data?.error || error.message 
+    };
   }
 };
 
@@ -337,6 +395,8 @@ export default {
   createCampaign,
   updateCampaign,
   cancelCampaign,
+  pauseCampaign,
+  resumeCampaign,
   // Leads
   getAllLeads,
   getLeadById,

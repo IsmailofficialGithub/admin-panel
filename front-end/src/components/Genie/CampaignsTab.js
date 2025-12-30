@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { Calendar, Plus, MoreVertical, X, Clock, Globe, Users, CheckCircle, XCircle } from "lucide-react";
-import { getAllCampaigns, cancelCampaign, getAllBots, getAllContactLists } from "api/backend/genie";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { Calendar, Plus, MoreVertical, X, Clock, Globe, Users, CheckCircle, XCircle, Pause, Play } from "lucide-react";
+import { getAllCampaigns, cancelCampaign, pauseCampaign, resumeCampaign, getAllBots, getAllContactLists } from "api/backend/genie";
 import { usePermissions } from "hooks/usePermissions";
 import { useGenieWebSocket } from "hooks/useGenieWebSocket";
 import CreateCampaignModal from "./CreateCampaignModal";
@@ -30,10 +30,12 @@ function CampaignsTab() {
 
   // Dropdown state
   const [openDropdown, setOpenDropdown] = useState(null);
+  const dropdownRefs = useRef({});
 
   // Permissions
   const canCreate = hasPermission('genie.campaigns.create');
   const canDelete = hasPermission('genie.campaigns.delete');
+  const canUpdate = hasPermission('genie.campaigns.update');
 
   // Fetch campaigns
   const fetchCampaigns = useCallback(async () => {
@@ -95,6 +97,46 @@ function CampaignsTab() {
     fetchCampaigns();
   }, [statusFilter]);
 
+  // Handle click outside dropdown
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!openDropdown) return;
+      
+      const dropdownRef = dropdownRefs.current[openDropdown];
+      const clickedElement = event.target;
+      
+      // Check if click is inside the dropdown
+      if (dropdownRef && dropdownRef.contains(clickedElement)) {
+        return;
+      }
+      
+      // Check if click is on the toggle button (the three dots button)
+      const isToggleButton = clickedElement.closest('button')?.querySelector('svg');
+      if (isToggleButton) {
+        // Check if it's the toggle for the open dropdown
+        const buttonParent = clickedElement.closest('div[style*="position: relative"]');
+        if (buttonParent && buttonParent.querySelector(`[data-dropdown-id="${openDropdown}"]`)) {
+          return; // It's the toggle for this dropdown, don't close
+        }
+      }
+      
+      console.log('Click outside dropdown detected, closing');
+      setOpenDropdown(null);
+    };
+
+    if (openDropdown) {
+      // Small delay to avoid immediate closure
+      const timeoutId = setTimeout(() => {
+        document.addEventListener('mousedown', handleClickOutside);
+      }, 0);
+      
+      return () => {
+        clearTimeout(timeoutId);
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [openDropdown]);
+
   // Real-time updates
   useEffect(() => {
     if (lastCampaignEvent) {
@@ -114,6 +156,7 @@ function CampaignsTab() {
 
   // Open cancel modal
   const openCancelModal = (campaign) => {
+    console.log('openCancelModal called', campaign);
     if (!canDelete) {
       toast.error("You don't have permission to cancel campaigns");
       return;
@@ -147,6 +190,97 @@ function CampaignsTab() {
       toast.error("Failed to cancel campaign");
     } finally {
       setCancelLoading(false);
+    }
+  };
+
+  // Handle pause campaign
+  const handlePauseCampaign = async (campaign) => {
+    console.log('🔵 handlePauseCampaign called', { campaign, canUpdate });
+    if (!canUpdate) {
+      toast.error("You don't have permission to pause campaigns");
+      return;
+    }
+    setOpenDropdown(null);
+    try {
+      console.log('🔵 Calling pauseCampaign API with id:', campaign.id);
+      const response = await pauseCampaign(campaign.id);
+      console.log('🔵 pauseCampaign response:', response);
+      console.log('🔵 response.success:', response?.success, 'type:', typeof response?.success);
+      console.log('🔵 response.error:', response?.error);
+      console.log('🔵 Full response keys:', response ? Object.keys(response) : 'null');
+      
+      // Check for success - be more lenient with the check
+      const isSuccess = response && (
+        response.success === true || 
+        response.success === 'true' ||
+        (typeof response.success !== 'undefined' && response.success !== false && !response.error)
+      );
+      
+      if (isSuccess) {
+        toast.success(response.message || "Campaign paused successfully");
+        fetchCampaigns();
+      } else if (response?.error) {
+        toast.error(response.error);
+      } else {
+        // Last resort: if response exists and has data, assume success
+        if (response && (response.data || response.id)) {
+          console.log('🔵 Response has data/id, treating as success');
+          toast.success("Campaign paused successfully");
+          fetchCampaigns();
+        } else {
+          console.error('🔵 Unexpected response structure:', response);
+          toast.error(response?.message || "Failed to pause campaign");
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error in handlePauseCampaign:', error);
+      toast.error("Failed to pause campaign");
+    }
+  };
+
+  // Handle resume campaign
+  const handleResumeCampaign = async (campaign) => {
+    console.log('🟢 handleResumeCampaign called', { campaign, canUpdate });
+    if (!canUpdate) {
+      toast.error("You don't have permission to resume campaigns");
+      return;
+    }
+    setOpenDropdown(null);
+    try {
+      console.log('🟢 Calling resumeCampaign API with id:', campaign.id);
+      const response = await resumeCampaign(campaign.id);
+      console.log('🟢 resumeCampaign response:', response);
+      console.log('🟢 response.success:', response?.success, 'type:', typeof response?.success);
+      console.log('🟢 response.error:', response?.error);
+      console.log('🟢 Full response keys:', response ? Object.keys(response) : 'null');
+      
+      // Check for success - be more lenient with the check
+      // Response should have success: true from the API
+      const isSuccess = response && (
+        response.success === true || 
+        response.success === 'true' ||
+        (typeof response.success !== 'undefined' && response.success !== false && !response.error)
+      );
+      
+      if (isSuccess) {
+        toast.success(response.message || "Campaign resumed successfully");
+        fetchCampaigns();
+      } else if (response?.error) {
+        toast.error(response.error);
+      } else {
+        // Last resort: if response exists and has data, assume success
+        if (response && (response.data || response.id)) {
+          console.log('🟢 Response has data/id, treating as success');
+          toast.success("Campaign resumed successfully");
+          fetchCampaigns();
+        } else {
+          console.error('🟢 Unexpected response structure:', response);
+          toast.error(response?.message || "Failed to resume campaign");
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error in handleResumeCampaign:', error);
+      toast.error("Failed to resume campaign");
     }
   };
 
@@ -349,10 +483,13 @@ function CampaignsTab() {
                         )}
                         {statusConfig.label}
                       </span>
-                      {campaign.status !== 'completed' && campaign.status !== 'cancelled' && canDelete && (
+                      {campaign.status !== 'completed' && campaign.status !== 'cancelled' && (canDelete || canUpdate) && (
                       <div style={{ position: 'relative' }}>
                         <button
-                          onClick={() => setOpenDropdown(openDropdown === campaign.id ? null : campaign.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenDropdown(openDropdown === campaign.id ? null : campaign.id);
+                          }}
                           style={{
                             width: '32px',
                             height: '32px',
@@ -369,7 +506,22 @@ function CampaignsTab() {
                           <MoreVertical size={16} />
                         </button>
                         {openDropdown === campaign.id && (
-                          <div style={{
+                          <div 
+                            ref={(el) => {
+                              if (el) {
+                                dropdownRefs.current[campaign.id] = el;
+                              } else {
+                                delete dropdownRefs.current[campaign.id];
+                              }
+                            }}
+                            data-dropdown-id={campaign.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                            }}
+                            onMouseDown={(e) => {
+                              e.stopPropagation();
+                            }}
+                            style={{
                             position: 'absolute',
                             right: 0,
                             top: '100%',
@@ -378,29 +530,110 @@ function CampaignsTab() {
                             border: '1px solid #e0e0e0',
                             borderRadius: '8px',
                             boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                            zIndex: 100,
+                            zIndex: 1000,
                             minWidth: '160px'
                           }}>
-                            <button
-                              onClick={() => openCancelModal(campaign)}
-                              style={{
-                                width: '100%',
-                                padding: '10px 16px',
-                                border: 'none',
-                                backgroundColor: 'transparent',
-                                textAlign: 'left',
-                                cursor: 'pointer',
-                                fontSize: '14px',
-                                color: '#dc3545',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px'
-                              }}
-                              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
-                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                            >
-                              <X size={16} /> Cancel Campaign
-                            </button>
+                            {campaign.status === 'paused' && canUpdate && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  console.log('🟢 Resume button clicked', { campaign, e });
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleResumeCampaign(campaign);
+                                }}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px 16px',
+                                  border: 'none',
+                                  backgroundColor: 'transparent',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  color: '#22c55e',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#dcfce7'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                              >
+                                <Play size={16} /> Resume
+                              </button>
+                            )}
+                            {(campaign.status === 'in_progress' || campaign.status === 'running' || isRunning) && canUpdate && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  console.log('🟡 Pause button clicked', { campaign, e });
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handlePauseCampaign(campaign);
+                                }}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px 16px',
+                                  border: 'none',
+                                  backgroundColor: 'transparent',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  color: '#f59e0b',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fef3c7'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                              >
+                                <Pause size={16} /> Pause
+                              </button>
+                            )}
+                            {canDelete && (
+                              <>
+                                {(campaign.status === 'paused' || campaign.status === 'in_progress' || campaign.status === 'running' || isRunning) && (
+                                  <div style={{ height: '1px', backgroundColor: '#e0e0e0', margin: '4px 0' }} />
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    console.log('🔴 Cancel button clicked', { campaign, e });
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    openCancelModal(campaign);
+                                  }}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '10px 16px',
+                                    border: 'none',
+                                    backgroundColor: 'transparent',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    color: '#dc3545',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                  }}
+                                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
+                                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                                >
+                                  <X size={16} /> Cancel
+                                </button>
+                              </>
+                            )}
                           </div>
                         )}
                       </div>
@@ -496,13 +729,6 @@ function CampaignsTab() {
         loadingText="Cancelling..."
       />
 
-      {/* Click outside to close dropdown */}
-      {openDropdown && (
-        <div
-          onClick={() => setOpenDropdown(null)}
-          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99 }}
-        />
-      )}
 
       {/* Animation styles */}
       <style>{`

@@ -449,7 +449,7 @@ const apiClient = {
     /**
      * Reset reseller password
      */
-    resetPassword: (id) => axiosInstance.post(`/resellers/${id}/reset-password`),
+    resetPassword: (id, password = null) => axiosInstance.post(`/resellers/${id}/reset-password`, password ? { password } : {}),
 
     /**
      * Update reseller account status
