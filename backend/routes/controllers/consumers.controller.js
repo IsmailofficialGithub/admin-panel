@@ -989,7 +989,7 @@ export const updateConsumerAccountStatus = async (req, res) => {
     // ========================================
     const consumerPromise = supabase
       .from('auth_role_with_profiles')
-      .select('created_at, trial_expiry, lifetime_access')
+      .select('created_at, trial_expiry, lifetime_access, total_trial_days_used')
       .eq('user_id', id)
       .contains('role', ['consumer']) // Check if role array contains 'consumer'
       .single();
@@ -1064,22 +1064,27 @@ export const updateConsumerAccountStatus = async (req, res) => {
     } else if (account_status === 'active') {
       // If trial_expiry_date is provided, use it
       if (trial_expiry_date) {
-        // Validate: trial_expiry cannot exceed 7 days from created_at (unless it's null for lifetime)
         const createdAt = new Date(consumer.created_at);
-        const maxTrialDate = new Date(createdAt);
-        maxTrialDate.setDate(maxTrialDate.getDate() + 7);
-
         const requestedExpiryDate = new Date(trial_expiry_date);
-
-        if (requestedExpiryDate > maxTrialDate) {
+        const now = new Date();
+        
+        // Calculate total days from account creation to new expiry date
+        const totalDaysFromCreation = Math.ceil((requestedExpiryDate - createdAt) / (1000 * 60 * 60 * 24));
+        
+        // Validate: total trial days cannot exceed 7 days from account creation
+        if (totalDaysFromCreation > 7) {
           return res.status(400).json({
             error: 'Bad Request',
-            message: 'Trial cannot be extended beyond 7 days from account creation date. Use lifetime_access: true for unlimited access.'
+            message: `Cannot extend beyond 7 days from account creation date. Maximum 7 days allowed. Use lifetime_access: true for unlimited access.`
           });
         }
-
+        
+        // Update trial_expiry and total_trial_days_used
+        // total_trial_days_used = total days from account creation to new expiry
         updateData.trial_expiry = trial_expiry_date;
-        console.log('📅 Setting trial_expiry to provided date:', trial_expiry_date);
+        updateData.total_trial_days_used = totalDaysFromCreation;
+        console.log(`📅 Setting trial_expiry to provided date: ${trial_expiry_date}`);
+        console.log(`📊 Updating total_trial_days_used: ${totalDaysFromCreation} days (from account creation to new expiry)`);
       } else {
         // If no trial_expiry_date provided, use existing trial_expiry or calculate default
         if (consumer.trial_expiry) {
@@ -1092,6 +1097,7 @@ export const updateConsumerAccountStatus = async (req, res) => {
           const defaultTrialExpiry = new Date(createdAt);
           defaultTrialExpiry.setDate(defaultTrialExpiry.getDate() + 7);
           updateData.trial_expiry = defaultTrialExpiry.toISOString();
+          updateData.total_trial_days_used = 7; // Set to 7 days for default trial
           console.log('📅 Setting default trial_expiry (7 days from creation):', updateData.trial_expiry);
         }
       }

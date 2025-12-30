@@ -168,9 +168,11 @@ function CampaignsTab() {
       return { color: '#22c55e', bg: '#dcfce7', label: 'Running', pulse: true };
     }
     const map = {
+      completed: { color: '#8b5cf6', bg: '#ede9fe', label: 'Completed' },
+      in_progress: { color: '#22c55e', bg: '#dcfce7', label: 'In Progress' },
+      paused: { color: '#f59e0b', bg: '#fef3c7', label: 'Paused' },
       scheduled: { color: '#3b82f6', bg: '#dbeafe', label: 'Scheduled' },
       running: { color: '#22c55e', bg: '#dcfce7', label: 'Running' },
-      completed: { color: '#8b5cf6', bg: '#ede9fe', label: 'Completed' },
       cancelled: { color: '#6b7280', bg: '#f3f4f6', label: 'Cancelled' },
       failed: { color: '#ef4444', bg: '#fee2e2', label: 'Failed' },
     };
@@ -219,10 +221,9 @@ function CampaignsTab() {
             }}
           >
             <option value="">All Status</option>
-            <option value="scheduled">Scheduled</option>
-            <option value="running">Running</option>
             <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
+            <option value="in_progress">In Progress</option>
+            <option value="paused">Paused</option>
           </select>
           {canCreate && (
             <button 
@@ -298,7 +299,7 @@ function CampaignsTab() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
           {campaigns.map((campaign) => {
-            const isRunning = campaign.runtime_call_status || campaign.status === 'running';
+            const isRunning = campaign.runtime_call_status || campaign.status === 'running' || campaign.status === 'in_progress';
             const progress = campaign.progress_percent || 0;
             const statusConfig = getStatusConfig(campaign.status, isRunning);
             

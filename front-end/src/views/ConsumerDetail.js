@@ -829,9 +829,24 @@ function ConsumerDetail() {
     try {
       if (!extendTrialDays) return;
       setIsExtendingTrial(true);
-      const currentExpiry = new Date(consumer.trial_expiry);
-      const newExpiry = new Date(currentExpiry);
-      newExpiry.setDate(newExpiry.getDate() + parseInt(extendTrialDays));
+      
+      const now = new Date();
+      const daysToExtend = parseInt(extendTrialDays);
+      
+      // Calculate remaining days in current trial (if trial hasn't expired)
+      let remainingDays = 0;
+      if (consumer.trial_expiry) {
+        const currentExpiry = new Date(consumer.trial_expiry);
+        if (currentExpiry > now) {
+          // Trial hasn't expired, calculate remaining days
+          remainingDays = Math.ceil((currentExpiry - now) / (1000 * 60 * 60 * 24));
+        }
+      }
+      
+      // Calculate new expiry: today + (remaining days + extension days)
+      const totalDays = remainingDays + daysToExtend;
+      const newExpiry = new Date(now);
+      newExpiry.setDate(newExpiry.getDate() + totalDays);
       const trialExpiryDate = newExpiry.toISOString();
 
       const result = await updateConsumerAccountStatus(id, consumer.account_status, trialExpiryDate);

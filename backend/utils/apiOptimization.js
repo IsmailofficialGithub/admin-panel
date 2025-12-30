@@ -76,6 +76,7 @@ export const CONSUMER_SELECT_FIELDS = [
   'account_status',
   'trial_expiry',
   'lifetime_access',
+  'total_trial_days_used',
   'created_at',
   'updated_at'
 ].join(',');
