@@ -37,12 +37,13 @@ export const checkInvoiceAccess = async (req, res, next) => {
     }
 
     const isAdmin = hasRole(userRole, 'admin');
+    const isSupport = hasRole(userRole, 'support');
     const isReseller = hasRole(userRole, 'reseller');
     const isConsumer = hasRole(userRole, 'consumer');
     const isSystemAdmin = req.userProfile?.is_systemadmin === true;
 
-    // System admins and admins can access any invoice
-    if (isSystemAdmin || isAdmin) {
+    // System admins, admins, and support can access any invoice
+    if (isSystemAdmin || isAdmin || isSupport) {
       return next();
     }
 

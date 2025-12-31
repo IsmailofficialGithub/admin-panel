@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticate, requireAdmin } from '../middleware/auth.js';
+import { authenticate, requireAdmin, requireRole } from '../middleware/auth.js';
 import { requirePermission, requireAnyPermission } from '../middleware/permissions.js';
 import {
   getAllConsumers,
@@ -21,24 +21,24 @@ const router = express.Router();
 
 /**
  * @route   GET /api/consumers
- * @desc    Get all consumers (admin only)
- * @access  Private (Admin)
+ * @desc    Get all consumers (admin or support with consumers.view permission)
+ * @access  Private (Admin or Support)
  */
-router.get('/', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, getAllConsumers);
+router.get('/', authenticate, requireRole(['admin', 'support']), rateLimitMiddleware, sanitizeInputMiddleware, getAllConsumers);
 
 /**
  * @route   GET /api/consumers/:id
  * @desc    Get consumer by ID
- * @access  Private (Admin)
+ * @access  Private (Admin or Support)
  */
-router.get('/:id', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, getConsumerById);
+router.get('/:id', authenticate, requireRole(['admin', 'support']), rateLimitMiddleware, sanitizeInputMiddleware, getConsumerById);
 
 /**
  * @route   PUT /api/consumers/:id
- * @desc    Update consumer (admin only)
- * @access  Private (Admin)
+ * @desc    Update consumer (admin or support with consumers.update permission)
+ * @access  Private (Admin or Support)
  */
-router.put('/:id', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, updateConsumer);
+router.put('/:id', authenticate, requireRole(['admin', 'support']), rateLimitMiddleware, sanitizeInputMiddleware, updateConsumer);
 
 /**
  * @route   DELETE /api/consumers/:id

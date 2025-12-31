@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { BarChart2, TrendingUp, Star, Check, Filter, Activity, Bot } from "lucide-react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { BarChart2, TrendingUp, Star, Check, Filter, Activity, Bot, Search, Users, Play, X } from "lucide-react";
 import { getCallAnalytics, getConversionMetrics, getBotPerformance } from "api/backend/genie";
+import { getConsumers } from "api/backend/consumers";
+import { getAllBots } from "api/backend/genie";
 import { Line, Bar, Doughnut } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -37,16 +39,106 @@ function AnalyticsTab() {
   const [callAnalytics, setCallAnalytics] = useState(null);
   const [conversionMetrics, setConversionMetrics] = useState(null);
   const [botPerformance, setBotPerformance] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  
+  // Filter state
+  const [selectedConsumerId, setSelectedConsumerId] = useState("");
+  const [selectedConsumerName, setSelectedConsumerName] = useState("");
+  const [selectedBotId, setSelectedBotId] = useState("");
+  const [consumerSearchInput, setConsumerSearchInput] = useState("");
+  const [consumerSearchQuery, setConsumerSearchQuery] = useState("");
+  const [consumers, setConsumers] = useState([]);
+  const [showConsumerSuggestions, setShowConsumerSuggestions] = useState(false);
+  const [loadingConsumers, setLoadingConsumers] = useState(false);
+  const [bots, setBots] = useState([]);
+  const [loadingBots, setLoadingBots] = useState(false);
+  const [analyticsStarted, setAnalyticsStarted] = useState(false);
+
+  // Debounce consumer search
+  useEffect(() => {
+    const debounceTimer = setTimeout(() => {
+      setConsumerSearchQuery(consumerSearchInput);
+    }, 500);
+    return () => clearTimeout(debounceTimer);
+  }, [consumerSearchInput]);
+
+  // Fetch consumers when search query changes
+  useEffect(() => {
+    const fetchConsumers = async () => {
+      if (!consumerSearchQuery || consumerSearchQuery.length < 2) {
+        setConsumers([]);
+        setShowConsumerSuggestions(false);
+        return;
+      }
+
+      setLoadingConsumers(true);
+      try {
+        const result = await getConsumers({ search: consumerSearchQuery });
+        if (result && !result.error && Array.isArray(result)) {
+          setConsumers(result);
+          setShowConsumerSuggestions(result.length > 0);
+        } else {
+          setConsumers([]);
+          setShowConsumerSuggestions(false);
+        }
+      } catch (error) {
+        console.error("Error fetching consumers:", error);
+        setConsumers([]);
+        setShowConsumerSuggestions(false);
+      } finally {
+        setLoadingConsumers(false);
+      }
+    };
+
+    fetchConsumers();
+  }, [consumerSearchQuery]);
+
+  // Fetch bots - all bots if no consumer selected, filtered by consumer if selected
+  useEffect(() => {
+    const fetchBots = async () => {
+      setLoadingBots(true);
+      try {
+        const params = selectedConsumerId ? { ownerUserId: selectedConsumerId } : {};
+        const response = await getAllBots(params);
+        if (!response?.error) {
+          const fetchedBots = response?.data || [];
+          setBots(fetchedBots);
+        } else {
+          setBots([]);
+        }
+      } catch (error) {
+        console.error("Error fetching bots:", error);
+        setBots([]);
+      } finally {
+        setLoadingBots(false);
+      }
+    };
+
+    fetchBots();
+  }, [selectedConsumerId]);
+
+  // Clear bot selection if selected bot is no longer in the list
+  useEffect(() => {
+    if (selectedBotId && bots.length > 0 && !bots.find(bot => bot.id === selectedBotId)) {
+      setSelectedBotId("");
+    }
+  }, [bots, selectedBotId]);
 
   // Fetch all analytics data
   const fetchAnalytics = useCallback(async () => {
     setLoading(true);
+    setAnalyticsStarted(true);
     try {
+      const params = {
+        period,
+        ownerUserId: selectedConsumerId || undefined,
+        botId: selectedBotId || undefined,
+      };
+
       const [analyticsRes, conversionRes, botsRes] = await Promise.all([
-        getCallAnalytics({ period }),
-        getConversionMetrics(period),
-        getBotPerformance(period),
+        getCallAnalytics(params),
+        getConversionMetrics(params),
+        getBotPerformance(params),
       ]);
 
       if (!analyticsRes?.error) setCallAnalytics(analyticsRes?.data);
@@ -58,11 +150,21 @@ function AnalyticsTab() {
     } finally {
       setLoading(false);
     }
-  }, [period]);
+  }, [period, selectedConsumerId, selectedBotId]);
 
+  const hasInitialFetch = useRef(false);
+
+  // Initial fetch on mount (show all users by default) and auto-refresh when filters change
   useEffect(() => {
-    fetchAnalytics();
-  }, [fetchAnalytics]);
+    if (!hasInitialFetch.current) {
+      // Initial fetch on mount
+      hasInitialFetch.current = true;
+      fetchAnalytics();
+    } else {
+      // Auto-refresh when filters change
+      fetchAnalytics();
+    }
+  }, [period, selectedConsumerId, selectedBotId, fetchAnalytics]);
 
   // Chart configurations
   const chartOptions = {
@@ -168,33 +270,25 @@ function AnalyticsTab() {
     }
   };
 
-  if (loading) {
-    return (
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '60px 20px'
-      }}>
-        <div style={{
-          width: '48px',
-          height: '48px',
-          border: '3px solid #f1f5f9',
-          borderTopColor: '#74317e',
-          borderRadius: '50%',
-          animation: 'spin 0.8s linear infinite'
-        }} />
-        <p style={{ marginTop: '16px', color: '#64748b', fontSize: '14px' }}>Loading analytics...</p>
-        <style>{`
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-        `}</style>
-      </div>
-    );
-  }
+  // Handle consumer selection
+  const handleConsumerSelect = (consumer) => {
+    setSelectedConsumerId(consumer.user_id);
+    setSelectedConsumerName(consumer.full_name || consumer.email);
+    setConsumerSearchInput(consumer.full_name || consumer.email);
+    setShowConsumerSuggestions(false);
+    setConsumers([]);
+    setSelectedBotId(""); // Reset bot selection when consumer changes
+  };
+
+  // Clear consumer selection
+  const clearConsumerSelection = () => {
+    setSelectedConsumerId("");
+    setSelectedConsumerName("");
+    setConsumerSearchInput("");
+    setSelectedBotId("");
+    setBots([]);
+    // Analytics will auto-refresh via useEffect when selectedConsumerId changes
+  };
 
   return (
     <div>
@@ -247,6 +341,234 @@ function AnalyticsTab() {
         </div>
       </div>
 
+      {/* Filters Section */}
+      <div style={{
+        backgroundColor: 'white',
+        border: '1px solid #e5e7eb',
+        borderRadius: '12px',
+        padding: '20px',
+        marginBottom: '24px'
+      }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'flex-end' }}>
+          {/* Consumer Selection */}
+          <div style={{ flex: '1 1 300px', minWidth: '250px', position: 'relative' }}>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
+              Consumer
+            </label>
+            <div style={{ position: 'relative' }}>
+              <Users size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', zIndex: 1 }} />
+              {selectedConsumerId && (
+                <X 
+                  size={16} 
+                  onClick={clearConsumerSelection}
+                  style={{ 
+                    position: 'absolute', 
+                    right: '12px', 
+                    top: '50%', 
+                    transform: 'translateY(-50%)', 
+                    color: '#9ca3af',
+                    cursor: 'pointer',
+                    zIndex: 2
+                  }} 
+                />
+              )}
+              <input
+                type="text"
+                placeholder="Search consumer name or email..."
+                value={consumerSearchInput}
+                onChange={(e) => {
+                  setConsumerSearchInput(e.target.value);
+                  if (!e.target.value) {
+                    clearConsumerSelection();
+                  }
+                }}
+                onFocus={() => {
+                  if (consumerSearchInput && consumers.length > 0) {
+                    setShowConsumerSuggestions(true);
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px 10px 40px',
+                  paddingRight: selectedConsumerId ? '36px' : '12px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  boxSizing: 'border-box'
+                }}
+              />
+              {showConsumerSuggestions && consumers.length > 0 && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  marginTop: '4px',
+                  backgroundColor: 'white',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  zIndex: 1000,
+                  maxHeight: '200px',
+                  overflowY: 'auto'
+                }}>
+                  {consumers.map((consumer) => (
+                    <div
+                      key={consumer.user_id}
+                      onClick={() => handleConsumerSelect(consumer)}
+                      style={{
+                        padding: '12px 16px',
+                        cursor: 'pointer',
+                        borderBottom: '1px solid #f1f5f9',
+                        transition: 'background-color 0.2s'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                    >
+                      <div style={{ fontWeight: '600', fontSize: '14px', color: '#1e293b' }}>
+                        {consumer.full_name || 'No Name'}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                        {consumer.email}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Bot Selection */}
+          <div style={{ flex: '0 1 250px', minWidth: '200px' }}>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
+              Agent
+            </label>
+            <select
+              value={selectedBotId}
+              onChange={(e) => setSelectedBotId(e.target.value)}
+              disabled={loadingBots}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                outline: 'none',
+                backgroundColor: loadingBots ? '#f8fafc' : 'white',
+                cursor: loadingBots ? 'not-allowed' : 'pointer',
+                color: loadingBots ? '#9ca3af' : '#1e293b'
+              }}
+            >
+              <option value="">All Agents</option>
+              {bots.map((bot) => (
+                <option key={bot.id} value={bot.id}>
+                  {bot.name}{bot.owner_name ? ` - (${bot.owner_name})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Refresh Analytics Button */}
+          <div>
+            <button
+              onClick={fetchAnalytics}
+              disabled={loading}
+              style={{
+                background: !loading
+                  ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                  : '#e2e8f0',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '10px 24px',
+                color: !loading ? 'white' : '#9ca3af',
+                fontSize: '14px',
+                fontWeight: '500',
+                cursor: !loading ? 'pointer' : 'not-allowed',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                transition: 'all 0.2s'
+              }}
+            >
+              {loading ? (
+                <>
+                  <div style={{ width: '14px', height: '14px', border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                  Loading...
+                </>
+              ) : (
+                <>
+                  <Play size={16} />
+                  Search
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Click outside to close suggestions */}
+      {showConsumerSuggestions && (
+        <div
+          onClick={() => setShowConsumerSuggestions(false)}
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }}
+        />
+      )}
+
+      {loading && analyticsStarted && (
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '60px 20px'
+        }}>
+          <div style={{
+            width: '48px',
+            height: '48px',
+            border: '3px solid #f1f5f9',
+            borderTopColor: '#74317e',
+            borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite'
+          }} />
+          <p style={{ marginTop: '16px', color: '#64748b', fontSize: '14px' }}>Loading analytics...</p>
+          <style>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
+        </div>
+      )}
+
+      {loading && !analyticsStarted && (
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '60px 20px'
+        }}>
+          <div style={{
+            width: '48px',
+            height: '48px',
+            border: '3px solid #f1f5f9',
+            borderTopColor: '#74317e',
+            borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite'
+          }} />
+          <p style={{ marginTop: '16px', color: '#64748b', fontSize: '14px' }}>Loading analytics...</p>
+          <style>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
+        </div>
+      )}
+
+      {analyticsStarted && !loading && (
+        <>
       {/* Stat Cards */}
       <div style={{
         display: 'grid',
@@ -546,10 +868,12 @@ function AnalyticsTab() {
             }}>
               <Bot size={48} style={{ opacity: 0.5, marginBottom: '12px' }} />
               <p style={{ margin: 0, fontSize: '14px' }}>No bots data available</p>
-                </div>
-              )}
+            </div>
+          )}
         </div>
       </div>
+        </>
+      )}
 
       {/* Responsive styles */}
       <style>{`
@@ -557,6 +881,10 @@ function AnalyticsTab() {
           .analytics-charts-row {
             grid-template-columns: 1fr !important;
           }
+        }
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
         }
       `}</style>
     </div>

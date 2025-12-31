@@ -1023,6 +1023,8 @@ const apiClient = {
       if (params.limit) queryParams.append('limit', params.limit);
       if (params.status) queryParams.append('status', params.status);
       if (params.ownerUserId) queryParams.append('ownerUserId', params.ownerUserId);
+      if (params.campaignSearch) queryParams.append('campaignSearch', params.campaignSearch);
+      if (params.consumerSearch) queryParams.append('consumerSearch', params.consumerSearch);
       const query = queryParams.toString();
       return axiosInstance.get(`/genie/campaigns${query ? `?${query}` : ''}`);
     },
@@ -1091,11 +1093,33 @@ const apiClient = {
       const queryParams = new URLSearchParams();
       if (params.period) queryParams.append('period', params.period);
       if (params.groupBy) queryParams.append('groupBy', params.groupBy);
+      if (params.ownerUserId) queryParams.append('ownerUserId', params.ownerUserId);
+      if (params.botId) queryParams.append('botId', params.botId);
       const query = queryParams.toString();
       return axiosInstance.get(`/genie/analytics/calls${query ? `?${query}` : ''}`);
     },
-    getConversionMetrics: (period = 'month') => axiosInstance.get(`/genie/analytics/conversion?period=${period}`),
-    getBotPerformance: (period = 'month') => axiosInstance.get(`/genie/analytics/bots?period=${period}`),
+    getConversionMetrics: (params = {}) => {
+      const queryParams = new URLSearchParams();
+      const period = typeof params === 'string' ? params : (params.period || 'month');
+      queryParams.append('period', period);
+      if (typeof params === 'object') {
+        if (params.ownerUserId) queryParams.append('ownerUserId', params.ownerUserId);
+        if (params.botId) queryParams.append('botId', params.botId);
+      }
+      const query = queryParams.toString();
+      return axiosInstance.get(`/genie/analytics/conversion${query ? `?${query}` : ''}`);
+    },
+    getBotPerformance: (params = {}) => {
+      const queryParams = new URLSearchParams();
+      const period = typeof params === 'string' ? params : (params.period || 'month');
+      queryParams.append('period', period);
+      if (typeof params === 'object') {
+        if (params.ownerUserId) queryParams.append('ownerUserId', params.ownerUserId);
+        if (params.botId) queryParams.append('botId', params.botId);
+      }
+      const query = queryParams.toString();
+      return axiosInstance.get(`/genie/analytics/bots${query ? `?${query}` : ''}`);
+    },
 
     // Supporting
     getAllBots: (params = {}) => {

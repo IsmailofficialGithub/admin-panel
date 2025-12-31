@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticate, requireAdmin } from '../middleware/auth.js';
+import { authenticate, requireAdmin, requireRole } from '../middleware/auth.js';
 import {
   getAllUsers,
   getUserById,
@@ -17,17 +17,17 @@ const router = express.Router();
 
 /**
  * @route   GET /api/users
- * @desc    Get all users (admin only)
- * @access  Private (Admin)
+ * @desc    Get all users (admin or support)
+ * @access  Private (Admin or Support)
  */
-router.get('/', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, getAllUsers);
+router.get('/', authenticate, requireRole(['admin', 'support']), rateLimitMiddleware, sanitizeInputMiddleware, getAllUsers);
 
 /**
  * @route   GET /api/users/:id
  * @desc    Get user by ID
- * @access  Private (Admin)
+ * @access  Private (Admin or Support)
  */
-router.get('/:id', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, getUserById);
+router.get('/:id', authenticate, requireRole(['admin', 'support']), rateLimitMiddleware, sanitizeInputMiddleware, getUserById);
 
 /**
  * @route   POST /api/users
@@ -38,10 +38,10 @@ router.post('/', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputM
 
 /**
  * @route   PUT /api/users/:id
- * @desc    Update user (admin only)
- * @access  Private (Admin)
+ * @desc    Update user (admin or support)
+ * @access  Private (Admin or Support)
  */
-router.put('/:id', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, updateUser);
+router.put('/:id', authenticate, requireRole(['admin', 'support']), rateLimitMiddleware, sanitizeInputMiddleware, updateUser);
 
 /**
  * @route   DELETE /api/users/:id

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Calendar, Plus, MoreVertical, X, Clock, Globe, Users, CheckCircle, XCircle, Pause, Play } from "lucide-react";
+import { Calendar, Plus, MoreVertical, X, Clock, Globe, Users, CheckCircle, XCircle, Pause, Play, Search } from "lucide-react";
 import { getAllCampaigns, cancelCampaign, pauseCampaign, resumeCampaign, getAllBots, getAllContactLists } from "api/backend/genie";
 import { usePermissions } from "hooks/usePermissions";
 import { useGenieWebSocket } from "hooks/useGenieWebSocket";
@@ -19,6 +19,10 @@ function CampaignsTab() {
   
   // Filters
   const [statusFilter, setStatusFilter] = useState("");
+  const [campaignSearchInput, setCampaignSearchInput] = useState("");
+  const [campaignSearch, setCampaignSearch] = useState("");
+  const [consumerSearchInput, setConsumerSearchInput] = useState("");
+  const [consumerSearch, setConsumerSearch] = useState("");
   
   // Create Modal
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -44,6 +48,8 @@ function CampaignsTab() {
       const params = {
         limit: 50,
         status: statusFilter || undefined,
+        campaignSearch: campaignSearch || undefined,
+        consumerSearch: consumerSearch || undefined,
       };
 
       const response = await getAllCampaigns(params);
@@ -66,7 +72,7 @@ function CampaignsTab() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, joinCampaign]);
+  }, [statusFilter, campaignSearch, consumerSearch, joinCampaign]);
 
   // Fetch supporting data
   const fetchSupportingData = useCallback(async () => {
@@ -93,9 +99,28 @@ function CampaignsTab() {
     };
   }, []);
 
+  // Debounce campaign search
+  useEffect(() => {
+    const debounceTimer = setTimeout(() => {
+      setCampaignSearch(campaignSearchInput);
+    }, 500);
+
+    return () => clearTimeout(debounceTimer);
+  }, [campaignSearchInput]);
+
+  // Debounce consumer search
+  useEffect(() => {
+    const debounceTimer = setTimeout(() => {
+      setConsumerSearch(consumerSearchInput);
+    }, 500);
+
+    return () => clearTimeout(debounceTimer);
+  }, [consumerSearchInput]);
+
+  // Fetch campaigns when filters change
   useEffect(() => {
     fetchCampaigns();
-  }, [statusFilter]);
+  }, [statusFilter, campaignSearch, consumerSearch, fetchCampaigns]);
 
   // Handle click outside dropdown
   useEffect(() => {
@@ -340,6 +365,72 @@ function CampaignsTab() {
           </p>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+          <div style={{ position: 'relative', minWidth: '200px' }}>
+            <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+            {campaignSearchInput && (
+              <X 
+                size={16} 
+                onClick={() => setCampaignSearchInput('')}
+                style={{ 
+                  position: 'absolute', 
+                  right: '12px', 
+                  top: '50%', 
+                  transform: 'translateY(-50%)', 
+                  color: '#9ca3af',
+                  cursor: 'pointer'
+                }} 
+              />
+            )}
+            <input
+              type="text"
+              placeholder="Search campaigns..."
+              value={campaignSearchInput}
+              onChange={(e) => setCampaignSearchInput(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '10px 12px 10px 40px',
+                paddingRight: campaignSearchInput ? '36px' : '12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
+          <div style={{ position: 'relative', minWidth: '200px' }}>
+            <Users size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+            {consumerSearchInput && (
+              <X 
+                size={16} 
+                onClick={() => setConsumerSearchInput('')}
+                style={{ 
+                  position: 'absolute', 
+                  right: '12px', 
+                  top: '50%', 
+                  transform: 'translateY(-50%)', 
+                  color: '#9ca3af',
+                  cursor: 'pointer'
+                }} 
+              />
+            )}
+            <input
+              type="text"
+              placeholder="Search consumer name/email..."
+              value={consumerSearchInput}
+              onChange={(e) => setConsumerSearchInput(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '10px 12px 10px 40px',
+                paddingRight: consumerSearchInput ? '36px' : '12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -456,9 +547,14 @@ function CampaignsTab() {
                     <h6 style={{ margin: '0 0 4px 0', fontWeight: '600', fontSize: '15px', color: '#1e293b' }}>
                         {campaign.genie_bots?.name || "Unknown Agent"}
                       </h6>
-                    <small style={{ color: '#64748b', fontSize: '13px' }}>
+                    <small style={{ color: '#64748b', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
                         {campaign.genie_contact_lists?.name || "Unknown List"}
                       </small>
+                    {campaign.consumer_name && (
+                      <small style={{ color: '#74317e', fontSize: '12px', fontWeight: '500', display: 'block' }}>
+                        Owner: {campaign.consumer_name}
+                      </small>
+                    )}
                     </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ 

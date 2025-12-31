@@ -482,6 +482,7 @@ function CallsTab() {
                 <thead style={{ backgroundColor: '#f8fafc' }}>
                   <tr>
                     <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Contact</th>
+                    <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Consumer</th>
                     <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Bot</th>
                     <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Status</th>
                     <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Duration</th>
@@ -521,6 +522,16 @@ function CallsTab() {
                               <div style={{ color: '#64748b', fontSize: '13px' }}>{call.phone || "-"}</div>
                           </div>
                         </div>
+                      </td>
+                        <td style={{ padding: '14px 16px' }}>
+                          {call.consumer_name || call.consumer_email ? (
+                            <div>
+                              <div style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>{call.consumer_name || "-"}</div>
+                              <div style={{ color: '#64748b', fontSize: '13px' }}>{call.consumer_email || "-"}</div>
+                            </div>
+                          ) : (
+                            <span style={{ color: '#64748b', fontSize: '14px' }}>-</span>
+                          )}
                       </td>
                         <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '14px' }}>
                           {call.genie_bots?.name || "-"}

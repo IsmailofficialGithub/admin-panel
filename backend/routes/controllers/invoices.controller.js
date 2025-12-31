@@ -408,12 +408,12 @@ export const getAllInvoices = async (req, res) => {
     const { search, status, page, limit } = req.query;
     const senderRole = req.userProfile?.role;
 
-    // Only admin can see all invoices
-    if (!hasRole(senderRole, 'admin')) {
+    // Only admin or support can see all invoices
+    if (!hasRole(senderRole, 'admin') && !hasRole(senderRole, 'support')) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',
-        message: 'Admin access required'
+        message: 'Admin or Support access required'
       });
     }
 

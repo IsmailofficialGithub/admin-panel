@@ -39,12 +39,12 @@ export const getDashboardStats = async (req, res) => {
   try {
     const userRole = req.userProfile?.role;
 
-    // Only admin can access dashboard stats
-    if (!hasRole(userRole, 'admin')) {
+    // Only admin or support can access dashboard stats
+    if (!hasRole(userRole, 'admin') && !hasRole(userRole, 'support')) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',
-        message: 'Admin access required'
+        message: 'Admin or Support access required'
       });
     }
 
@@ -113,9 +113,9 @@ export const getDashboardStats = async (req, res) => {
 };
 
 /**
- * Get reseller business statistics (admin only)
+ * Get reseller business statistics (admin or support)
  * @route   GET /api/dashboard/reseller-stats
- * @access  Private (Admin)
+ * @access  Private (Admin or Support)
  * 
  * OPTIMIZATIONS:
  * 1. Redis caching (Performance)
@@ -127,12 +127,12 @@ export const getResellerStats = async (req, res) => {
   try {
     const userRole = req.userProfile?.role;
 
-    // Only admin can access reseller stats
-    if (!hasRole(userRole, 'admin')) {
+    // Only admin or support can access reseller stats
+    if (!hasRole(userRole, 'admin') && !hasRole(userRole, 'support')) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',
-        message: 'Admin access required'
+        message: 'Admin or Support access required'
       });
     }
 

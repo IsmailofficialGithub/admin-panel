@@ -308,12 +308,12 @@ export const getCallAnalytics = async (params = {}) => {
 
 /**
  * Get conversion metrics
- * @param {string} period - Period (week, month, quarter)
+ * @param {Object} params - Filter parameters (period, ownerUserId, botId)
  * @returns {Promise<Object>} Conversion metrics
  */
-export const getConversionMetrics = async (period = 'month') => {
+export const getConversionMetrics = async (params = {}) => {
   try {
-    const response = await apiClient.genie.getConversionMetrics(period);
+    const response = await apiClient.genie.getConversionMetrics(params);
     return response;
   } catch (error) {
     console.error('getConversionMetrics Error:', error);
@@ -323,12 +323,12 @@ export const getConversionMetrics = async (period = 'month') => {
 
 /**
  * Get agent performance metrics
- * @param {string} period - Period (week, month)
+ * @param {Object} params - Filter parameters (period, ownerUserId, botId)
  * @returns {Promise<Object>} Agent performance data
  */
-export const getBotPerformance = async (period = 'month') => {
+export const getBotPerformance = async (params = {}) => {
   try {
-    const response = await apiClient.genie.getBotPerformance(period);
+    const response = await apiClient.genie.getBotPerformance(params);
     return response;
   } catch (error) {
     console.error('getBotPerformance Error:', error);
@@ -344,9 +344,9 @@ export const getBotPerformance = async (period = 'month') => {
  * Get all agents
  * @returns {Promise<Object>} Agents list
  */
-export const getAllBots = async () => {
+export const getAllBots = async (params = {}) => {
   try {
-    const response = await apiClient.genie.getAllBots();
+    const response = await apiClient.genie.getAllBots(params);
     return response;
   } catch (error) {
     console.error('getAllBots Error:', error);

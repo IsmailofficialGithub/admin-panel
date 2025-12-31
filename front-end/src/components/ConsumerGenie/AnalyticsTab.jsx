@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { BarChart2, TrendingUp, PhoneCall, Target, CheckCircle, Bot } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import apiClient from '../../services/apiClient';
@@ -9,12 +9,9 @@ function AnalyticsTab({ consumerId }) {
   const [bots, setBots] = useState([]);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('7'); // 7, 30, or 90 days
+  const [selectedBotId, setSelectedBotId] = useState(''); // Selected bot for filtering
 
-  useEffect(() => {
-    fetchAnalytics();
-  }, [consumerId, period]);
-
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     setLoading(true);
     try {
       // Calculate date range based on period
@@ -51,6 +48,12 @@ function AnalyticsTab({ consumerId }) {
         let callsData = callsResponse.data;
         let leadsData = leadsResponse.data;
 
+        // Filter by selected bot if one is selected
+        if (selectedBotId) {
+          callsData = callsData.filter(call => call.bot_id === selectedBotId);
+          leadsData = leadsData.filter(lead => lead.bot_id === selectedBotId);
+        }
+
         // Filter by date range
         if (period !== 'all') {
           const startDateStr = startDate.toISOString();
@@ -74,7 +77,11 @@ function AnalyticsTab({ consumerId }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [consumerId, period, selectedBotId]);
+
+  useEffect(() => {
+    fetchAnalytics();
+  }, [fetchAnalytics]);
 
   // Calculate metrics
   const metrics = useMemo(() => {
@@ -216,31 +223,71 @@ function AnalyticsTab({ consumerId }) {
           </p>
         </div>
 
-        {/* Period Selector */}
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          {[
-            { label: '7 Days', value: '7' },
-            { label: '30 Days', value: '30' },
-            { label: '90 Days', value: '90' }
-          ].map((p) => (
-            <button
-              key={p.value}
-              onClick={() => setPeriod(p.value)}
+        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Bot Selector */}
+          <div style={{ minWidth: '200px' }}>
+            <label style={{ 
+              display: 'block', 
+              fontSize: '12px', 
+              fontWeight: '600', 
+              color: '#6b7280', 
+              marginBottom: '8px',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px'
+            }}>
+              Filter by Agent
+            </label>
+            <select
+              value={selectedBotId}
+              onChange={(e) => setSelectedBotId(e.target.value)}
               style={{
-                padding: '10px 20px',
-                border: period === p.value ? '2px solid #74317e' : '2px solid #e5e7eb',
+                width: '100%',
+                padding: '10px 12px',
+                border: '2px solid #e5e7eb',
                 borderRadius: '8px',
-                backgroundColor: period === p.value ? '#74317e' : 'white',
-                color: period === p.value ? 'white' : '#6b7280',
-                cursor: 'pointer',
                 fontSize: '14px',
-                fontWeight: '600',
+                backgroundColor: 'white',
+                color: '#111827',
+                cursor: 'pointer',
+                outline: 'none',
                 transition: 'all 0.2s'
               }}
             >
-              {p.label}
-            </button>
-          ))}
+              <option value="">All Agents</option>
+              {bots.map((bot) => (
+                <option key={bot.id} value={bot.id}>
+                  {bot.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Period Selector */}
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {[
+              { label: '7 Days', value: '7' },
+              { label: '30 Days', value: '30' },
+              { label: '90 Days', value: '90' }
+            ].map((p) => (
+              <button
+                key={p.value}
+                onClick={() => setPeriod(p.value)}
+                style={{
+                  padding: '10px 20px',
+                  border: period === p.value ? '2px solid #74317e' : '2px solid #e5e7eb',
+                  borderRadius: '8px',
+                  backgroundColor: period === p.value ? '#74317e' : 'white',
+                  color: period === p.value ? 'white' : '#6b7280',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  transition: 'all 0.2s'
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

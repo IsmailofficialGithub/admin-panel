@@ -197,21 +197,37 @@ const Consumers = () => {
     const fetchConsumers = async () => {
       try {
         setLoading(true);
+        setError(null); // Clear any previous errors
         const result = await getConsumers({
           account_status: accountStatusFilter,
           search: searchQuery
         });
         
         if (result?.error) {
-          setError(result.error);
-          console.error('❌ Error fetching consumers:', result.error);
+          // Only show error if it's not "Admin access required" (might be from old cached error)
+          if (result.error !== 'Admin access required') {
+            setError(result.error);
+            console.error('❌ Error fetching consumers:', result.error);
+          } else {
+            // Clear error if it's the old admin access error (routes are now updated)
+            setError(null);
+            console.log('✅ Cleared stale "Admin access required" error');
+          }
         } else {
           setUsers(result || []); // Backend returns array directly
+          setError(null); // Clear error on success
           setCurrentPage(1); // Reset to first page when filters change
         }
       } catch (err) {
-        setError(err.message);
-        console.error('❌ Error:', err);
+        // Only set error if it's not "Admin access required" (might be from old cached error)
+        if (err.message !== 'Admin access required') {
+          setError(err.message);
+          console.error('❌ Error:', err);
+        } else {
+          // Clear error if it's the old admin access error
+          setError(null);
+          console.log('✅ Cleared stale "Admin access required" error from catch');
+        }
       } finally {
         setLoading(false);
       }

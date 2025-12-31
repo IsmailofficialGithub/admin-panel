@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticate, requireAdmin } from '../middleware/auth.js';
+import { authenticate, requireAdmin, requireRole } from '../middleware/auth.js';
 import { getDashboardStats, getResellerStats } from './controllers/dashboard.controller.js';
 import {
   createRateLimitMiddleware,
@@ -12,17 +12,17 @@ const router = express.Router();
 
 /**
  * @route   GET /api/dashboard/stats
- * @desc    Get dashboard statistics (admin only)
- * @access  Private (Admin)
+ * @desc    Get dashboard statistics (admin or support)
+ * @access  Private (Admin or Support)
  */
-router.get('/stats', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, getDashboardStats);
+router.get('/stats', authenticate, requireRole(['admin', 'support']), rateLimitMiddleware, sanitizeInputMiddleware, getDashboardStats);
 
 /**
  * @route   GET /api/dashboard/reseller-stats
- * @desc    Get reseller business statistics (admin only)
- * @access  Private (Admin)
+ * @desc    Get reseller business statistics (admin or support with resellers.view permission)
+ * @access  Private (Admin or Support)
  */
-router.get('/reseller-stats', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, getResellerStats);
+router.get('/reseller-stats', authenticate, requireRole(['admin', 'support']), rateLimitMiddleware, sanitizeInputMiddleware, getResellerStats);
 
 export default router;
 

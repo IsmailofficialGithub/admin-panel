@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuth } from "../hooks/useAuth";
+import { usePermissions } from "../hooks/usePermissions";
 import {
   getAllPermissions,
   getRolePermissions,
@@ -34,6 +35,7 @@ import {
 
 const Permissions = () => {
   const { profile } = useAuth();
+  const { refreshPermissions } = usePermissions();
   const history = useHistory();
   const [activeTab, setActiveTab] = useState("permissions");
   const [loading, setLoading] = useState(false);
@@ -61,6 +63,7 @@ const Permissions = () => {
     "reseller",
     "consumer",
     "viewer",
+    "support",
   ]);
   const [selectedRole, setSelectedRole] = useState("admin");
   const [rolePermissions, setRolePermissions] = useState({});
@@ -469,6 +472,15 @@ const Permissions = () => {
         [selectedRole]: selectedRolePermissions,
       }));
       toast.success(`Permissions updated for ${selectedRole} role`);
+      
+      // Refresh permissions cache for all users with this role
+      // This will trigger a refresh in all components using usePermissions
+      refreshPermissions();
+      
+      // Dispatch custom event to notify other components
+      window.dispatchEvent(new CustomEvent('permissionsUpdated', { 
+        detail: { role: selectedRole, type: 'role' } 
+      }));
     } catch (error) {
       toast.error("Failed to save role permissions");
       console.error(error);
@@ -544,6 +556,15 @@ const Permissions = () => {
         toast.success("User permissions updated successfully");
         // Refresh user permissions to get the updated list
         await fetchUserPermissions(selectedUser.user_id || selectedUser.id);
+        
+        // Refresh permissions cache for the updated user
+        // If the updated user is the current user, refresh their permissions
+        refreshPermissions();
+        
+        // Dispatch custom event to notify other components
+        window.dispatchEvent(new CustomEvent('permissionsUpdated', { 
+          detail: { userId: selectedUser.user_id || selectedUser.id, type: 'user' } 
+        }));
       }
     } catch (error) {
       toast.error("Failed to save user permissions");
@@ -566,6 +587,14 @@ const Permissions = () => {
         );
         // Refresh system admin users
         await fetchSystemAdminUsers(systemAdminSearchQuery);
+        
+        // Refresh permissions cache (system admin status affects permissions)
+        refreshPermissions();
+        
+        // Dispatch custom event to notify other components
+        window.dispatchEvent(new CustomEvent('permissionsUpdated', { 
+          detail: { userId, type: 'systemadmin', status: newStatus } 
+        }));
       }
     } catch (error) {
       toast.error("Failed to update system admin status");

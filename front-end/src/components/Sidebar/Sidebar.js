@@ -75,8 +75,9 @@ function Sidebar({ color, image, routes }) {
    * Check if user has permission for a specific route
    * Uses the cached permissions from usePermissions hook
    * System admins always have access
+   * Checks route.requiredPermissions if available, otherwise falls back to path-based mapping
    */
-  const hasRoutePermission = (routePath) => {
+  const hasRoutePermission = (routePath, route) => {
     // System admins have all permissions
     if (isSystemAdmin || (profile && profile.is_systemadmin === true)) {
       return true;
@@ -87,29 +88,36 @@ function Sidebar({ color, image, routes }) {
       return false;
     }
 
-    // Map routes to their required permissions
+    // First, check if route has requiredPermissions defined (preferred method)
+    if (route && route.requiredPermissions && Array.isArray(route.requiredPermissions)) {
+      // Check if user has any of the required permissions
+      return route.requiredPermissions.some(permission => hasPermission(permission));
+    }
+
+    // Fallback to path-based mapping for backward compatibility
     const routePermissions = {
-      '/dashboard': 'dashboard.view',
-      '/users': 'users.view',
-      '/consumers': 'consumers.view',
-      '/resellers': 'resellers.view',
-      '/products': 'products.view',
-      '/packages': 'packages.view',
-      '/activity-logs': 'activity_logs.view',
-      '/offers': 'offers.view',
-      '/settings': 'settings.view',
-      '/customers': 'customer_support.view',
-      '/invoices': 'invoices.view',
-      '/genie': 'genie.view',
+      '/dashboard': ['dashboard.view'],
+      '/users': ['users.view', 'users.read'], // Allow users.read as alternative
+      '/consumers': ['consumers.view'],
+      '/resellers': ['resellers.view'],
+      '/products': ['products.view'],
+      '/packages': ['packages.view'],
+      '/activity-logs': ['activity_logs.view', 'activity_logs.read'], // Allow activity_logs.read as alternative
+      '/offers': ['offers.view'],
+      '/settings': ['settings.view'],
+      '/customers': ['customer_support.view'],
+      '/invoices': ['invoices.view', 'invoices.read'], // Allow invoices.read as alternative
+      '/genie': ['genie.view'],
     };
 
-    const requiredPermission = routePermissions[routePath];
-    if (!requiredPermission) {
+    const requiredPermissions = routePermissions[routePath];
+    if (!requiredPermissions) {
       // If no permission mapping, allow access (for routes without permission requirements)
       return true;
     }
 
-    return hasPermission(requiredPermission);
+    // Check if user has any of the required permissions (primary or fallback)
+    return requiredPermissions.some(permission => hasPermission(permission));
   };
 
   // Auto-expand menu if a submenu is active, close if no status
@@ -166,7 +174,8 @@ function Sidebar({ color, image, routes }) {
             }
             
             // Check route permissions using cached permissions
-            if (!hasRoutePermission(prop.path)) {
+            // Pass the route object to allow checking route.requiredPermissions
+            if (!hasRoutePermission(prop.path, prop)) {
               return null;
             }
             

@@ -134,7 +134,8 @@ export const getAllCalls = async (req, res) => {
         list_id,
         genie_bots (
           id,
-          name
+          name,
+          owner_user_id
         )
       `,
         { count: "exact" }
@@ -171,6 +172,65 @@ export const getAllCalls = async (req, res) => {
     if (error) {
       console.error("❌ Error fetching calls:", error);
       return handleApiError(error, res, "Failed to fetch calls");
+    }
+
+    // ========================================
+    // ENRICH CALLS WITH CONSUMER INFO
+    // ========================================
+    if (calls && calls.length > 0) {
+      // Collect unique owner_user_ids from bots
+      const ownerUserIds = Array.from(
+        new Set(
+          (calls || [])
+            .map((call) => call.genie_bots?.owner_user_id)
+            .filter(Boolean)
+        )
+      );
+
+      if (ownerUserIds.length > 0) {
+        // Fetch consumer info from auth_role_with_profiles
+        const { data: consumerProfiles, error: consumerError } =
+          await executeWithTimeout(
+            supabaseAdmin
+              .from("auth_role_with_profiles")
+              .select("user_id, full_name, email")
+              .in("user_id", ownerUserIds),
+            3000
+          );
+
+        if (!consumerError && consumerProfiles) {
+          // Create a map of user_id -> {full_name, email}
+          const userIdToConsumer = new Map(
+            consumerProfiles.map((profile) => [
+              profile.user_id,
+              { full_name: profile.full_name, email: profile.email },
+            ])
+          );
+
+          // Add consumer info to each call
+          calls.forEach((call) => {
+            if (call.genie_bots?.owner_user_id) {
+              const consumer = userIdToConsumer.get(
+                call.genie_bots.owner_user_id
+              );
+              if (consumer) {
+                call.consumer_name = consumer.full_name;
+                call.consumer_email = consumer.email;
+              }
+            }
+          });
+
+          console.log(
+            `✅ Enriched ${calls.length} call(s) with consumer info`
+          );
+        } else if (consumerError) {
+          console.error(
+            "⚠️ Error fetching consumer info:",
+            consumerError.message
+          );
+          // Continue without enriching - don't fail the request
+        }
+      }
     }
 
     const result = createPaginatedResponse(
@@ -362,7 +422,8 @@ export const getCallById = async (req, res) => {
             id,
             name,
             company_name,
-            goal
+            goal,
+            owner_user_id
           ),
           genie_contacts (
             id,
@@ -392,6 +453,35 @@ export const getCallById = async (req, res) => {
         error: "Not Found",
         message: "Call not found",
       });
+    }
+
+    // ========================================
+    // ENRICH CALL WITH CONSUMER INFO
+    // ========================================
+    if (call.genie_bots?.owner_user_id) {
+      const { data: consumerProfile, error: consumerError } =
+        await executeWithTimeout(
+          supabaseAdmin
+            .from("auth_role_with_profiles")
+            .select("user_id, full_name, email")
+            .eq("user_id", call.genie_bots.owner_user_id)
+            .maybeSingle(),
+          3000
+        );
+
+      if (!consumerError && consumerProfile) {
+        call.consumer_name = consumerProfile.full_name;
+        call.consumer_email = consumerProfile.email;
+        console.log(
+          `✅ Enriched call ${id} with consumer info: ${consumerProfile.full_name}`
+        );
+      } else if (consumerError) {
+        console.error(
+          "⚠️ Error fetching consumer info for call:",
+          consumerError.message
+        );
+        // Continue without enriching - don't fail the request
+      }
     }
 
     const result = {
@@ -580,7 +670,7 @@ export const updateCallLeadStatus = async (req, res) => {
  */
 export const getAllCampaigns = async (req, res) => {
   try {
-    const { page, limit, status, ownerUserId } = req.query;
+    const { page, limit, status, ownerUserId, campaignSearch, consumerSearch } = req.query;
     const { pageNum, limitNum } = validatePagination(page, limit);
     const offset = (pageNum - 1) * limitNum;
     const userId = req.user.id;
@@ -645,7 +735,14 @@ export const getAllCampaigns = async (req, res) => {
       query = query.eq("status", sanitizeString(status, 50));
     }
 
-    query = query.range(offset, offset + limitNum - 1);
+    // If consumer search is provided, we need to fetch all campaigns first
+    // to filter by consumer info (which is enriched after fetch)
+    // Otherwise, apply pagination before fetching
+    const shouldFetchAllForSearch = consumerSearch && consumerSearch.trim();
+    
+    if (!shouldFetchAllForSearch) {
+      query = query.range(offset, offset + limitNum - 1);
+    }
 
     const { data: campaigns, error, count } = await executeWithTimeout(query);
 
@@ -654,8 +751,106 @@ export const getAllCampaigns = async (req, res) => {
       return handleApiError(error, res, "Failed to fetch campaigns");
     }
 
+    // ========================================
+    // ENRICH CAMPAIGNS WITH CONSUMER INFO
+    // ========================================
+    if (campaigns && campaigns.length > 0) {
+      // Collect unique owner_user_ids
+      const ownerUserIds = Array.from(
+        new Set(
+          (campaigns || [])
+            .map((campaign) => campaign.owner_user_id)
+            .filter(Boolean)
+        )
+      );
+
+      if (ownerUserIds.length > 0) {
+        // Fetch consumer info from auth_role_with_profiles
+        const { data: consumerProfiles, error: consumerError } =
+          await executeWithTimeout(
+            supabaseAdmin
+              .from("auth_role_with_profiles")
+              .select("user_id, full_name, email")
+              .in("user_id", ownerUserIds),
+            3000
+          );
+
+        if (!consumerError && consumerProfiles) {
+          // Create a map of user_id -> {full_name, email}
+          const userIdToConsumer = new Map(
+            consumerProfiles.map((profile) => [
+              profile.user_id,
+              { full_name: profile.full_name, email: profile.email },
+            ])
+          );
+
+          // Add consumer info to each campaign
+          campaigns.forEach((campaign) => {
+            if (campaign.owner_user_id) {
+              const consumer = userIdToConsumer.get(campaign.owner_user_id);
+              if (consumer) {
+                campaign.consumer_name = consumer.full_name;
+                campaign.consumer_email = consumer.email;
+              }
+            }
+          });
+
+          console.log(
+            `✅ Enriched ${campaigns.length} campaign(s) with consumer info`
+          );
+        } else if (consumerError) {
+          console.error(
+            "⚠️ Error fetching consumer info:",
+            consumerError.message
+          );
+          // Continue without enriching - don't fail the request
+        }
+      }
+    }
+
+    // ========================================
+    // APPLY SEARCH FILTERS (after enrichment)
+    // ========================================
+    let filteredCampaigns = campaigns || [];
+    
+    // Filter by campaign search (bot name, contact list name)
+    if (campaignSearch && campaignSearch.trim()) {
+      const searchTerm = sanitizeString(campaignSearch.trim(), 100).toLowerCase();
+      const beforeCount = filteredCampaigns.length;
+      filteredCampaigns = filteredCampaigns.filter((campaign) => {
+        const botName = (campaign.genie_bots?.name || "").toLowerCase();
+        const listName = (campaign.genie_contact_lists?.name || "").toLowerCase();
+        
+        return (
+          botName.includes(searchTerm) ||
+          listName.includes(searchTerm)
+        );
+      });
+      console.log(
+        `🔍 Campaign search "${searchTerm}": ${filteredCampaigns.length} of ${beforeCount} campaigns match`
+      );
+    }
+    
+    // Filter by consumer search (consumer name, consumer email)
+    if (consumerSearch && consumerSearch.trim()) {
+      const searchTerm = sanitizeString(consumerSearch.trim(), 100).toLowerCase();
+      const beforeCount = filteredCampaigns.length;
+      filteredCampaigns = filteredCampaigns.filter((campaign) => {
+        const consumerName = (campaign.consumer_name || "").toLowerCase();
+        const consumerEmail = (campaign.consumer_email || "").toLowerCase();
+        
+        return (
+          consumerName.includes(searchTerm) ||
+          consumerEmail.includes(searchTerm)
+        );
+      });
+      console.log(
+        `🔍 Consumer search "${searchTerm}": ${filteredCampaigns.length} of ${beforeCount} campaigns match`
+      );
+    }
+
     // Add progress percentage to each campaign
-    const campaignsWithProgress = (campaigns || []).map((c) => ({
+    const campaignsWithProgress = filteredCampaigns.map((c) => ({
       ...c,
       progress_percent:
         c.contacts_count > 0
@@ -663,9 +858,29 @@ export const getAllCampaigns = async (req, res) => {
           : 0,
     }));
 
+    // Apply pagination if we fetched all campaigns for search
+    let paginatedCampaigns = campaignsWithProgress;
+    let finalCount = count || 0;
+    
+    if (shouldFetchAllForSearch) {
+      // Apply pagination after filtering when consumer search is used
+      finalCount = filteredCampaigns.length;
+      const startIndex = offset;
+      const endIndex = offset + limitNum;
+      paginatedCampaigns = campaignsWithProgress.slice(startIndex, endIndex);
+      console.log(
+        `📄 Paginated ${paginatedCampaigns.length} campaigns from ${finalCount} total (page ${pageNum}, limit ${limitNum})`
+      );
+    } else if (campaignSearch && campaignSearch.trim()) {
+      // For campaign search only (without consumer search), 
+      // filtering happens on already paginated results, so count stays the same
+      // but we update it to reflect filtered results
+      finalCount = filteredCampaigns.length;
+    }
+    
     const result = createPaginatedResponse(
-      sanitizeArray(campaignsWithProgress),
-      count || 0,
+      sanitizeArray(paginatedCampaigns),
+      finalCount,
       pageNum,
       limitNum
     );
@@ -1083,6 +1298,68 @@ export const getAllLeads = async (req, res) => {
       return handleApiError(error, res, "Failed to fetch leads");
     }
 
+    // ========================================
+    // ENRICH LEADS WITH OWNER EMAIL WHEN EMAIL IS NULL
+    // ========================================
+    if (leads && leads.length > 0) {
+      // Find leads with null email that have owner_user_id
+      const leadsNeedingEmail = leads.filter(
+        (lead) => !lead.email && lead.genie_bots?.owner_user_id
+      );
+
+      if (leadsNeedingEmail.length > 0) {
+        // Collect unique owner_user_ids
+        const ownerUserIds = Array.from(
+          new Set(
+            leadsNeedingEmail
+              .map((lead) => lead.genie_bots?.owner_user_id)
+              .filter(Boolean)
+          )
+        );
+
+        if (ownerUserIds.length > 0) {
+          // Fetch user emails from auth_role_with_profiles
+          const { data: userProfiles, error: userError } =
+            await executeWithTimeout(
+              supabaseAdmin
+                .from("auth_role_with_profiles")
+                .select("user_id, email")
+                .in("user_id", ownerUserIds),
+              3000
+            );
+
+          if (!userError && userProfiles) {
+            // Create a map of user_id -> email
+            const userIdToEmail = new Map(
+              userProfiles.map((profile) => [profile.user_id, profile.email])
+            );
+
+            // Update leads with owner email where email is null
+            leads.forEach((lead) => {
+              if (!lead.email && lead.genie_bots?.owner_user_id) {
+                const ownerEmail = userIdToEmail.get(
+                  lead.genie_bots.owner_user_id
+                );
+                if (ownerEmail) {
+                  lead.email = ownerEmail;
+                }
+              }
+            });
+
+            console.log(
+              `✅ Enriched ${leadsNeedingEmail.length} lead(s) with owner email`
+            );
+          } else if (userError) {
+            console.error(
+              "⚠️ Error fetching owner emails:",
+              userError.message
+            );
+            // Continue without enriching - don't fail the request
+          }
+        }
+      }
+    }
+
     const result = createPaginatedResponse(
       sanitizeArray(leads || []),
       count || 0,
@@ -1124,7 +1401,8 @@ export const getLeadById = async (req, res) => {
           genie_bots (
             id,
             name,
-            company_name
+            company_name,
+            owner_user_id
           ),
           genie_contacts (
             id,
@@ -1154,6 +1432,33 @@ export const getLeadById = async (req, res) => {
         error: "Not Found",
         message: "Lead not found",
       });
+    }
+
+    // ========================================
+    // ENRICH LEAD WITH OWNER EMAIL WHEN EMAIL IS NULL
+    // ========================================
+    if (!lead.email && lead.genie_bots?.owner_user_id) {
+      const { data: userProfile, error: userError } = await executeWithTimeout(
+        supabaseAdmin
+          .from("auth_role_with_profiles")
+          .select("user_id, email")
+          .eq("user_id", lead.genie_bots.owner_user_id)
+          .maybeSingle(),
+        3000
+      );
+
+      if (!userError && userProfile?.email) {
+        lead.email = userProfile.email;
+        console.log(
+          `✅ Enriched lead ${id} with owner email: ${userProfile.email}`
+        );
+      } else if (userError) {
+        console.error(
+          "⚠️ Error fetching owner email for lead:",
+          userError.message
+        );
+        // Continue without enriching - don't fail the request
+      }
     }
 
     res.json({
@@ -1340,6 +1645,68 @@ export const exportLeads = async (req, res) => {
       return handleApiError(error, res, "Failed to export leads");
     }
 
+    // ========================================
+    // ENRICH LEADS WITH OWNER EMAIL WHEN EMAIL IS NULL
+    // ========================================
+    if (leads && leads.length > 0) {
+      // Find leads with null email that have owner_user_id
+      const leadsNeedingEmail = leads.filter(
+        (lead) => !lead.email && lead.genie_bots?.owner_user_id
+      );
+
+      if (leadsNeedingEmail.length > 0) {
+        // Collect unique owner_user_ids
+        const ownerUserIds = Array.from(
+          new Set(
+            leadsNeedingEmail
+              .map((lead) => lead.genie_bots?.owner_user_id)
+              .filter(Boolean)
+          )
+        );
+
+        if (ownerUserIds.length > 0) {
+          // Fetch user emails from auth_role_with_profiles
+          const { data: userProfiles, error: userError } =
+            await executeWithTimeout(
+              supabaseAdmin
+                .from("auth_role_with_profiles")
+                .select("user_id, email")
+                .in("user_id", ownerUserIds),
+              3000
+            );
+
+          if (!userError && userProfiles) {
+            // Create a map of user_id -> email
+            const userIdToEmail = new Map(
+              userProfiles.map((profile) => [profile.user_id, profile.email])
+            );
+
+            // Update leads with owner email where email is null
+            leads.forEach((lead) => {
+              if (!lead.email && lead.genie_bots?.owner_user_id) {
+                const ownerEmail = userIdToEmail.get(
+                  lead.genie_bots.owner_user_id
+                );
+                if (ownerEmail) {
+                  lead.email = ownerEmail;
+                }
+              }
+            });
+
+            console.log(
+              `✅ Enriched ${leadsNeedingEmail.length} lead(s) with owner email for export`
+            );
+          } else if (userError) {
+            console.error(
+              "⚠️ Error fetching owner emails for export:",
+              userError.message
+            );
+            // Continue without enriching - don't fail the request
+          }
+        }
+      }
+    }
+
     // Generate CSV
     const headers = ["Name", "Phone", "Email", "Bot", "Summary", "Created At"];
     const rows = (leads || []).map((lead) => [
@@ -1383,9 +1750,27 @@ export const exportLeads = async (req, res) => {
  */
 export const getCallAnalytics = async (req, res) => {
   try {
-    const { period = "week", groupBy = "day" } = req.query;
+    const { period = "week", groupBy = "day", ownerUserId, botId } = req.query;
     const userId = req.user.id;
     const isSystemAdmin = req.userProfile?.is_systemadmin === true;
+
+    // Validate ownerUserId if provided
+    if (ownerUserId && !isValidUUID(ownerUserId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Invalid owner user ID format",
+      });
+    }
+
+    // Validate botId if provided
+    if (botId && !isValidUUID(botId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Invalid bot ID format",
+      });
+    }
 
     // Calculate date range
     let startDate = new Date();
@@ -1397,11 +1782,11 @@ export const getCallAnalytics = async (req, res) => {
       startDate.setMonth(startDate.getMonth() - 3);
     }
 
-    // Check cache
+    // Check cache (include filters in cache key)
     const cacheKey = CACHE_KEYS.ANALYTICS(
       isSystemAdmin ? "admin" : userId,
       "calls",
-      period
+      `${period}_${ownerUserId || 'all'}_${botId || 'all'}`
     );
     const cachedData = await cacheService.get(cacheKey);
     if (cachedData) {
@@ -1409,14 +1794,71 @@ export const getCallAnalytics = async (req, res) => {
       return res.json(cachedData);
     }
 
-    // Get calls data - TEMPORARILY NO FILTERING to debug
-    const { data: calls, error } = await executeWithTimeout(
-      supabase
-        .from("call_logs")
-        .select("created_at, call_status, is_lead, duration")
-        .gte("created_at", startDate.toISOString())
-        .order("created_at", { ascending: true })
-    );
+    // Build query for calls
+    let callsQuery = supabase
+      .from("call_logs")
+      .select(
+        `
+        created_at,
+        call_status,
+        is_lead,
+        duration,
+        bot_id,
+        genie_bots (
+          id,
+          owner_user_id
+        )
+      `
+      )
+      .gte("created_at", startDate.toISOString());
+
+    // Filter by botId if provided
+    if (botId) {
+      callsQuery = callsQuery.eq("bot_id", botId);
+    }
+
+    // Filter by ownerUserId via bot relationship
+    if (ownerUserId) {
+      // First get all bot IDs for this owner
+      const { data: ownerBots } = await supabase
+        .from("genie_bots")
+        .select("id")
+        .eq("owner_user_id", ownerUserId);
+
+      if (ownerBots && ownerBots.length > 0) {
+        const botIds = ownerBots.map((b) => b.id);
+        if (botId) {
+          // If both botId and ownerUserId are provided, verify bot belongs to owner
+          if (!botIds.includes(botId)) {
+            return res.json({
+              success: true,
+              data: {
+                chartData: [],
+                period,
+                groupBy,
+              },
+            });
+          }
+        } else {
+          // Filter by all bots owned by this user
+          callsQuery = callsQuery.in("bot_id", botIds);
+        }
+      } else {
+        // No bots found for this owner, return empty result
+        return res.json({
+          success: true,
+          data: {
+            chartData: [],
+            period,
+            groupBy,
+          },
+        });
+      }
+    }
+
+    callsQuery = callsQuery.order("created_at", { ascending: true });
+
+    const { data: calls, error } = await executeWithTimeout(callsQuery);
 
     if (error) {
       console.error("❌ Error fetching call analytics:", error);
@@ -1480,9 +1922,27 @@ export const getCallAnalytics = async (req, res) => {
  */
 export const getConversionMetrics = async (req, res) => {
   try {
-    const { period = "month" } = req.query;
+    const { period = "month", ownerUserId, botId } = req.query;
     const userId = req.user.id;
     const isSystemAdmin = req.userProfile?.is_systemadmin === true;
+
+    // Validate ownerUserId if provided
+    if (ownerUserId && !isValidUUID(ownerUserId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Invalid owner user ID format",
+      });
+    }
+
+    // Validate botId if provided
+    if (botId && !isValidUUID(botId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Invalid bot ID format",
+      });
+    }
 
     // Calculate date range
     let startDate = new Date();
@@ -1494,50 +1954,123 @@ export const getConversionMetrics = async (req, res) => {
       startDate.setMonth(startDate.getMonth() - 3);
     }
 
-    // Check cache
+    // Check cache (include filters in cache key)
     const cacheKey = CACHE_KEYS.ANALYTICS(
       isSystemAdmin ? "admin" : userId,
       "conversion",
-      period
+      `${period}_${ownerUserId || 'all'}_${botId || 'all'}`
     );
     const cachedData = await cacheService.get(cacheKey);
     if (cachedData) {
       return res.json(cachedData);
     }
 
-    // TEMPORARILY NO FILTERING to debug
+    // Build filter for bot-based queries
+    let botIds = null;
+    if (ownerUserId) {
+      const { data: ownerBots } = await supabase
+        .from("genie_bots")
+        .select("id")
+        .eq("owner_user_id", ownerUserId);
+
+      if (ownerBots && ownerBots.length > 0) {
+        botIds = ownerBots.map((b) => b.id);
+        if (botId && !botIds.includes(botId)) {
+          // Bot doesn't belong to owner, return empty result
+          return res.json({
+            success: true,
+            data: {
+              funnel: [
+                { stage: "Calls Made", count: 0 },
+                { stage: "Completed", count: 0 },
+                { stage: "Leads", count: 0 },
+              ],
+              conversionRate: 0,
+              completionRate: 0,
+              period,
+            },
+          });
+        }
+        if (botId) {
+          botIds = [botId]; // Use only the specified bot
+        }
+      } else {
+        // No bots found for owner
+        return res.json({
+          success: true,
+          data: {
+            funnel: [
+              { stage: "Calls Made", count: 0 },
+              { stage: "Completed", count: 0 },
+              { stage: "Leads", count: 0 },
+            ],
+            conversionRate: 0,
+            completionRate: 0,
+            period,
+          },
+        });
+      }
+    } else if (botId) {
+      botIds = [botId];
+    }
+
+    // Build queries with filters
+    const buildCallsQuery = (baseQuery) => {
+      let query = baseQuery.gte("created_at", startDate.toISOString());
+      if (botIds) {
+        query = query.in("bot_id", botIds);
+      } else if (botId) {
+        query = query.eq("bot_id", botId);
+      }
+      return query;
+    };
+
+    const buildLeadsQuery = (baseQuery) => {
+      let query = baseQuery.gte("created_at", startDate.toISOString());
+      if (botIds) {
+        query = query.in("bot_id", botIds);
+      } else if (botId) {
+        query = query.eq("bot_id", botId);
+      }
+      return query;
+    };
+
     // Get total calls
     const { count: totalCalls } = await executeWithTimeout(
-      supabase
-        .from("call_logs")
-        .select("id", { count: "exact", head: true })
-        .gte("created_at", startDate.toISOString())
+      buildCallsQuery(
+        supabase
+          .from("call_logs")
+          .select("id", { count: "exact", head: true })
+      )
     );
 
     // Get completed calls
     const { count: completedCalls } = await executeWithTimeout(
-      supabase
-        .from("call_logs")
-        .select("id", { count: "exact", head: true })
-        .eq("call_status", "completed")
-        .gte("created_at", startDate.toISOString())
+      buildCallsQuery(
+        supabase
+          .from("call_logs")
+          .select("id", { count: "exact", head: true })
+          .eq("call_status", "completed")
+      )
     );
 
     // Get leads from call_logs
     const { count: callLeads } = await executeWithTimeout(
-      supabase
-        .from("call_logs")
-        .select("id", { count: "exact", head: true })
-        .eq("is_lead", true)
-        .gte("created_at", startDate.toISOString())
+      buildCallsQuery(
+        supabase
+          .from("call_logs")
+          .select("id", { count: "exact", head: true })
+          .eq("is_lead", true)
+      )
     );
 
     // Get leads from genie_leads table
     const { count: totalLeads } = await executeWithTimeout(
-      supabase
-        .from("genie_leads")
-        .select("id", { count: "exact", head: true })
-        .gte("created_at", startDate.toISOString())
+      buildLeadsQuery(
+        supabase
+          .from("genie_leads")
+          .select("id", { count: "exact", head: true })
+      )
     );
 
     const result = {
@@ -1575,9 +2108,27 @@ export const getConversionMetrics = async (req, res) => {
  */
 export const getBotPerformance = async (req, res) => {
   try {
-    const { period = "month" } = req.query;
+    const { period = "month", ownerUserId, botId } = req.query;
     const userId = req.user.id;
     const isSystemAdmin = req.userProfile?.is_systemadmin === true;
+
+    // Validate ownerUserId if provided
+    if (ownerUserId && !isValidUUID(ownerUserId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Invalid owner user ID format",
+      });
+    }
+
+    // Validate botId if provided
+    if (botId && !isValidUUID(botId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Invalid bot ID format",
+      });
+    }
 
     // Calculate date range
     let startDate = new Date();
@@ -1587,32 +2138,74 @@ export const getBotPerformance = async (req, res) => {
       startDate.setMonth(startDate.getMonth() - 1);
     }
 
-    // Check cache
+    // Check cache (include filters in cache key)
     const cacheKey = CACHE_KEYS.ANALYTICS(
       isSystemAdmin ? "admin" : userId,
       "bots",
-      period
+      `${period}_${ownerUserId || 'all'}_${botId || 'all'}`
     );
     const cachedData = await cacheService.get(cacheKey);
     if (cachedData) {
       return res.json(cachedData);
     }
 
-    // Get calls grouped by bot - TEMPORARILY NO FILTERING to debug
-    const { data: calls, error } = await executeWithTimeout(
-      supabase
-        .from("call_logs")
-        .select(
-          `
-          bot_id,
-          call_status,
-          is_lead,
-          duration,
-          genie_bots (id, name)
+    // Build query for calls
+    let callsQuery = supabase
+      .from("call_logs")
+      .select(
         `
-        )
-        .gte("created_at", startDate.toISOString())
-    );
+        bot_id,
+        call_status,
+        is_lead,
+        duration,
+        genie_bots (id, name, owner_user_id)
+      `
+      )
+      .gte("created_at", startDate.toISOString());
+
+    // Filter by botId if provided
+    if (botId) {
+      callsQuery = callsQuery.eq("bot_id", botId);
+    }
+
+    // Filter by ownerUserId via bot relationship
+    if (ownerUserId) {
+      // First get all bot IDs for this owner
+      const { data: ownerBots } = await supabase
+        .from("genie_bots")
+        .select("id")
+        .eq("owner_user_id", ownerUserId);
+
+      if (ownerBots && ownerBots.length > 0) {
+        const botIds = ownerBots.map((b) => b.id);
+        if (botId) {
+          // If both botId and ownerUserId are provided, verify bot belongs to owner
+          if (!botIds.includes(botId)) {
+            return res.json({
+              success: true,
+              data: {
+                bots: [],
+                period,
+              },
+            });
+          }
+        } else {
+          // Filter by all bots owned by this user
+          callsQuery = callsQuery.in("bot_id", botIds);
+        }
+      } else {
+        // No bots found for this owner, return empty result
+        return res.json({
+          success: true,
+          data: {
+            bots: [],
+            period,
+          },
+        });
+      }
+    }
+
+    const { data: calls, error } = await executeWithTimeout(callsQuery);
 
     if (error) {
       console.error("❌ Error fetching bot performance:", error);
@@ -1722,6 +2315,56 @@ export const getAllBots = async (req, res) => {
     if (error) {
       console.error("❌ Error fetching bots:", error);
       return handleApiError(error, res, "Failed to fetch bots");
+    }
+
+    // ========================================
+    // ENRICH BOTS WITH OWNER NAMES
+    // ========================================
+    if (bots && bots.length > 0) {
+      // Collect unique owner_user_ids
+      const ownerUserIds = Array.from(
+        new Set(
+          (bots || [])
+            .map((bot) => bot.owner_user_id)
+            .filter(Boolean)
+        )
+      );
+
+      if (ownerUserIds.length > 0) {
+        // Fetch owner names from auth_role_with_profiles
+        const { data: ownerProfiles, error: ownerError } =
+          await executeWithTimeout(
+            supabaseAdmin
+              .from("auth_role_with_profiles")
+              .select("user_id, full_name")
+              .in("user_id", ownerUserIds),
+            3000
+          );
+
+        if (!ownerError && ownerProfiles) {
+          // Create a map of user_id -> full_name
+          const userIdToName = new Map(
+            ownerProfiles.map((profile) => [profile.user_id, profile.full_name])
+          );
+
+          // Add owner_name to each bot
+          bots.forEach((bot) => {
+            if (bot.owner_user_id) {
+              bot.owner_name = userIdToName.get(bot.owner_user_id) || "Unknown";
+            }
+          });
+
+          console.log(
+            `✅ Enriched ${bots.length} bot(s) with owner names`
+          );
+        } else if (ownerError) {
+          console.error(
+            "⚠️ Error fetching owner names:",
+            ownerError.message
+          );
+          // Continue without enriching - don't fail the request
+        }
+      }
     }
 
     const result = {

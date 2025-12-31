@@ -15,24 +15,24 @@ const router = express.Router();
 
 /**
  * @route   GET /api/packages
- * @desc    Get all packages (admin, reseller, consumer)
- * @access  Private (Admin/Reseller/Consumer)
+ * @desc    Get all packages (admin, reseller, consumer, support)
+ * @access  Private (Admin/Reseller/Consumer/Support)
  */
-router.get('/', authenticate, requireRole(['admin','reseller','consumer']), rateLimitMiddleware, sanitizeInputMiddleware, getAllPackages);
+router.get('/', authenticate, requireRole(['admin','reseller','consumer','support']), rateLimitMiddleware, sanitizeInputMiddleware, getAllPackages);
 
 /**
  * @route   GET /api/packages/product/:productId
- * @desc    Get packages by product ID (admin, reseller, consumer)
- * @access  Private (Admin/Reseller/Consumer)
+ * @desc    Get packages by product ID (admin, reseller, consumer, support)
+ * @access  Private (Admin/Reseller/Consumer/Support)
  */
-router.get('/product/:productId', authenticate, requireRole(['admin','reseller','consumer']), rateLimitMiddleware, sanitizeInputMiddleware, getPackagesByProduct);
+router.get('/product/:productId', authenticate, requireRole(['admin','reseller','consumer','support']), rateLimitMiddleware, sanitizeInputMiddleware, getPackagesByProduct);
 
 /**
  * @route   GET /api/packages/:id
- * @desc    Get package by ID (admin, reseller, consumer)
- * @access  Private (Admin/Reseller/Consumer)
+ * @desc    Get package by ID (admin, reseller, consumer, support)
+ * @access  Private (Admin/Reseller/Consumer/Support)
  */
-router.get('/:id', authenticate, requireRole(['admin','reseller','consumer']), rateLimitMiddleware, sanitizeInputMiddleware, getPackageById);
+router.get('/:id', authenticate, requireRole(['admin','reseller','consumer','support']), rateLimitMiddleware, sanitizeInputMiddleware, getPackageById);
 
 /**
  * @route   POST /api/packages

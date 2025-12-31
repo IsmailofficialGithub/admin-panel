@@ -154,8 +154,8 @@ export const getAllUsers = async (req, res) => {
     // ========================================
     // 5. FILTER OUT CONSUMERS AND RESELLERS (in memory)
     // ========================================
-    // Filter for users that have admin, user, or viewer roles (not consumer/reseller)
-    const allowedRoles = ['admin', 'user', 'viewer'];
+    // Filter for users that have admin, user, viewer, or support roles (not consumer/reseller)
+    const allowedRoles = ['admin', 'user', 'viewer', 'support'];
     const filteredUsers = (users || []).filter(user => {
       if (!user.role || !Array.isArray(user.role)) return false;
       // Check if user has any of the allowed roles AND doesn't have consumer/reseller
@@ -376,7 +376,7 @@ export const createUser = async (req, res) => {
     }
 
     // Validate roles - support both single role (backward compatibility) and roles array
-    const validRoles = ['user', 'admin', 'consumer', 'reseller', 'viewer'];
+    const validRoles = ['user', 'admin', 'consumer', 'reseller', 'viewer', 'support'];
     let userRoles = [];
     
     // If roles array is provided, use it; otherwise check for single role (backward compatibility)
@@ -688,7 +688,7 @@ export const updateUser = async (req, res) => {
       }
       
       if (Array.isArray(rolesArray)) {
-      const validRoles = ['user', 'admin', 'consumer', 'reseller', 'viewer'];
+      const validRoles = ['user', 'admin', 'consumer', 'reseller', 'viewer', 'support'];
         const userRoles = rolesArray.map(r => String(r).toLowerCase()).filter(r => validRoles.includes(r));
       if (userRoles.length === 0) {
         return res.status(400).json({
@@ -705,7 +705,7 @@ export const updateUser = async (req, res) => {
     
     // Backward compatibility: single role field
     if (role && !updateData.role) {
-      const validRoles = ['user', 'admin', 'consumer', 'reseller', 'viewer'];
+      const validRoles = ['user', 'admin', 'consumer', 'reseller', 'viewer', 'support'];
       const singleRole = String(role).toLowerCase();
       if (!validRoles.includes(singleRole)) {
         return res.status(400).json({

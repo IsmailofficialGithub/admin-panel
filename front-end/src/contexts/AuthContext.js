@@ -116,7 +116,13 @@ export const AuthProvider = ({ children }) => {
         return false
       }
 
-      // Define allowed roles (admin is allowed, reseller already handled above)
+      // Check if user has support role
+      if (hasRole(role, 'support')) {
+        console.log('✅ checkValidRole: User has support role, allowing access')
+        return true
+      }
+      
+      // Define allowed roles (admin is allowed, reseller and support already handled above)
       const allowedRoles = ['admin']
       
       if (!hasAnyRole(role, allowedRoles)) {
@@ -334,6 +340,7 @@ export const AuthProvider = ({ children }) => {
     const primaryRole = getPrimaryRole(profile.role, profile.is_systemadmin)
     if (primaryRole === 'systemadmin' || primaryRole === 'admin') return '/admin/dashboard'
     if (primaryRole === 'reseller') return '/reseller/dashboard'
+    if (primaryRole === 'support') return '/support/dashboard'
     
     return '/login'
   }

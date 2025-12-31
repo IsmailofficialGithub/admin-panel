@@ -12,6 +12,7 @@ import "@fortawesome/fontawesome-free/css/all.min.css";
 
 import AdminLayout from "layouts/Admin.js";
 import ResellerLayout from "layouts/Reseller.js";
+import SupportLayout from "layouts/Support.js";
 import ConsumerLayout from "layouts/Consumer.js";
 import Login from "views/Login.js";
 import Payment from "views/Payment.js";
@@ -56,6 +57,7 @@ root.render(
         <Route exact path="/calls" component={Calls} />
         <ProtectedRoute path="/admin" component={AdminLayout} allowedRoles={['admin']} />
         <ProtectedRoute path="/reseller" component={ResellerLayout} allowedRoles={['reseller']} />
+        <ProtectedRoute path="/support" component={SupportLayout} allowedRoles={['support']} />
         {/* Consumer routes - redirect resellers to /reseller, consumer-only to external site */}
         <Route path="/consumer" render={() => {
           // This route is handled by ProtectedRoute, but as a fallback:

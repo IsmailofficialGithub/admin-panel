@@ -143,7 +143,7 @@ const incrementRoleCacheVersion = async (role) => {
  */
 export const getAllRoleCacheVersions = async () => {
   try {
-    const roles = ['admin', 'reseller', 'consumer', 'viewer'];
+    const roles = ['admin', 'reseller', 'consumer', 'viewer', 'support'];
     const versions = {};
     
     await Promise.all(roles.map(async (role) => {
@@ -428,13 +428,13 @@ export const getMyPermissions = async (req, res) => {
 export const getRolePermissions = async (req, res) => {
   try {
     const { role } = req.params;
-    const validRoles = ['admin', 'reseller', 'consumer', 'viewer'];
+    const validRoles = ['admin', 'reseller', 'consumer', 'viewer', 'support'];
     
     if (!validRoles.includes(role)) {
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
-        message: 'Invalid role. Must be one of: admin, reseller, consumer, viewer'
+        message: 'Invalid role. Must be one of: admin, reseller, consumer, viewer, support'
       });
     }
 
@@ -531,7 +531,7 @@ export const getMyRolePermissions = async (req, res) => {
     // Get user's primary role - profile.role can be array or string
     // Use getPrimaryRole utility to get highest priority role based on hierarchy
     const primaryRole = getPrimaryRole(profile.role, profile.is_systemadmin) || 'viewer';
-    const validRoles = ['admin', 'reseller', 'consumer', 'viewer', 'systemadmin'];
+    const validRoles = ['admin', 'reseller', 'consumer', 'viewer', 'support', 'systemadmin'];
     
     if (!validRoles.includes(primaryRole)) {
       return res.status(400).json({
@@ -822,7 +822,7 @@ export const assignPermissionsToRole = async (req, res) => {
     const { role } = req.params;
     const { permissionIds } = req.body;
 
-    const validRoles = ['admin', 'reseller', 'consumer', 'viewer'];
+    const validRoles = ['admin', 'reseller', 'consumer', 'viewer', 'support'];
     if (!validRoles.includes(role)) {
       return res.status(400).json({
         success: false,
@@ -916,7 +916,7 @@ export const removePermissionsFromRole = async (req, res) => {
     const { role } = req.params;
     const { permissionIds } = req.body;
 
-    const validRoles = ['admin', 'reseller', 'consumer', 'viewer'];
+    const validRoles = ['admin', 'reseller', 'consumer', 'viewer', 'support'];
     if (!validRoles.includes(role)) {
       return res.status(400).json({
         success: false,

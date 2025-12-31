@@ -20,23 +20,23 @@ const router = express.Router();
 /**
  * @route   GET /api/offers
  * @desc    Get all offers with pagination and filters
- * @access  Private (Admin or Reseller) - Read-only for resellers
+ * @access  Private (Admin, Reseller, or Support) - Read-only for resellers and support
  */
-router.get('/', authenticate, requireRole(['admin', 'reseller']), rateLimitMiddleware, sanitizeInputMiddleware, getAllOffers);
+router.get('/', authenticate, requireRole(['admin', 'reseller', 'support']), rateLimitMiddleware, sanitizeInputMiddleware, getAllOffers);
 
 /**
  * @route   GET /api/offers/active/:date?
  * @desc    Get active offer for a specific date (or current date)
- * @access  Private (Admin or Reseller)
+ * @access  Private (Admin, Reseller, or Support)
  */
-router.get('/active/:date?', authenticate, requireRole(['admin', 'reseller']), rateLimitMiddleware, sanitizeInputMiddleware, getActiveOffer);
+router.get('/active/:date?', authenticate, requireRole(['admin', 'reseller', 'support']), rateLimitMiddleware, sanitizeInputMiddleware, getActiveOffer);
 
 /**
  * @route   GET /api/offers/:id
  * @desc    Get a single offer by ID
- * @access  Private (Admin)
+ * @access  Private (Admin or Support)
  */
-router.get('/:id', authenticate, requireRole(['admin']), rateLimitMiddleware, sanitizeInputMiddleware, getOfferById);
+router.get('/:id', authenticate, requireRole(['admin', 'support']), rateLimitMiddleware, sanitizeInputMiddleware, getOfferById);
 
 /**
  * @route   POST /api/offers

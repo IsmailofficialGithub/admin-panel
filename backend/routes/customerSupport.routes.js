@@ -8,7 +8,7 @@ import {
   getTicketStats,
   uploadAttachmentHandler
 } from './controllers/customerSupport.controller.js';
-import { authenticate, requireAdmin, loadUserProfile } from '../middleware/auth.js';
+import { authenticate, requireAdmin, requireRole, loadUserProfile } from '../middleware/auth.js';
 import { upload } from './controllers/customerSupport.controller.js';
 import {
   createRateLimitMiddleware,
@@ -50,16 +50,16 @@ router.post('/tickets/:ticketId/messages', authenticate, loadUserProfile, rateLi
 /**
  * @route   PATCH /api/customer-support/tickets/:ticketId/status
  * @desc    Update ticket status, assignment, priority
- * @access  Private (Admin only)
+ * @access  Private (Admin or Support)
  */
-router.patch('/tickets/:ticketId/status', authenticate, loadUserProfile, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, updateTicketStatus);
+router.patch('/tickets/:ticketId/status', authenticate, loadUserProfile, requireRole(['admin', 'support']), rateLimitMiddleware, sanitizeInputMiddleware, updateTicketStatus);
 
 /**
  * @route   GET /api/customer-support/stats
  * @desc    Get ticket statistics
- * @access  Private (Admin only)
+ * @access  Private (Admin or Support)
  */
-router.get('/stats', authenticate, loadUserProfile, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, getTicketStats);
+router.get('/stats', authenticate, loadUserProfile, requireRole(['admin', 'support']), rateLimitMiddleware, sanitizeInputMiddleware, getTicketStats);
 
 /**
  * @route   POST /api/customer-support/upload

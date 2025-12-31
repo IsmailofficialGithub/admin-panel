@@ -61,13 +61,13 @@ router.get(
 
 /**
  * @route   GET /api/invoices
- * @desc    Get all invoices (admin only)
- * @access  Private (Admin)
+ * @desc    Get all invoices (admin or support)
+ * @access  Private (Admin or Support)
  */
 router.get(
   '/',
   authenticate,
-  requireRole(['admin']),
+  requireRole(['admin', 'support']),
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   getAllInvoices
@@ -77,7 +77,7 @@ router.get(
 router.get(
   '/invoices',
   authenticate,
-  requireRole(['admin']),
+  requireRole(['admin', 'support']),
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   getAllInvoices
@@ -100,12 +100,12 @@ router.get(
 /**
  * @route   GET /api/invoices/consumer/:consumerId
  * @desc    Get invoices for a specific consumer
- * @access  Private (Admin or Reseller)
+ * @access  Private (Admin, Reseller, or Support)
  */
 router.get(
   '/consumer/:consumerId',
   authenticate,
-  requireRole(['admin', 'reseller']),
+  requireRole(['admin', 'reseller', 'support']),
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   getConsumerInvoices

@@ -170,6 +170,18 @@ function CallDetail() {
                   <small className="text-muted d-block">Phone</small>
                   <a href={`tel:${call.phone}`} style={{ fontWeight: 500 }}>{call.phone}</a>
                 </Col>
+                {call.consumer_name && (
+                  <Col sm={6} className="mb-3">
+                    <small className="text-muted d-block">Consumer Name</small>
+                    <span style={{ fontWeight: 600 }}>{call.consumer_name}</span>
+                  </Col>
+                )}
+                {call.consumer_email && (
+                  <Col sm={6} className="mb-3">
+                    <small className="text-muted d-block">Consumer Email</small>
+                    <a href={`mailto:${call.consumer_email}`}>{call.consumer_email}</a>
+                  </Col>
+                )}
                 {call.genie_contacts?.email && (
                   <Col sm={6} className="mb-3">
                     <small className="text-muted d-block">Email</small>

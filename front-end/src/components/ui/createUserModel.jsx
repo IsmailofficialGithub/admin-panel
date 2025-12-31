@@ -39,7 +39,8 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
     { value: 'admin', label: 'Admin' },
     { value: 'consumer', label: 'Consumer' },
     { value: 'reseller', label: 'Reseller' },
-    { value: 'viewer', label: 'Viewer' }
+    { value: 'viewer', label: 'Viewer' },
+    { value: 'support', label: 'Support' }
   ];
   
   // Check if consumer role is selected

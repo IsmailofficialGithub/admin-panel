@@ -36,10 +36,10 @@ const router = express.Router();
 
 /**
  * @route   GET /api/resellers
- * @desc    Get all resellers (admin only)
- * @access  Private (Admin)
+ * @desc    Get all resellers (admin or support with resellers.view permission)
+ * @access  Private (Admin or Support)
  */
-router.get('/', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, getAllResellers);
+router.get('/', authenticate, requireRole(['admin', 'support']), rateLimitMiddleware, sanitizeInputMiddleware, getAllResellers);
 
 /**
  * ==========================================
@@ -160,10 +160,10 @@ router.get('/:id/referred-consumers', authenticate, requireAdmin, getReferredCon
 
 /**
  * @route   GET /api/resellers/:id
- * @desc    Get reseller by ID
- * @access  Private (Admin)
+ * @desc    Get reseller by ID (admin or support with resellers.view permission)
+ * @access  Private (Admin or Support)
  */
-router.get('/:id', authenticate, requireAdmin, getResellerById);
+router.get('/:id', authenticate, requireRole(['admin', 'support']), getResellerById);
 
 /**
  * @route   POST /api/resellers

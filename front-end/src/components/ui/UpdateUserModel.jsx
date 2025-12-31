@@ -18,7 +18,8 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
     { value: 'admin', label: 'Admin' },
     { value: 'consumer', label: 'Consumer' },
     { value: 'reseller', label: 'Reseller' },
-    { value: 'viewer', label: 'Viewer' }
+    { value: 'viewer', label: 'Viewer' },
+    { value: 'support', label: 'Support' }
   ];
 
   const [countrySearch, setCountrySearch] = useState('');

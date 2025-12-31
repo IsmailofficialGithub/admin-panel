@@ -202,8 +202,20 @@ const Login = () => {
           } catch (redirectError) {
             console.error('❌ Redirect failed:', redirectError);
           }
+        } else if (hasRole(profile.role, 'support')) {
+          console.log('✅ Login: User has support role, redirecting to /support/dashboard');
+          toast.success(`Welcome back, Support!`);
+          
+          // Redirect to support dashboard
+          try {
+            setTimeout(() => {
+              window.location.href = '/support/dashboard';
+            }, 500);
+          } catch (redirectError) {
+            console.error('❌ Redirect failed:', redirectError);
+          }
         } else {
-          // Check if user is ONLY consumer (no reseller or admin role)
+          // Check if user is ONLY consumer (no reseller, admin, or support role)
           const normalizedUserRoles = normalizeRole(profile.role);
           const isOnlyConsumer = normalizedUserRoles.length === 1 && normalizedUserRoles.includes('consumer');
           

@@ -91,8 +91,21 @@ const ProtectedRoute = ({ component: Component, allowedRoles = [], ...rest }) =>
           // If already on reseller route, allow access (don't redirect)
           console.log('✅ ProtectedRoute: Reseller on reseller route, allowing access.');
         }
+        // Check if user has support role - redirect to support dashboard ONLY if not already on a support route
+        else if (hasRole(profile.role, 'support')) {
+          // Only redirect if user is NOT already on a support route
+          const currentPath = location.pathname;
+          const isSupportRoute = currentPath.startsWith('/support');
+          
+          if (!isSupportRoute) {
+            console.log('🔄 ProtectedRoute: Support role detected. Redirecting to /support/dashboard.');
+            return <Redirect to="/support/dashboard" />;
+          }
+          // If already on support route, allow access (don't redirect)
+          console.log('✅ ProtectedRoute: Support on support route, allowing access.');
+        }
         
-        // If user is ONLY consumer (has consumer but no reseller or admin), redirect to external site
+        // If user is ONLY consumer (has consumer but no reseller, admin, or support), redirect to external site
         const userRoles = normalizeRole(profile.role);
         const isOnlyConsumer = userRoles.length === 1 && userRoles.includes('consumer');
         if (isOnlyConsumer) {

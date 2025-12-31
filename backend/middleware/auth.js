@@ -337,8 +337,8 @@ export const requireRole = (allowedRoles = []) => {
           ? profile.role 
           : (profile.role ? [profile.role] : []);
         
-        // Check if account is deactivated (for reseller and consumer roles)
-        if ((userRoles.includes('reseller') || userRoles.includes('consumer')) && profile.account_status === 'deactive') {
+        // Check if account is deactivated (for reseller, consumer, and support roles)
+        if ((userRoles.includes('reseller') || userRoles.includes('consumer') || userRoles.includes('support')) && profile.account_status === 'deactive') {
           return res.status(403).json({
             error: 'Forbidden',
             message: 'Your account has been deactivated. Please contact the administrator.'

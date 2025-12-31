@@ -166,7 +166,7 @@ function LeadDetail() {
                 </Col>
                 {lead.email && (
                   <Col sm={12} className="mb-3">
-                    <small className="text-muted d-block">Email</small>
+                    <small className="text-muted d-block">Owner</small>
                     <a href={`mailto:${lead.email}`}>{lead.email}</a>
                   </Col>
                 )}
