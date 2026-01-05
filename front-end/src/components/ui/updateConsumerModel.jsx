@@ -7,6 +7,7 @@ import { getProducts } from '../../api/backend';
 import { getAllVapiAccounts } from '../../api/backend/vapi';
 import { useAuth } from '../../hooks/useAuth';
 import { hasRole } from '../../utils/roleUtils';
+import toast from 'react-hot-toast';
 
 const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProductSettings }) => {
   const { profile } = useAuth();
@@ -165,7 +166,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
 
       fetchProducts();
     }
-  }, [isOpen, isConsumerSelected]);
+  }, [isOpen, isConsumerSelected, consumer, initialProductSettings]);
 
   // Fetch VAPI accounts when modal opens
   useEffect(() => {
@@ -358,6 +359,13 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
 
   // Handle product selection
   const handleProductToggle = (productId) => {
+    // Clear products error when user makes a selection
+    if (errors.products) {
+      setErrors(prev => ({
+        ...prev,
+        products: ''
+      }));
+    }
 
     setSelectedProducts(prev => {
       const isSelected = prev.includes(productId);
@@ -556,6 +564,14 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
     if (!formData.country.trim()) {
       newErrors.country = 'Country is required';
     }
+    // if(!formData.subscribed_packages || formData.subscribed_packages.length === 0) {
+    //   newErrors.subscribed_packages = 'At least one package is required';
+    // }
+
+    // Products validation (required when consumer role is selected)
+    if (isConsumerSelected && (!selectedProducts || selectedProducts.length === 0)) {
+      newErrors.products = 'At least one product is required';
+    }
 
     // City validation (optional)
     // No validation needed - city is optional
@@ -589,18 +605,47 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
         }
       }
     }
+    console.log(newErrors);
 
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    return { isValid: Object.keys(newErrors).length === 0, errors: newErrors };
   };
 
   const handleSubmit = () => {
-    const isValid = validateForm();
-    if (!isValid) {
+    const validationResult = validateForm();
+    if (!validationResult.isValid) {
+      toast.error('Please fix the errors above');
+      
+      // Scroll to first error field
+      setTimeout(() => {
+        const errorFields = [
+          { selector: 'input[name="full_name"]', errorKey: 'full_name' },
+          { selector: 'input[name="nickname"]', errorKey: 'nickname' },
+          { selector: 'input[placeholder*="Search country"]', errorKey: 'country' },
+          { selector: 'input[name="city"]', errorKey: 'city' },
+          { selector: 'input[name="phone"]', errorKey: 'phone' }
+        ];
+        
+        for (const { selector, errorKey } of errorFields) {
+          if (validationResult.errors[errorKey]) {
+            const field = document.querySelector(selector);
+            if (field) {
+              // Scroll the field into view within the modal
+              field.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+              // Don't focus country field as it has special behavior
+              if (errorKey !== 'country') {
+                field.focus();
+              }
+              break;
+            }
+          }
+        }
+      }, 100);
+      
       return;
     }
 
-    if (isValid) {
+    if (validationResult.isValid) {
       // Combine country code with phone number
       const fullPhone = selectedCountry && formData.phone
         ? `${selectedCountry.phoneCode} ${formData.phone.trim()}`
@@ -640,7 +685,6 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
       if (hasProductSettings) {
         updateData.productSettings = productSettings;
       }
-
 
       onUpdate(updateData);
       onClose();
@@ -1350,7 +1394,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
                 marginBottom: '8px'
               }}>
                 <Package size={16} style={{ color: '#6b7280' }} />
-                Products <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+                Products <span style={{ color: '#ef4444' }}>*</span>
               </label>
               <div style={{ position: 'relative' }}>
                 <div
@@ -1359,7 +1403,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
                     width: '100%',
                     minHeight: '42px',
                     padding: '8px 40px 8px 12px',
-                    border: '1px solid #d1d5db',
+                    border: errors.products ? '1px solid #ef4444' : '1px solid #d1d5db',
                     borderRadius: '8px',
                     fontSize: '14px',
                     outline: 'none',
@@ -1373,16 +1417,18 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
                     alignItems: 'center'
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = '#74317e';
+                    if (!errors.products) {
+                      e.currentTarget.style.borderColor = '#74317e';
+                    }
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = '#d1d5db';
+                    e.currentTarget.style.borderColor = errors.products ? '#ef4444' : '#d1d5db';
                   }}
                 >
                   {loadingProducts ? (
                     <span style={{ color: '#9ca3af' }}>Loading products...</span>
                   ) : selectedProducts.length === 0 ? (
-                    <span style={{ color: '#9ca3af' }}>Select products (optional)...</span>
+                    <span style={{ color: '#9ca3af' }}>Select products (Select at least one product)...</span>
                   ) : (
                     selectedProducts.map(productId => {
                       const product = products.find(p => p.id === productId);
@@ -1515,7 +1561,17 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
                   </>
                 )}
               </div>
-              {selectedProducts.length > 0 && (
+              {errors.products && (
+                <p style={{
+                  color: '#ef4444',
+                  fontSize: '12px',
+                  marginTop: '6px',
+                  marginBottom: 0
+                }}>
+                  {errors.products}
+                </p>
+              )}
+              {!errors.products && selectedProducts.length > 0 && (
                 <p style={{
                   color: '#6b7280',
                   fontSize: '12px',

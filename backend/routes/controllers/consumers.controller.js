@@ -365,7 +365,7 @@ export const updateConsumer = async (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
-        message: 'Country, city, and phone are required'
+        message: 'Country is required'
       });
     }
 
@@ -386,16 +386,22 @@ export const updateConsumer = async (req, res) => {
       updateData.full_name = full_name;
     }
 
-    // Validate and sanitize phone
-    phone = phone.trim();
-    if (!isValidPhone(phone)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Bad Request',
-        message: 'Invalid phone number format'
-      });
+    // Validate and sanitize phone (optional field)
+    if (phone !== undefined) {
+      if (phone === null || phone === '') {
+        updateData.phone = null;
+      } else {
+        phone = String(phone).trim();
+        if (phone && !isValidPhone(phone)) {
+          return res.status(400).json({
+            success: false,
+            error: 'Bad Request',
+            message: 'Invalid phone number format'
+          });
+        }
+        updateData.phone = phone || null;
+      }
     }
-    updateData.phone = phone;
 
     // Sanitize country and city
     updateData.country = sanitizeString(country, 100);
@@ -416,7 +422,8 @@ export const updateConsumer = async (req, res) => {
     }
 
     if (full_name !== undefined) updateData.full_name = full_name;
-    updateData.phone = phone;
+    // Phone is already handled above with proper null checking
+    // updateData.phone is set in the phone validation section above
     updateData.country = country;
     updateData.city = city;
     if (trial_expiry_date !== undefined) {
@@ -545,6 +552,7 @@ export const updateConsumer = async (req, res) => {
     });
 
     // Update product access - handle subscribed_products separately
+    let oldGenieProductSettings = null; // Store old VAPI account for webhook
     if (subscribed_products !== undefined) {
       try {
         // Validate product IDs format
@@ -552,25 +560,65 @@ export const updateConsumer = async (req, res) => {
           ? subscribed_products.filter(productId => isValidUUID(productId))
           : [];
 
-        // Verify that all product IDs exist in the products table
-        let verifiedProductIds = [];
+        // Validate that at least one product is selected
+        if (validFormatProductIds.length === 0) {
+          return res.status(400).json({
+            success: false,
+            error: 'Bad Request',
+            message: 'At least one product must be selected'
+          });
+        }
+
+        // Verify that all product IDs exist in the products table and get their names
+        let verifiedProducts = [];
         if (validFormatProductIds.length > 0) {
           const { data: existingProducts, error: productsCheckError } = await executeWithTimeout(
             supabase
               .from('products')
-              .select('id')
+              .select('id, name')
               .in('id', validFormatProductIds)
           );
 
           if (productsCheckError) {
             console.error('Error checking product existence:', productsCheckError);
           } else {
-            verifiedProductIds = (existingProducts || []).map(prod => prod.id);
+            verifiedProducts = existingProducts || [];
+            const verifiedProductIds = verifiedProducts.map(prod => prod.id);
             const invalidProductIds = validFormatProductIds.filter(id => !verifiedProductIds.includes(id));
             if (invalidProductIds.length > 0) {
               console.warn(`⚠️ Skipping ${invalidProductIds.length} invalid product ID(s) that don't exist in products table:`, invalidProductIds);
             }
           }
+        }
+
+        // Get old product access data (including VAPI account) before deletion for webhook
+        try {
+          const genieProduct = verifiedProducts.find(p => p.name && p.name.toLowerCase().includes('genie'));
+          if (genieProduct && genieProduct.id) {
+            const { data: oldProductAccess } = await executeWithTimeout(
+              supabase
+                .from('user_product_access')
+                .select('product_settings')
+                .eq('user_id', id)
+                .eq('product_id', genieProduct.id)
+                .maybeSingle()
+            );
+
+            if (oldProductAccess?.product_settings) {
+              oldGenieProductSettings = {
+                productId: genieProduct.id,
+                vapiAccountId: oldProductAccess.product_settings.vapi_account ? String(oldProductAccess.product_settings.vapi_account) : null
+              };
+            } else {
+              oldGenieProductSettings = {
+                productId: genieProduct.id,
+                vapiAccountId: null
+              };
+            }
+          }
+        } catch (oldDataError) {
+          console.error('Error fetching old product settings for webhook:', oldDataError);
+          // Continue anyway - don't block the update
         }
 
         // First, delete all existing product access for this user
@@ -586,61 +634,95 @@ export const updateConsumer = async (req, res) => {
         }
 
         // Then insert new product access records if any verified products are provided
-        if (verifiedProductIds.length > 0) {
+        if (verifiedProducts.length > 0) {
+          // Default settings for each product type
+          const DEFAULT_GENIE_SETTINGS = {
+            list_limit: 1,
+            agent_number: 3,
+            vapi_account: 1,
+            duration_limit: 60,
+            concurrency_limit: 1
+          };
+
+          const DEFAULT_BEEBA_SETTINGS = {
+            list_limit: 10,
+            agent_number: 30,
+            vapi_account: 1,
+            duration_limit: 600,
+            concurrency_limit: 10
+          };
+
           // Build product access records with product_settings included
-          const productAccessRecords = verifiedProductIds.map(productId => {
+          const productAccessRecords = verifiedProducts.map(product => {
+            const productId = product.id;
+            const productName = product.name ? product.name.toLowerCase() : '';
+            const isGenie = productName.includes('genie');
+            const isBeeba = productName.includes('beeba');
+
             const record = {
               user_id: id,
               product_id: productId
             };
 
-            // Add product_settings if available for this product
-            if (productSettings && typeof productSettings === 'object' && productSettings[productId]) {
-              const settings = productSettings[productId];
+            // Get default settings based on product type
+            let defaultSettings = {};
+            if (isGenie) {
+              defaultSettings = { ...DEFAULT_GENIE_SETTINGS };
+            } else if (isBeeba) {
+              defaultSettings = { ...DEFAULT_BEEBA_SETTINGS };
+            }
 
-              // Validate and sanitize settings
-              const sanitizedSettings = {};
+            // Merge user-provided settings with defaults
+            const userSettings = (productSettings && typeof productSettings === 'object' && productSettings[productId]) 
+              ? productSettings[productId] 
+              : {};
+            
+            // Start with defaults, then override with user settings
+            const mergedSettings = { ...defaultSettings, ...userSettings };
 
-              if (settings.vapi_account !== undefined && settings.vapi_account !== null && settings.vapi_account !== '') {
-                sanitizedSettings.vapi_account = parseInt(settings.vapi_account);
-              }
-              if (settings.agent_number !== undefined && settings.agent_number !== null && settings.agent_number !== '') {
-                sanitizedSettings.agent_number = parseInt(settings.agent_number);
-              }
-              if (settings.duration_limit !== undefined && settings.duration_limit !== null && settings.duration_limit !== '') {
-                sanitizedSettings.duration_limit = parseInt(settings.duration_limit);
-              }
-              if (settings.list_limit !== undefined && settings.list_limit !== null && settings.list_limit !== '') {
-                sanitizedSettings.list_limit = parseInt(settings.list_limit);
-              }
-              if (settings.concurrency_limit !== undefined && settings.concurrency_limit !== null && settings.concurrency_limit !== '') {
-                sanitizedSettings.concurrency_limit = parseInt(settings.concurrency_limit);
-              }
+            // Validate and sanitize settings
+            const sanitizedSettings = {};
 
-              // Beeba product settings
-              if (settings.brands !== undefined && settings.brands !== null && settings.brands !== '') {
-                sanitizedSettings.brands = parseInt(settings.brands);
-              }
-              if (settings.posts !== undefined && settings.posts !== null && settings.posts !== '') {
-                sanitizedSettings.posts = parseInt(settings.posts);
-              }
-              if (settings.analysis !== undefined && settings.analysis !== null && settings.analysis !== '') {
-                sanitizedSettings.analysis = parseInt(settings.analysis);
-              }
-              if (settings.images !== undefined && settings.images !== null && settings.images !== '') {
-                sanitizedSettings.images = parseInt(settings.images);
-              }
-              if (settings.video !== undefined && settings.video !== null && settings.video !== '') {
-                sanitizedSettings.video = parseInt(settings.video);
-              }
-              if (settings.carasoul !== undefined && settings.carasoul !== null && settings.carasoul !== '') {
-                sanitizedSettings.carasoul = parseInt(settings.carasoul);
-              }
+            // Genie/Common settings
+            if (mergedSettings.vapi_account !== undefined && mergedSettings.vapi_account !== null && mergedSettings.vapi_account !== '') {
+              sanitizedSettings.vapi_account = parseInt(mergedSettings.vapi_account);
+            }
+            if (mergedSettings.agent_number !== undefined && mergedSettings.agent_number !== null && mergedSettings.agent_number !== '') {
+              sanitizedSettings.agent_number = parseInt(mergedSettings.agent_number);
+            }
+            if (mergedSettings.duration_limit !== undefined && mergedSettings.duration_limit !== null && mergedSettings.duration_limit !== '') {
+              sanitizedSettings.duration_limit = parseInt(mergedSettings.duration_limit);
+            }
+            if (mergedSettings.list_limit !== undefined && mergedSettings.list_limit !== null && mergedSettings.list_limit !== '') {
+              sanitizedSettings.list_limit = parseInt(mergedSettings.list_limit);
+            }
+            if (mergedSettings.concurrency_limit !== undefined && mergedSettings.concurrency_limit !== null && mergedSettings.concurrency_limit !== '') {
+              sanitizedSettings.concurrency_limit = parseInt(mergedSettings.concurrency_limit);
+            }
 
-              // Only add product_settings if there are valid settings
-              if (Object.keys(sanitizedSettings).length > 0) {
-                record.product_settings = sanitizedSettings;
-              }
+            // Beeba product settings
+            if (mergedSettings.brands !== undefined && mergedSettings.brands !== null && mergedSettings.brands !== '') {
+              sanitizedSettings.brands = parseInt(mergedSettings.brands);
+            }
+            if (mergedSettings.posts !== undefined && mergedSettings.posts !== null && mergedSettings.posts !== '') {
+              sanitizedSettings.posts = parseInt(mergedSettings.posts);
+            }
+            if (mergedSettings.analysis !== undefined && mergedSettings.analysis !== null && mergedSettings.analysis !== '') {
+              sanitizedSettings.analysis = parseInt(mergedSettings.analysis);
+            }
+            if (mergedSettings.images !== undefined && mergedSettings.images !== null && mergedSettings.images !== '') {
+              sanitizedSettings.images = parseInt(mergedSettings.images);
+            }
+            if (mergedSettings.video !== undefined && mergedSettings.video !== null && mergedSettings.video !== '') {
+              sanitizedSettings.video = parseInt(mergedSettings.video);
+            }
+            if (mergedSettings.carasoul !== undefined && mergedSettings.carasoul !== null && mergedSettings.carasoul !== '') {
+              sanitizedSettings.carasoul = parseInt(mergedSettings.carasoul);
+            }
+
+            // Always add product_settings (with defaults if no user settings provided)
+            if (Object.keys(sanitizedSettings).length > 0) {
+              record.product_settings = sanitizedSettings;
             }
 
             return record;
@@ -664,7 +746,7 @@ export const updateConsumer = async (req, res) => {
               console.log('✅ Product settings included in update');
             }
           }
-        } else if (Array.isArray(subscribed_products) && subscribed_products.length > 0 && verifiedProductIds.length === 0) {
+        } else if (Array.isArray(subscribed_products) && subscribed_products.length > 0 && verifiedProducts.length === 0) {
           // If products were provided but none were valid, warn the user
           console.warn('⚠️ No valid products found to update');
           return res.status(400).json({
@@ -802,6 +884,76 @@ export const updateConsumer = async (req, res) => {
           console.error('❌ Error sending trial period change email:', emailError);
           // Continue anyway - don't fail the update if email fails
         }
+      }
+    }
+
+    // ========================================
+    // 3.5. WEBHOOK CALL FOR VAPI ACCOUNT CHANGE
+    // ========================================
+    // Check if VAPI account changed in Genie product settings and call webhook
+    if (oldGenieProductSettings && productSettings && typeof productSettings === 'object') {
+      try {
+        const genieProductId = oldGenieProductSettings.productId;
+        const oldVapiAccountId = oldGenieProductSettings.vapiAccountId;
+        
+        // Get new VAPI account ID from productSettings
+        let newVapiAccountId = null;
+        const genieSettings = productSettings[genieProductId];
+        if (genieSettings && genieSettings.vapi_account) {
+          newVapiAccountId = String(genieSettings.vapi_account);
+        }
+
+        // Check if VAPI account changed
+        if (oldVapiAccountId !== newVapiAccountId) {
+          // Get consumer details for webhook
+          const { data: consumerData } = await executeWithTimeout(
+            supabase
+              .from('auth_role_with_profiles')
+              .select('email, full_name, phone, country, city, trial_expiry, nickname, role')
+              .eq('user_id', id)
+              .maybeSingle()
+          );
+
+          if (consumerData) {
+            const webhookData = {
+              email: consumerData.email || '',
+              id: id,
+              name: updatedConsumer?.full_name || consumerData.full_name || '',
+              phone: updatedConsumer?.phone || consumerData.phone || '',
+              country: updatedConsumer?.country || consumerData.country || '',
+              city: updatedConsumer?.city || consumerData.city || '',
+              old_vapi_id: oldVapiAccountId || null,
+              new_vapi_id: newVapiAccountId || null,
+              trial_expiry_date: updatedConsumer?.trial_expiry || consumerData.trial_expiry || null,
+              nickname: updatedConsumer?.nickname || consumerData.nickname || null,
+              roles: updatedConsumer?.role || consumerData.role || []
+            };
+
+            // Call webhook asynchronously (don't block the update)
+            fetch('https://auto.nsolbpo.com/webhook/b0d51ce9-720c-4255-8a8f-b7f18c8e2821', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(webhookData)
+            })
+            .then(async response => {
+              if (!response.ok) {
+                const errorText = await response.text().catch(() => 'Unknown error');
+                console.error('❌ Webhook call failed:', response.status, response.statusText, errorText);
+              } else {
+                console.log('✅ Webhook called successfully for VAPI account change');
+              }
+            })
+            .catch(error => {
+              console.error('❌ Error calling webhook:', error);
+              // Don't block the update if webhook fails
+            });
+          }
+        }
+      } catch (webhookError) {
+        console.error('❌ Error processing webhook for VAPI account change:', webhookError);
+        // Don't block the update if webhook processing fails
       }
     }
 

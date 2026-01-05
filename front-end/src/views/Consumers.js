@@ -50,6 +50,7 @@ const Consumers = () => {
   const [dropdownPosition, setDropdownPosition] = useState({}); // Store dropdown position for each user
   const actionButtonRefs = useRef({});
   const [searchInput, setSearchInput] = useState('');
+  const isUpdatingFromUrl = useRef(false);
   const [showCreateInvoiceModal, setShowCreateInvoiceModal] = useState(false);
   const [selectedConsumerForInvoice, setSelectedConsumerForInvoice] = useState(null);
   const [showExtendTrialModal, setShowExtendTrialModal] = useState(false);
@@ -90,25 +91,71 @@ const Consumers = () => {
   const [checkingPermissions, setCheckingPermissions] = useState(true); // Track permission checking state
   const usersPerPage = 20;
 
-  // Read status from URL parameters on mount and when location changes
+  // Read status and query from URL parameters on mount and when location changes
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const statusParam = params.get('status');
+    const queryParam = params.get('query');
+    
     if (statusParam && ['active', 'deactive', 'expired_subscription'].includes(statusParam)) {
       setAccountStatusFilter(statusParam);
     } else {
       setAccountStatusFilter('all');
     }
+    
+    // Initialize search input from URL parameter
+    // Use ref to prevent loops when updating from URL
+    isUpdatingFromUrl.current = true;
+    if (queryParam) {
+      setSearchInput(queryParam);
+      setSearchQuery(queryParam);
+    } else {
+      // If URL has no query, clear search (user navigated back or cleared)
+      setSearchInput('');
+      setSearchQuery('');
+    }
+    isUpdatingFromUrl.current = false;
   }, [location.search]);
 
-  // Debounce search input
+  // Debounce search input and update URL
   useEffect(() => {
+    // Skip if we're updating from URL to prevent loops
+    if (isUpdatingFromUrl.current) {
+      return;
+    }
+    
     const debounceTimer = setTimeout(() => {
       setSearchQuery(searchInput);
-    }, 1500); // 2 seconds delay
+      
+      // Update URL with query parameter
+      const params = new URLSearchParams(location.search);
+      const currentQuery = params.get('query');
+      const newQuery = searchInput && searchInput.trim() ? searchInput.trim() : '';
+      
+      // Only update URL if query actually changed
+      if (currentQuery !== newQuery) {
+        if (newQuery) {
+          params.set('query', newQuery);
+        } else {
+          params.delete('query');
+        }
+        
+        // Preserve status parameter if it exists
+        const statusParam = params.get('status');
+        if (!statusParam && accountStatusFilter !== 'all') {
+          params.set('status', accountStatusFilter);
+        }
+        
+        // Update URL without page reload
+        history.replace({
+          pathname: location.pathname,
+          search: params.toString()
+        });
+      }
+    }, 1500); // 1.5 seconds delay
 
     return () => clearTimeout(debounceTimer);
-  }, [searchInput]);
+  }, [searchInput, location.pathname, location.search, history, accountStatusFilter]);
 
   // Check consumers.view permission first (required to access the page)
   useEffect(() => {
@@ -899,13 +946,32 @@ const Consumers = () => {
 
   const handleFilterChange = (status) => {
     setAccountStatusFilter(status);
+    
+    // Update URL with status parameter
+    const params = new URLSearchParams(location.search);
+    if (status && status !== 'all') {
+      params.set('status', status);
+    } else {
+      params.delete('status');
+    }
+    
+    // Preserve query parameter if it exists
+    const queryParam = params.get('query');
+    if (!queryParam && searchQuery) {
+      params.set('query', searchQuery);
+    }
+    
+    history.replace({
+      pathname: location.pathname,
+      search: params.toString()
+    });
   };
 
   const handleClearFilters = () => {
     setAccountStatusFilter('all');
     setSearchQuery('');
     setSearchInput('');
-    // Navigate to consumers page without status parameter to deselect submenu
+    // Navigate to consumers page without any parameters
     history.push('/admin/consumers');
   };
 

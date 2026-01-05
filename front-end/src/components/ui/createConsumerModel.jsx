@@ -7,6 +7,7 @@ import { getAllPackages } from '../../api/backend/packages';
 import { getAllVapiAccounts } from '../../api/backend/vapi';
 import { useAuth } from '../../hooks/useAuth';
 import { hasRole } from '../../utils/roleUtils';
+import toast from 'react-hot-toast';
 
 const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
   const { profile } = useAuth();
@@ -345,6 +346,14 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
 
   // Handle product selection (for display/reference only)
   const handleProductToggle = (productId) => {
+    // Clear products error when user makes a selection
+    if (errors.products) {
+      setErrors(prev => ({
+        ...prev,
+        products: ''
+      }));
+    }
+    
     setSelectedProducts(prev => {
       const isSelected = prev.includes(productId);
       const newProducts = isSelected
@@ -510,6 +519,12 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
 
   const validateForm = () => {
     const newErrors = {};
+    if(!formData.roles || formData.roles.length === 0) {
+      newErrors.roles = 'At least one role is required';
+    }
+    if(!formData.subscribed_packages || formData.subscribed_packages.length === 0) {
+      newErrors.subscribed_packages = 'At least one package is required';
+    }
     
     // Full Name validation
     if (!formData.full_name.trim()) {
@@ -554,6 +569,11 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
     
     // Consumer-specific validations
     if (formData.roles?.includes('consumer')) {
+      // Products validation (required for consumer)
+      if (!selectedProducts || selectedProducts.length === 0) {
+        newErrors.products = 'At least one product is required';
+      }
+      
       // Trial Period validation (required for consumer)
       if (!formData.trial_expiry_date) {
         newErrors.trial_expiry_date = 'Trial period is required for consumers';
@@ -591,14 +611,15 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
     }
     
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    return { isValid: Object.keys(newErrors).length === 0, errors: newErrors };
   };
 
   const handleSubmit = async () => {
-    const isValid = validateForm();
-    if (!isValid) {
+    const validationResult = validateForm();
+    if (!validationResult.isValid) {
+      toast.error('Please fix the errors above');
       setSubmitMessage({ type: 'error', text: 'Please fix the errors above' });
-      console.log('Validation failed. Errors:', errors);
+      console.log('Validation failed. Errors:', validationResult.errors);
       return;
     }
 
@@ -1898,7 +1919,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
               marginBottom: '8px'
             }}>
               <Package size={16} style={{ color: '#6b7280' }} />
-              Products <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional - for reference)</span>
+              Products <span style={{ color: '#ef4444' }}>*</span>
             </label>
             <div style={{ position: 'relative' }}>
               <div
@@ -1907,7 +1928,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                   width: '100%',
                   minHeight: '42px',
                   padding: '8px 40px 8px 12px',
-                  border: '1px solid #d1d5db',
+                  border: errors.products ? '1px solid #ef4444' : '1px solid #d1d5db',
                   borderRadius: '8px',
                   fontSize: '14px',
                   outline: 'none',
@@ -1922,12 +1943,12 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                   opacity: isSubmitting ? 0.6 : 1
                 }}
                 onMouseEnter={(e) => {
-                  if (!isSubmitting) {
+                  if (!isSubmitting && !errors.products) {
                     e.currentTarget.style.borderColor = '#74317e';
                   }
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = '#d1d5db';
+                  e.currentTarget.style.borderColor = errors.products ? '#ef4444' : '#d1d5db';
                 }}
               >
                 {loadingProducts ? (
@@ -2053,7 +2074,17 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 </div>
               )}
             </div>
-            {selectedProducts.length > 0 && (
+            {errors.products && (
+              <p style={{
+                color: '#ef4444',
+                fontSize: '12px',
+                marginTop: '6px',
+                marginBottom: 0
+              }}>
+                {errors.products}
+              </p>
+            )}
+            {!errors.products && selectedProducts.length > 0 && (
               <p style={{
                 color: '#6b7280',
                 fontSize: '12px',
@@ -2068,6 +2099,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
               </p>
             )}
           </div>
+          
 
               {/* Packages Section (actual subscription) */}
               

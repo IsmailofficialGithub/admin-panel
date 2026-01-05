@@ -2086,7 +2086,11 @@ function ConsumerDetail() {
               }>
                 {(loadedGenieTabs.bots || genieActiveTab === 'bots') && (
                   <div style={{ display: genieActiveTab === 'bots' ? 'block' : 'none' }}>
-                    <BotsTab consumerId={id} />
+                    <BotsTab 
+                      consumerId={id} 
+                      productSettings={consumer.productSettings || {}} 
+                      onAccountAssigned={fetchConsumerData}
+                    />
                   </div>
                 )}
                 {(loadedGenieTabs.calls || genieActiveTab === 'calls') && (
