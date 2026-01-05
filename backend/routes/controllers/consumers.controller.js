@@ -745,6 +745,50 @@ export const updateConsumer = async (req, res) => {
             if (productSettings && Object.keys(productSettings).length > 0) {
               console.log('✅ Product settings included in update');
             }
+
+            // ========================================
+            // UPDATE GENIE_BOTS VAPI_ACCOUNT_ASSIGNED
+            // ========================================
+            // If Genie product is updated, sync vapi_account_assigned in genie_bots
+            // Note: This updates ALL genie_bots rows that have the same owner_user_id
+            try {
+              const genieProduct = verifiedProducts.find(p => p.name && p.name.toLowerCase().includes('genie'));
+              if (genieProduct && genieProduct.id) {
+                // Get the new VAPI account ID from the product access record that was just inserted
+                const genieRecord = productAccessRecords.find(record => record.product_id === genieProduct.id);
+                const newVapiAccountId = genieRecord?.product_settings?.vapi_account || null;
+
+                // Get old VAPI account ID
+                const oldVapiAccountId = oldGenieProductSettings?.vapiAccountId 
+                  ? parseInt(oldGenieProductSettings.vapiAccountId) 
+                  : null;
+
+                // Only update if VAPI account changed
+                if (oldVapiAccountId !== newVapiAccountId) {
+                  console.log(`🔄 VAPI account changed for Genie. Updating genie_bots.vapi_account_assigned from ${oldVapiAccountId} to ${newVapiAccountId} for all bots owned by user ${id}`);
+
+                  // Update ALL genie_bots rows for this user (there may be multiple bots per user)
+                  const { error: botsUpdateError } = await executeWithTimeout(
+                    supabase
+                      .from('genie_bots')
+                      .update({ vapi_account_assigned: newVapiAccountId })
+                      .eq('owner_user_id', id)
+                  );
+
+                  if (botsUpdateError) {
+                    console.error('❌ Error updating genie_bots.vapi_account_assigned:', botsUpdateError);
+                    // Don't fail the update if bots update fails - log and continue
+                  } else {
+                    console.log(`✅ Updated genie_bots.vapi_account_assigned to ${newVapiAccountId} for all bots owned by user ${id}`);
+                  }
+                } else {
+                  console.log(`ℹ️ VAPI account unchanged for Genie (${newVapiAccountId}), skipping genie_bots update`);
+                }
+              }
+            } catch (botsUpdateErr) {
+              console.error('❌ Error updating genie_bots.vapi_account_assigned:', botsUpdateErr);
+              // Don't fail the update if bots update fails - log and continue
+            }
           }
         } else if (Array.isArray(subscribed_products) && subscribed_products.length > 0 && verifiedProducts.length === 0) {
           // If products were provided but none were valid, warn the user
