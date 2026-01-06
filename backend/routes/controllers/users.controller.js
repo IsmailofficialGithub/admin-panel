@@ -561,11 +561,41 @@ export const createUser = async (req, res) => {
 
     if (createError) {
       console.error('❌ Error creating user:', createError);
-      // Don't expose internal error details
+      
+      // Check for specific error types and provide better error messages
+      let errorMessage = 'Failed to create user. Please check your input and try again.';
+      
+      // Check error code first (most reliable) - Supabase uses code field
+      if (createError.code === 'email_exists') {
+        errorMessage = `A user with the email "${email}" already exists. Please use a different email address.`;
+      } else if (createError.code === 'user_exists') {
+        errorMessage = `A user with the email "${email}" already exists. Please use a different email address.`;
+      } else if (createError.code === 'invalid_email') {
+        errorMessage = 'Please enter a valid email address.';
+      } else if (createError.code === 'weak_password' || createError.code === 'password_too_short') {
+        errorMessage = 'Password does not meet requirements. Password must be at least 8 characters long.';
+      } else if (createError.message) {
+        // Fallback to message-based detection
+        const errorMsgLower = createError.message.toLowerCase();
+        
+        // Check for duplicate email error in message
+        if (errorMsgLower.includes('already registered') || 
+            errorMsgLower.includes('already exists') || 
+            errorMsgLower.includes('duplicate') ||
+            errorMsgLower.includes('email') && errorMsgLower.includes('taken') ||
+            errorMsgLower.includes('email_exists')) {
+          errorMessage = `A user with the email "${email}" already exists. Please use a different email address.`;
+        } else if (errorMsgLower.includes('invalid email') || errorMsgLower.includes('email format')) {
+          errorMessage = 'Please enter a valid email address.';
+        } else if (errorMsgLower.includes('password')) {
+          errorMessage = 'Password does not meet requirements. Password must be at least 8 characters long.';
+        }
+      }
+      
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
-        message: 'Failed to create user. Please check your input and try again.'
+        message: errorMessage
       });
     }
 

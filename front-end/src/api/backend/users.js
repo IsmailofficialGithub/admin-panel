@@ -117,10 +117,17 @@ export const createUser = async (userData) => {
       };
     }
     
-    return { error: 'Failed to create user' };
+    // Return the error message from the backend if available
+    const errorMessage = response.message || response.error || 'Failed to create user';
+    return { error: errorMessage, success: false };
   } catch (error) {
     console.error('createUser Error:', error);
-    return { error: error.message };
+    // Handle axios errors - extract message from response if available
+    const errorMessage = error.response?.data?.message || 
+                        error.response?.data?.error || 
+                        error.message || 
+                        'Failed to create user. Please try again.';
+    return { error: errorMessage, success: false };
   }
 };
 

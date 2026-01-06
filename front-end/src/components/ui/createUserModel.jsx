@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Mail, Shield, Lock, Phone, CheckCircle, AlertCircle, RefreshCw, MapPin, Globe, ChevronDown, Search, Eye, EyeOff, Users, Package, Calendar } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { generatePassword } from '../../utils/passwordGenerator';
 import { countries, searchCountries } from '../../utils/countryData';
 import { getResellers, getProducts } from '../../api/backend';
@@ -374,6 +375,7 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
 
       if (result.success) {
         setSubmitMessage({ type: 'success', text: 'User created successfully!' });
+        toast.success('User created successfully!');
         // Reset form
         setTimeout(() => {
           setFormData({
@@ -401,10 +403,17 @@ const CreateUserModal = ({ isOpen, onClose, onCreate }) => {
           onClose();
         }, 1500);
       } else {
-        setSubmitMessage({ type: 'error', text: result.error || 'Failed to create user' });
+        // Show the specific error message from backend
+        const errorText = result.error || result.message || 'Failed to create user. Please try again.';
+        setSubmitMessage({ type: 'error', text: errorText });
+        toast.error(errorText); // Show toast error notification
+        console.error('Create user error:', result);
       }
     } catch (error) {
-      setSubmitMessage({ type: 'error', text: 'An unexpected error occurred' });
+      console.error('Create user exception:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'An unexpected error occurred. Please try again.';
+      setSubmitMessage({ type: 'error', text: errorMessage });
+      toast.error(errorMessage); // Show toast error notification
     } finally {
       setIsSubmitting(false);
     }
