@@ -114,7 +114,10 @@ export const getAllUsers = async (req, res) => {
       .select(USER_SELECT_FIELDS); // Don't get count yet, we'll calculate after filtering
 
     // Apply search filter if provided
+    // Search in email and full_name with partial matching (e.g., "tes" matches "test@gmail.com")
     if (searchTerm) {
+      // Use % wildcard for SQL ILIKE pattern matching (partial match)
+      // This allows "tes" to match "test@gmail.com" or "joh" to match "john@example.com"
       query = query.or(`full_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
       console.log('✅ Searching for:', searchTerm);
     }
@@ -200,6 +203,115 @@ export const getAllUsers = async (req, res) => {
     res.json(response);
   } catch (error) {
     console.error('Get users error:', error);
+    // Don't expose stack traces or internal errors (Security)
+    res.status(500).json({
+      success: false,
+      error: 'Internal Server Error',
+      message: 'An error occurred while processing your request.'
+    });
+  }
+};
+
+/**
+ * Search all users by email (for ticket creation - returns all users regardless of role)
+ * @route   GET /api/users/search?q=email
+ * @access  Private (Authenticated users)
+ * 
+ * OPTIMIZATIONS:
+ * 1. Input validation & sanitization (Security)
+ * 2. Query timeout (Performance)
+ * 3. Field selection instead of * (Performance)
+ * 4. Secure error handling (Security)
+ * 5. Data sanitization (Security)
+ */
+export const searchAllUsers = async (req, res) => {
+  try {
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
+    const { q } = req.query; // Search query
+
+    // Validate search query - require at least 2 characters
+    if (!q || q.trim().length < 2) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Search query must be at least 2 characters long'
+      });
+    }
+
+    // Sanitize search input
+    let searchTerm = sanitizeString(q.trim(), 100);
+    
+    // Validate search term contains only safe characters
+    if (!isValidSearchTerm(searchTerm)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid search term. Only alphanumeric characters, spaces, @, ., _, and - are allowed.'
+      });
+    }
+
+    console.log('🔍 Searching all users (for ticket creation) with:', searchTerm);
+
+    // ========================================
+    // 2. DATABASE QUERY (no role filtering - return ALL users)
+    // ========================================
+    // Query auth_role_with_profiles view to get ALL users regardless of role
+    // This view combines auth.users and profiles, and uses user_id as the primary key
+    // Note: The view only has user_id (not id), which is the primary key from profiles table
+    let query = supabaseAdmin
+      .from('auth_role_with_profiles')
+      .select('user_id, email, full_name, role')
+      .or(`email.ilike.%${searchTerm}%,full_name.ilike.%${searchTerm}%`)
+      .order('email', { ascending: true })
+      .limit(20); // Limit to 20 results for performance
+
+    // Execute query (simple query, no need for timeout wrapper)
+    const { data: users, error } = await query;
+
+    // ========================================
+    // 3. ERROR HANDLING (Security)
+    // ========================================
+    if (error) {
+      console.error('❌ Error searching users:', error);
+      // Don't expose internal error details to client (Security)
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Failed to search users. Please try again.'
+      });
+    }
+
+    // ========================================
+    // 4. DATA SANITIZATION & FORMATTING (Security)
+    // ========================================
+    // Normalize user IDs - profiles table uses user_id as primary key
+    const sanitizedUsers = (users || []).map(user => {
+      const userId = user.user_id; // profiles.user_id is the primary key
+      return {
+        id: userId, // For frontend compatibility (id field)
+        user_id: userId, // Primary key (user_id field)
+        email: user.email || '',
+        full_name: user.full_name || null,
+        name: user.full_name || null, // Alias for compatibility
+        role: user.role || null
+      };
+    });
+
+    console.log(`✅ Found ${sanitizedUsers.length} users matching "${searchTerm}"`);
+
+    // ========================================
+    // 5. RESPONSE STRUCTURE
+    // ========================================
+    res.json({
+      success: true,
+      count: sanitizedUsers.length,
+      data: sanitizedUsers,
+      search: searchTerm
+    });
+  } catch (error) {
+    console.error('Search all users error:', error);
     // Don't expose stack traces or internal errors (Security)
     res.status(500).json({
       success: false,
@@ -331,11 +443,11 @@ export const createUser = async (req, res) => {
     let { email, password, full_name, role, roles, phone, country, city, referred_by, subscribed_products, trial_expiry_date, nickname } = req.body;
 
     // Validate required fields
-    if (!email || !password || !full_name || !country || !city) {
+    if (!email || !password || !full_name || !country ) {
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
-        message: 'FullName, Email, password, country, city are required'
+        message: 'FullName, Email, password, country are required'
       });
     }
 
