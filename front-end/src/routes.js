@@ -14,6 +14,7 @@ import Invoices from "views/Invoices.js";
 import InvoicePaymentDetail from "views/InvoicePaymentDetail.js";
 import ActivityLogs from "views/ActivityLogs.js";
 import ActivityLogDetail from "views/ActivityLogDetail.js";
+import ApiLogs from "views/ApiLogs.js";
 import ResellerStatistics from "views/ResellerStatistics.js";
 import AdminSettings from "views/AdminSettings.js";
 import Offers from "views/Offers.js";
@@ -182,6 +183,14 @@ const dashboardRoutes = [
     icon: "nc-icon nc-chart-bar-32",
     component: ActivityLogs,
     layout: "/admin"
+  },
+  {
+    path: "/api-logs",
+    name: "API Logs",
+    icon: "nc-icon nc-chart-bar-32",
+    component: ApiLogs,
+    layout: "/admin",
+    systemAdminOnly: true // Only show for systemadmin
   },
   {
     path: "/customers",

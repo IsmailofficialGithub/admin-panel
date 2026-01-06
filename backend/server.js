@@ -29,7 +29,15 @@ import permissionsRoutes from './routes/permissions.routes.js';
 import callLogsRoutes from './routes/callLogs.routes.js';
 import genieRoutes from './routes/genie.routes.js';
 import vapiRoutes from './routes/vapi.routes.js';
+import logsRoutes from './routes/logs.routes.js';
 import { testRedisConnection } from './config/redis.js';
+import { apiLogger } from './middleware/apiLogger.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Load environment variables
 dotenv.config();
@@ -37,9 +45,20 @@ dotenv.config();
 // Initialize Redis connection
 testRedisConnection();
 
+// Ensure logs directory exists
+const logsDir = path.join(__dirname, 'logs');
+if (!fs.existsSync(logsDir)) {
+  fs.mkdirSync(logsDir, { recursive: true });
+  console.log('✅ Created logs directory');
+}
+
 // Initialize Express app
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Trust proxy - enables req.ip to work correctly with proxy headers (x-forwarded-for, etc.)
+// This is important for getting real client IPs in production behind reverse proxies
+app.set('trust proxy', true);
 
 // Rate limiting
 const limiter = rateLimit({
@@ -98,6 +117,7 @@ app.use(express.json()); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 app.use(morgan('dev')); // Logging
 app.use('/api/', limiter); // Apply rate limiting to all API routes
+app.use('/api/', apiLogger); // Apply API logging middleware to all API routes
 
 // Routes
 app.get('/', (req, res) => {
@@ -141,6 +161,7 @@ app.use('/api/permissions', permissionsRoutes);
 app.use('/api/call-logs', callLogsRoutes);
 app.use('/api/genie', genieRoutes);
 app.use('/api/vapi', vapiRoutes);
+app.use('/api/logs', logsRoutes);
 
 // Debug: Log all registered routes
 ;
@@ -165,7 +186,18 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
+  // Run initial cleanup of old logs on server start
+  try {
+    const { cleanupOldLogs } = await import('./services/apiLogger.js');
+    setImmediate(() => {
+      cleanupOldLogs();
+      console.log('🧹 Initial log cleanup completed (keeping last 30 days)');
+    });
+  } catch (error) {
+    console.warn('⚠️ Could not run initial log cleanup:', error.message);
+  }
+
   console.log(`
 ╔═══════════════════════════════════════════════════════╗
 ║                                                       ║

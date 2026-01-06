@@ -522,9 +522,9 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
     if(!formData.roles || formData.roles.length === 0) {
       newErrors.roles = 'At least one role is required';
     }
-    if(!formData.subscribed_packages || formData.subscribed_packages.length === 0) {
-      newErrors.subscribed_packages = 'At least one package is required';
-    }
+    // if(!formData.subscribed_packages || formData.subscribed_packages.length === 0) {
+    //   newErrors.subscribed_packages = 'At least one package is required';
+    // }
     
     // Full Name validation
     if (!formData.full_name.trim()) {

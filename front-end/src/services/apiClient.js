@@ -755,6 +755,14 @@ const apiClient = {
     getById: (id) => axiosInstance.get(`/activity-logs/${id}`),
   },
 
+  // ==================== API LOGS ====================
+  logs: {
+    /**
+     * Get all API logs with optional filters
+     */
+    getAll: (queryString = '') => axiosInstance.get(`/logs${queryString}`),
+  },
+
   // ==================== SETTINGS ====================
   settings: {
     /**
