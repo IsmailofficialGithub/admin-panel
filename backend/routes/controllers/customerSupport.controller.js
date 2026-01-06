@@ -208,8 +208,11 @@ export const createTicket = async (req, res) => {
     // ========================================
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
-    let { subject, message, category, priority, attachments } = req.body;
-    const userId = req.user.id;
+    let { subject, message, category, priority, attachments, user_id } = req.body;
+    const adminUserId = req.user.id; // Admin creating the ticket
+    
+    console.log('🎫 Creating ticket - Request body user_id:', user_id);
+    console.log('🎫 Admin user ID:', adminUserId);
 
     // User profile is loaded by loadUserProfile middleware
     const userProfile = req.userProfile;
@@ -235,6 +238,73 @@ export const createTicket = async (req, res) => {
     message = sanitizeString(message, 5000);
     category = category ? sanitizeString(category, 100) : null;
     priority = priority ? sanitizeString(priority, 20) : 'medium';
+    
+    // Validate and sanitize user_id (for whom ticket is being created - admin creating on behalf of)
+    let ticketUserId = adminUserId; // Default to admin creating the ticket
+    let ticketUserEmail = req.user.email;
+    let ticketUserName = userProfile.full_name || userProfile.email || req.user.email;
+    let ticketUserRole = userProfile.role || "user";
+    
+    if (user_id) {
+      // Validate UUID format
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const sanitizedUserId = String(user_id).trim();
+      
+      console.log(`🔍 Processing user_id: "${sanitizedUserId}" (original: "${user_id}")`);
+      
+      if (uuidRegex.test(sanitizedUserId)) {
+        // Fetch user profile for the selected user
+        // profiles table uses user_id as primary key
+        try {
+          console.log(`🔍 Querying profiles table for user_id: ${sanitizedUserId}`);
+          const profileQuery = supabaseAdmin
+            .from('auth_role_with_profiles')
+            .select('user_id, email, full_name, role')
+            .eq('user_id', sanitizedUserId)
+            .single();
+          
+          const { data: selectedUserProfile, error: profileError } = await executeWithTimeout(
+            profileQuery,
+            3000
+          );
+          
+          console.log(`🔍 Profile query result:`, {
+            hasData: !!selectedUserProfile,
+            hasError: !!profileError,
+            error: profileError,
+            profileUserId: selectedUserProfile?.user_id,
+            profileEmail: selectedUserProfile?.email
+          });
+          
+          if (!profileError && selectedUserProfile && selectedUserProfile.user_id) {
+            ticketUserId = selectedUserProfile.user_id; // Use user_id from profiles table
+            ticketUserEmail = selectedUserProfile.email || '';
+            ticketUserName = selectedUserProfile.full_name || selectedUserProfile.email || '';
+            ticketUserRole = selectedUserProfile.role || "user";
+            console.log(`✅ Found selected user: ${ticketUserName} (${ticketUserEmail}) - ID: ${ticketUserId}`);
+            console.log(`✅ Using selected user for ticket: ${ticketUserId} (was admin: ${adminUserId})`);
+          } else {
+            console.error('❌ User profile not found for user_id:', sanitizedUserId);
+            console.error('❌ Profile error details:', JSON.stringify(profileError, null, 2));
+            console.error('❌ Selected profile data:', selectedUserProfile);
+            console.error('❌ Falling back to admin user:', adminUserId);
+            // Fallback to admin user if selected user not found
+            // Don't change ticketUserId - it's already set to adminUserId
+          }
+        } catch (fetchError) {
+          console.error('❌ Exception fetching user profile:', fetchError);
+          console.error('❌ Stack trace:', fetchError.stack);
+          // Fallback to admin user if fetch fails
+        }
+      } else {
+        console.warn('❌ Invalid user_id UUID format:', sanitizedUserId);
+        console.warn('❌ UUID regex test failed');
+      }
+    } else {
+      console.log('ℹ️ No user_id provided, creating ticket for admin:', adminUserId);
+    }
+    
+    console.log(`🎫 Final ticketUserId: ${ticketUserId} (admin: ${adminUserId})`);
 
     // Validate priority
     const validPriorities = ['low', 'medium', 'high', 'urgent'];
@@ -265,10 +335,10 @@ export const createTicket = async (req, res) => {
       .insert({
         ticket_number: ticketNumber,
         subject: subject.trim(),
-        user_id: userId,
-        user_email: userProfile.email || req.user.email,
-        user_name: userProfile.full_name || userProfile.email || req.user.email,
-        user_role: userProfile.role || "user",
+        user_id: ticketUserId, // User for whom ticket is created (or admin if no user selected)
+        user_email: ticketUserEmail,
+        user_name: ticketUserName,
+        user_role: ticketUserRole,
         category: category || null,
         priority: priority || "medium",
         status: "open",
@@ -296,12 +366,11 @@ export const createTicket = async (req, res) => {
       .insert({
         ticket_id: ticket.id,
         message: message.trim(),
-        message_type: "user",
-        sender_id: userId,
-        sender_email: userProfile.email || req.user.email,
-        sender_name:
-          userProfile.full_name || userProfile.email || req.user.email,
-        sender_role: userProfile.role || "user",
+        message_type: ticketUserId !== adminUserId ? "admin" : "user", // Mark as admin message if created on behalf
+        sender_id: ticketUserId,
+        sender_email: ticketUserEmail,
+        sender_name: ticketUserName,
+        sender_role: ticketUserRole,
         is_read: false,
       })
       .select()

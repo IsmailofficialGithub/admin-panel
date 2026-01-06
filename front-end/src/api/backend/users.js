@@ -6,6 +6,30 @@
 import apiClient from '../../services/apiClient';
 
 /**
+ * Search all users by email/name (for ticket creation - returns all users regardless of role)
+ * @param {string} query - Search query (email or name)
+ * @returns {Promise<Array>} List of matching users
+ */
+export const searchAllUsers = async (query) => {
+  try {
+    if (!query || query.trim().length < 2) {
+      return [];
+    }
+    
+    const response = await apiClient.users.search(query.trim());
+    // Backend returns { success: true, count: X, data: [...] }
+    // Extract the users array from response.data
+    if (response && response.success && Array.isArray(response.data)) {
+      return response.data;
+    }
+    return [];
+  } catch (error) {
+    console.error('searchAllUsers Error:', error);
+    return [];
+  }
+};
+
+/**
  * Get all admin users with optional search
  * @param {Object} filters - Filter options
  * @param {string} filters.search - Search term for name/email

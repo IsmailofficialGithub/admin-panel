@@ -15,6 +15,7 @@ import {
   updateTicketStatus,
   getTicketStats
 } from '../api/backend';
+import { searchAllUsers } from '../api/backend/users';
 import { useAuth } from '../contexts/AuthContext';
 import { checkUserPermissionsBulk } from '../api/backend/permissions';
 import { usePermissions } from '../hooks/usePermissions';
@@ -66,9 +67,15 @@ const Customers = () => {
     message: '',
     category: '',
     priority: 'medium',
-    attachments: []
+    attachments: [],
+    user_id: '' // User for whom the ticket is being created (on behalf of)
   });
   const [creatingTicket, setCreatingTicket] = useState(false);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userSearchResults, setUserSearchResults] = useState([]);
+  const [searchingUsers, setSearchingUsers] = useState(false);
+  const [selectedUserForTicket, setSelectedUserForTicket] = useState(null);
+  const [showUserSearchResults, setShowUserSearchResults] = useState(false);
   
   // Status update state (admin only)
   const [updatingStatus, setUpdatingStatus] = useState(false);
@@ -89,6 +96,41 @@ const Customers = () => {
     }, 500);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  // Search users by email when typing
+  useEffect(() => {
+    if (!userSearchQuery.trim() || userSearchQuery.length < 2) {
+      setUserSearchResults([]);
+      setShowUserSearchResults(false);
+      return;
+    }
+
+    const searchUsers = async () => {
+      setSearchingUsers(true);
+      try {
+        const usersList = await searchAllUsers(userSearchQuery.trim());
+        if (Array.isArray(usersList)) {
+          setUserSearchResults(usersList);
+          setShowUserSearchResults(true);
+        } else {
+          setUserSearchResults([]);
+          setShowUserSearchResults(false);
+        }
+      } catch (error) {
+        console.error('Error searching users:', error);
+        setUserSearchResults([]);
+        setShowUserSearchResults(false);
+      } finally {
+        setSearchingUsers(false);
+      }
+    };
+
+    const debounceTimer = setTimeout(() => {
+      searchUsers();
+    }, 300); // Debounce search by 300ms
+
+    return () => clearTimeout(debounceTimer);
+  }, [userSearchQuery]);
 
   // Check customer_support.view permission first (required to access the page)
   useEffect(() => {
@@ -410,10 +452,18 @@ const Customers = () => {
       const attachments = await uploadFiles();
       
       const ticketData = {
-        ...createFormData,
-        attachments: attachments
+        subject: createFormData.subject.trim(),
+        message: createFormData.message.trim(),
+        category: createFormData.category.trim() || null,
+        priority: createFormData.priority,
+        attachments: attachments,
+        user_id: (createFormData.user_id && createFormData.user_id.trim()) || null // User for whom ticket is being created (only send if not empty)
       };
 
+      console.log('📤 Sending ticket data:', { ...ticketData, attachments: '...' });
+      console.log('📤 Selected user_id from form:', createFormData.user_id);
+      console.log('📤 Sending user_id to backend:', ticketData.user_id);
+      
       const response = await createTicket(ticketData);
       toast.success('Support ticket created successfully');
       setShowCreateModal(false);
@@ -422,9 +472,13 @@ const Customers = () => {
         message: '',
         category: '',
         priority: 'medium',
-        attachments: []
+        attachments: [],
+        user_id: ''
       });
       setSelectedFiles([]);
+      setSelectedUserForTicket(null);
+      setUserSearchQuery('');
+      setShowUserSearchResults(false);
       await fetchTickets();
       if (isAdmin) await fetchStats();
     } catch (err) {
@@ -880,9 +934,13 @@ const Customers = () => {
                     message: '',
                     category: '',
                     priority: 'medium',
-                    attachments: []
+                    attachments: [],
+                    user_id: ''
                   });
                   setSelectedFiles([]);
+                  setSelectedUserForTicket(null);
+                  setUserSearchQuery('');
+                  setShowUserSearchResults(false);
                 }}
                 style={{
                   background: 'none',
@@ -978,6 +1036,166 @@ const Customers = () => {
               </div>
             </div>
 
+            <div style={{ marginBottom: '16px', position: 'relative' }} data-user-search-container>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#495057' }}>
+                Create Ticket For (User) - Search by Email
+              </label>
+              {selectedUserForTicket ? (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '12px',
+                  border: '1px solid #74317e',
+                  borderRadius: '8px',
+                  backgroundColor: '#f9f5fa'
+                }}>
+                  <div>
+                    <div style={{ fontWeight: '600', fontSize: '14px', color: '#495057' }}>
+                      {selectedUserForTicket.full_name || selectedUserForTicket.name || selectedUserForTicket.email}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#6c757d', marginTop: '2px' }}>
+                      {selectedUserForTicket.email}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setSelectedUserForTicket(null);
+                      setUserSearchQuery('');
+                      setCreateFormData({ ...createFormData, user_id: '' });
+                      setShowUserSearchResults(false);
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '4px',
+                      color: '#dc3545',
+                      display: 'flex',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type="text"
+                      value={userSearchQuery}
+                      onChange={(e) => {
+                        setUserSearchQuery(e.target.value);
+                        setShowUserSearchResults(true);
+                      }}
+                      onFocus={() => {
+                        if (userSearchResults.length > 0) {
+                          setShowUserSearchResults(true);
+                        }
+                      }}
+                      placeholder="Search user by email (optional - defaults to yourself)"
+                      style={{
+                        width: '100%',
+                        padding: '12px',
+                        border: '1px solid #ddd',
+                        borderRadius: '8px',
+                        fontSize: '14px'
+                      }}
+                    />
+                    {searchingUsers && (
+                      <div style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        fontSize: '12px',
+                        color: '#6c757d'
+                      }}>
+                        Searching...
+                      </div>
+                    )}
+                  </div>
+                  {showUserSearchResults && userSearchResults.length > 0 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      backgroundColor: 'white',
+                      border: '1px solid #ddd',
+                      borderRadius: '8px',
+                      marginTop: '4px',
+                      maxHeight: '200px',
+                      overflowY: 'auto',
+                      zIndex: 1000,
+                      boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                    }}>
+                      {userSearchResults.map((user) => {
+                        const userId = user.id || user.user_id;
+                        const userName = user.full_name || user.name || user.email;
+                        const userEmail = user.email || '';
+                        return (
+                          <div
+                            key={userId}
+                            onClick={() => {
+                              setSelectedUserForTicket(user);
+                              setCreateFormData({ ...createFormData, user_id: userId });
+                              setUserSearchQuery(userEmail);
+                              setShowUserSearchResults(false);
+                            }}
+                            style={{
+                              padding: '12px',
+                              cursor: 'pointer',
+                              borderBottom: '1px solid #f0f0f0',
+                              transition: 'background-color 0.2s'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = '#f8f9fa';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = 'white';
+                            }}
+                          >
+                            <div style={{ fontWeight: '500', fontSize: '14px', color: '#495057' }}>
+                              {userName}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#6c757d', marginTop: '2px' }}>
+                              {userEmail}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {showUserSearchResults && userSearchQuery.length >= 2 && !searchingUsers && userSearchResults.length === 0 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      backgroundColor: 'white',
+                      border: '1px solid #ddd',
+                      borderRadius: '8px',
+                      marginTop: '4px',
+                      padding: '12px',
+                      zIndex: 1000,
+                      boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                      fontSize: '14px',
+                      color: '#6c757d',
+                      textAlign: 'center'
+                    }}>
+                      No users found
+                    </div>
+                  )}
+                </>
+              )}
+              {selectedUserForTicket && (
+                <p style={{ marginTop: '8px', fontSize: '12px', color: '#6c757d', fontStyle: 'italic' }}>
+                  This ticket will be created on behalf of the selected user
+                </p>
+              )}
+            </div>
+
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#495057' }}>
                 Attachments
@@ -1028,9 +1246,13 @@ const Customers = () => {
                     message: '',
                     category: '',
                     priority: 'medium',
-                    attachments: []
+                    attachments: [],
+                    user_id: ''
                   });
                   setSelectedFiles([]);
+                  setSelectedUserForTicket(null);
+                  setUserSearchQuery('');
+                  setShowUserSearchResults(false);
                 }}
                 style={{
                   padding: '10px 20px',

@@ -9,11 +9,20 @@ import {
   resetUserPassword,
   createReseller,
   updateUserAccountStatus,
+  searchAllUsers,
   rateLimitMiddleware,
   sanitizeInputMiddleware
 } from './controllers/users.controller.js';
 
 const router = express.Router();
+
+/**
+ * @route   GET /api/users/search
+ * @desc    Search all users by email/name (for ticket creation - returns all users regardless of role)
+ * @access  Private (Authenticated users)
+ * NOTE: This must come before /:id route to avoid route conflict
+ */
+router.get('/search', authenticate, rateLimitMiddleware, sanitizeInputMiddleware, searchAllUsers);
 
 /**
  * @route   GET /api/users

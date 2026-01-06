@@ -305,6 +305,11 @@ const apiClient = {
     getAll: (queryString = '') => axiosInstance.get(`/users${queryString}`),
 
     /**
+     * Search all users by email/name (for ticket creation - returns all users)
+     */
+    search: (query) => axiosInstance.get(`/users/search?q=${encodeURIComponent(query)}`),
+
+    /**
      * Get user by ID
      */
     getById: (id) => axiosInstance.get(`/users/${id}`),
