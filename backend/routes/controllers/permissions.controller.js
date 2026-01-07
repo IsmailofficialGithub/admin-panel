@@ -1,6 +1,6 @@
 import { supabase, supabaseAdmin } from '../../config/database.js';
 import { cacheService } from '../../config/redis.js';
-import { logActivity } from '../../services/activityLogger.js';
+import { logActivity, getActorInfo, getClientIp, getUserAgent } from '../../services/activityLogger.js';
 import {
   sanitizeString,
   isValidUUID,
@@ -97,6 +97,13 @@ const clearPermissionCaches = async (options = {}) => {
     if (role && clearAllPermissions) {
       console.log(`⚠️ Role permissions changed for ${role}. Related caches cleared.`);
     }
+
+    // Also invalidate users, resellers, and consumers cache when permissions/roles change
+    // This ensures user lists reflect permission changes immediately
+    await cacheService.delByPattern('users:list:*');
+    await cacheService.delByPattern('resellers:*');
+    await cacheService.delByPattern('consumers:*');
+    console.log('✅ Also invalidated users, resellers, and consumers cache due to permission/role change');
   } catch (error) {
     console.error('❌ Error clearing permission caches:', error);
     // Don't throw - cache clearing failure shouldn't break the operation
@@ -882,17 +889,22 @@ export const assignPermissionsToRole = async (req, res) => {
     const newVersion = await incrementRoleCacheVersion(role);
 
     // Log activity (non-blocking)
+    // Note: targetId is null for role operations since role is a string, not a UUID
+    const { actorId, actorRole } = await getActorInfo(req);
     logActivity({
-      actor_id: req.user.id,
-      action: 'assign_permissions_to_role',
-      resource_type: 'role_permissions',
-      resource_id: role,
-      details: {
+      actorId,
+      actorRole,
+      targetId: null, // Role is not a UUID, so set to null
+      actionType: 'update',
+      tableName: 'role_permissions',
+      changedFields: {
         role,
         permissionIds: sanitizedIds,
         count: sanitizedIds.length,
         newCacheVersion: newVersion
-      }
+      },
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
     }).catch(err => console.error('Error logging activity:', err));
 
     res.json({
@@ -968,17 +980,22 @@ export const removePermissionsFromRole = async (req, res) => {
     const newVersion = await incrementRoleCacheVersion(role);
 
     // Log activity (non-blocking)
+    // Note: targetId is null for role operations since role is a string, not a UUID
+    const { actorId, actorRole } = await getActorInfo(req);
     logActivity({
-      actor_id: req.user.id,
-      action: 'remove_permissions_from_role',
-      resource_type: 'role_permissions',
-      resource_id: role,
-      details: {
+      actorId,
+      actorRole,
+      targetId: null, // Role is not a UUID, so set to null
+      actionType: 'update',
+      tableName: 'role_permissions',
+      changedFields: {
         role,
         permissionIds: sanitizedIds,
         count: sanitizedIds.length,
         newCacheVersion: newVersion
-      }
+      },
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
     }).catch(err => console.error('Error logging activity:', err));
 
     res.json({
@@ -1077,17 +1094,21 @@ export const assignPermissionsToUser = async (req, res) => {
     await clearPermissionCaches({ userId, clearAllPermissions: true });
 
     // Log activity (non-blocking)
+    const { actorId, actorRole } = await getActorInfo(req);
     logActivity({
-      actor_id: req.user.id,
-      action: 'assign_permissions_to_user',
-      resource_type: 'user_permissions',
-      resource_id: userId,
-      details: {
+      actorId,
+      actorRole,
+      targetId: userId,
+      actionType: 'update',
+      tableName: 'user_permissions',
+      changedFields: {
         userId,
         permissionIds: sanitizedIds,
         granted,
         count: sanitizedIds.length
-      }
+      },
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
     }).catch(err => console.error('Error logging activity:', err));
 
     res.json({
@@ -1160,16 +1181,20 @@ export const removePermissionsFromUser = async (req, res) => {
     await clearPermissionCaches({ userId, clearAllPermissions: true });
 
     // Log activity (non-blocking)
+    const { actorId, actorRole } = await getActorInfo(req);
     logActivity({
-      actor_id: req.user.id,
-      action: 'remove_permissions_from_user',
-      resource_type: 'user_permissions',
-      resource_id: userId,
-      details: {
+      actorId,
+      actorRole,
+      targetId: userId,
+      actionType: 'update',
+      tableName: 'user_permissions',
+      changedFields: {
         userId,
         permissionIds: sanitizedIds,
         count: sanitizedIds.length
-      }
+      },
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
     }).catch(err => console.error('Error logging activity:', err));
 
     res.json({
@@ -1226,16 +1251,20 @@ export const setSystemAdmin = async (req, res) => {
     await clearPermissionCaches({ userId, clearAllPermissions: true });
 
     // Log activity (non-blocking)
+    const { actorId, actorRole } = await getActorInfo(req);
     logActivity({
-      actor_id: req.user.id,
-      action: 'set_systemadmin',
-      resource_type: 'profiles',
-      resource_id: userId,
-      details: {
+      actorId,
+      actorRole,
+      targetId: userId,
+      actionType: 'update',
+      tableName: 'profiles',
+      changedFields: {
         userId,
         is_systemadmin,
         targetUser: data.email
-      }
+      },
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req)
     }).catch(err => console.error('Error logging activity:', err));
 
     res.json({

@@ -1,6 +1,7 @@
 import React from "react";
 import { useLocation, Route, Switch, Redirect } from "react-router-dom";
 import { useAuth } from "hooks/useAuth";
+import { usePermissions } from "hooks/usePermissions";
 import toast from "react-hot-toast";
 import { hasRole } from "utils/roleUtils";
 
@@ -19,6 +20,7 @@ function Support() {
   const location = useLocation();
   const mainPanel = React.useRef(null);
   const { profile, signOut } = useAuth();
+  const { hasPermission, isLoading: permissionsLoading } = usePermissions();
 
   // Check account status on mount and route changes
   React.useEffect(() => {
@@ -37,7 +39,42 @@ function Support() {
         return (
           <Route
             path={prop.layout + prop.path}
-            render={(props) => <prop.component {...props} />}
+            render={(props) => {
+              // Check if route requires permissions
+              if (prop.requiredPermissions && Array.isArray(prop.requiredPermissions) && prop.requiredPermissions.length > 0) {
+                // System admins have all permissions
+                const isSystemAdmin = profile && profile.is_systemadmin === true;
+                
+                // Wait for permissions to load
+                if (permissionsLoading && !isSystemAdmin) {
+                  return (
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      height: '100vh',
+                      fontSize: '18px'
+                    }}>
+                      Loading permissions...
+                    </div>
+                  );
+                }
+                
+                // Check if user has any of the required permissions
+                const hasRequiredPermission = isSystemAdmin || 
+                  prop.requiredPermissions.some(permission => hasPermission(permission));
+                
+                if (!hasRequiredPermission) {
+                  console.log(`❌ Support Layout: Access denied to ${prop.path}. Required permissions:`, prop.requiredPermissions);
+                  toast.error('Access denied. You do not have permission to view this page.');
+                  // Redirect to dashboard or first accessible route
+                  return <Redirect to="/support/dashboard" />;
+                }
+              }
+              
+              // All checks passed, render component
+              return <prop.component {...props} />;
+            }}
             key={key}
           />
         );

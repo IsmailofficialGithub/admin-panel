@@ -452,7 +452,7 @@ export const createReseller = async (req, res) => {
     const adminId = req.user && req.user.id ? req.user.id : null;
     
     // Validate roles - support both single role (backward compatibility) and roles array
-    const validRoles = ['reseller', 'consumer'];
+    const validRoles = ['reseller', 'consumer', 'support'];
     let userRoles = [];
     
     // If roles array is provided, use it; otherwise default to reseller
@@ -704,9 +704,11 @@ export const createReseller = async (req, res) => {
       userAgent: getUserAgent(req)
     });
 
-    // Invalidate cache for consumers list
+    // Invalidate cache for users, resellers, and consumers list
+    await cacheService.delByPattern('users:list:*');
+    await cacheService.delByPattern('resellers:*');
     await cacheService.delByPattern('consumers:*');
-    console.log('✅ Cache invalidated for consumers list after creation');
+    console.log('✅ Cache invalidated for users, resellers, and consumers list after reseller creation');
 
     res.status(201).json({
       success: true,
@@ -797,7 +799,7 @@ export const updateReseller = async (req, res) => {
         }
       }
       
-      const validRoles = ['consumer', 'reseller'];
+      const validRoles = ['consumer', 'reseller', 'support'];
       const userRoles = rolesArray.map(r => String(r).toLowerCase()).filter(r => validRoles.includes(r));
       
       if (userRoles.length === 0) {
@@ -892,7 +894,18 @@ export const updateReseller = async (req, res) => {
     // 5. CACHE INVALIDATION
     // ========================================
     await cacheService.del(CACHE_KEYS.RESELLER_BY_ID(id));
+    await cacheService.delByPattern('users:list:*');
     await cacheService.delByPattern('resellers:*');
+    await cacheService.delByPattern('consumers:*');
+    
+    // If roles were updated, also clear permission caches since permissions are role-based
+    if (updateData.role) {
+      await cacheService.delByPattern('permissions:*');
+      // Also clear user-specific permission cache
+      await cacheService.del(`permissions:user:${id}`);
+      console.log('✅ Also cleared permission caches due to role update');
+    }
+    
     console.log('✅ Cache invalidated for reseller update');
 
     // ========================================
@@ -1011,7 +1024,9 @@ export const deleteReseller = async (req, res) => {
     // 6. CACHE INVALIDATION
     // ========================================
     await cacheService.del(CACHE_KEYS.RESELLER_BY_ID(id));
+    await cacheService.delByPattern('users:list:*');
     await cacheService.delByPattern('resellers:*');
+    await cacheService.delByPattern('consumers:*');
     console.log('✅ Cache invalidated for reseller deletion');
 
     res.json({
@@ -1577,9 +1592,10 @@ export const createMyConsumer = async (req, res) => {
     // ========================================
     // 8. INVALIDATE CACHE
     // ========================================
-    // Invalidate cache for consumers list
+    // Invalidate cache for users and consumers list
+    await cacheService.delByPattern('users:list:*');
     await cacheService.delByPattern('consumers:*');
-    console.log('✅ Cache invalidated for consumers list after creation');
+    console.log('✅ Cache invalidated for users and consumers list after consumer creation');
 
     // ========================================
     // 9. DATA SANITIZATION
@@ -1787,7 +1803,14 @@ export const updateMyConsumer = async (req, res) => {
     });
 
     // ========================================
-    // 8. DATA SANITIZATION
+    // 8. CACHE INVALIDATION
+    // ========================================
+    await cacheService.delByPattern('users:list:*');
+    await cacheService.delByPattern('consumers:*');
+    console.log('✅ Cache invalidated for consumer update');
+
+    // ========================================
+    // 9. DATA SANITIZATION
     // ========================================
     const sanitizedConsumer = sanitizeObject(updatedConsumer);
 
@@ -1920,6 +1943,13 @@ export const deleteMyConsumer = async (req, res) => {
         console.warn('⚠️ Error deleting auth user:', deleteAuthError?.message);
       });
     }
+
+    // ========================================
+    // 7. CACHE INVALIDATION
+    // ========================================
+    await cacheService.delByPattern('users:list:*');
+    await cacheService.delByPattern('consumers:*');
+    console.log('✅ Cache invalidated for consumer deletion');
 
     res.json({
       success: true,
@@ -2388,7 +2418,15 @@ export const createConsumerAdmin = async (req, res) => {
     });
 
     // ========================================
-    // 9. DATA SANITIZATION
+    // 9. INVALIDATE CACHE
+    // ========================================
+    // Invalidate cache for users and consumers list
+    await cacheService.delByPattern('users:list:*');
+    await cacheService.delByPattern('consumers:*');
+    console.log('✅ Cache invalidated for users and consumers list after admin consumer creation');
+
+    // ========================================
+    // 10. DATA SANITIZATION
     // ========================================
     const sanitizedUser = sanitizeObject({
       id: newUser.user.id,
@@ -2505,7 +2543,9 @@ export const updateResellerAccountStatus = async (req, res) => {
     // 4. CACHE INVALIDATION
     // ========================================
     await cacheService.del(CACHE_KEYS.RESELLER_BY_ID(id));
+    await cacheService.delByPattern('users:list:*');
     await cacheService.delByPattern('resellers:*');
+    await cacheService.delByPattern('consumers:*');
     console.log('✅ Cache invalidated for reseller account status update');
 
     // ========================================

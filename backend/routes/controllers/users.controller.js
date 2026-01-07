@@ -945,9 +945,21 @@ export const updateUser = async (req, res) => {
       userAgent: getUserAgent(req)
     });
 
-    // Invalidate cache
+    // Invalidate cache - clear all users, resellers, and consumers cache
     await cacheService.del(CACHE_KEYS.USER_BY_ID(id));
     await cacheService.delByPattern('users:list:*');
+    await cacheService.delByPattern('resellers:*');
+    await cacheService.delByPattern('consumers:*');
+    
+    // If roles were updated, also clear permission caches since permissions are role-based
+    if (updateData.role) {
+      const { clearPermissionCaches } = await import('../controllers/permissions.controller.js');
+      // Import the function dynamically to avoid circular dependency
+      // Note: clearPermissionCaches is not exported, so we'll manually clear permission caches
+      await cacheService.delByPattern('permissions:*');
+      console.log('✅ Also cleared permission caches due to role update');
+    }
+    
     console.log('✅ Cache invalidated for user update');
 
     // ========================================
@@ -1052,9 +1064,11 @@ export const deleteUser = async (req, res) => {
       });
     }
 
-    // Invalidate cache
+    // Invalidate cache - clear all users, resellers, and consumers cache
     await cacheService.del(CACHE_KEYS.USER_BY_ID(id));
     await cacheService.delByPattern('users:list:*');
+    await cacheService.delByPattern('resellers:*');
+    await cacheService.delByPattern('consumers:*');
     console.log('✅ Cache invalidated for user deletion');
 
     res.json({
@@ -1380,8 +1394,10 @@ export const createReseller = async (req, res) => {
       userAgent: getUserAgent(req)
     });
 
-    // Invalidate cache - clear all users list cache
+    // Invalidate cache - clear all users, resellers, and consumers list cache
     await cacheService.delByPattern('users:list:*');
+    await cacheService.delByPattern('resellers:*');
+    await cacheService.delByPattern('consumers:*');
     console.log('✅ Cache invalidated for reseller creation');
 
     res.status(201).json({
@@ -1525,9 +1541,11 @@ export const updateUserAccountStatus = async (req, res) => {
     // ========================================
     const sanitizedUser = sanitizeObject(updatedUser);
 
-    // Invalidate cache
+    // Invalidate cache - clear all users, resellers, and consumers cache
     await cacheService.del(CACHE_KEYS.USER_BY_ID(id));
     await cacheService.delByPattern('users:list:*');
+    await cacheService.delByPattern('resellers:*');
+    await cacheService.delByPattern('consumers:*');
     console.log('✅ Cache invalidated for account status update');
 
     res.json({

@@ -43,13 +43,15 @@ const supportRoutes = [
     path: "/users/:id",
     component: UserDetail,
     layout: "/support",
-    invisible: true // Hidden from sidebar
+    invisible: true, // Hidden from sidebar
+    requiredPermissions: ["users.view", "users.read"] // Required permission to access user details
   },
   {
     path: "/consumers/:id",
     component: ConsumerDetail,
     layout: "/support",
-    invisible: true // Hidden from sidebar
+    invisible: true, // Hidden from sidebar
+    requiredPermissions: ["consumers.view"] // Required permission to access consumer details
   },
   {
     path: "/account",

@@ -16,8 +16,12 @@ import CreateUserModal from '../components/ui/createUserModel';
 import ForgetPasswordConfirmPopup from '../components/ui/forgetPasswordComformPopup';
 import DeleteModal from '../components/ui/deleteModel';
 import { hasRole, getRolesString } from '../utils/roleUtils';
+import { useAuth } from '../hooks/useAuth';
+import { usePermissions } from '../hooks/usePermissions';
 
 const User = () => {
+  const { profile } = useAuth();
+  const { hasPermission } = usePermissions();
   const history = useHistory();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -779,33 +783,38 @@ const User = () => {
                           zIndex: 1000,
                           minWidth: '180px'
                         }}>
-                          <button
-                            onClick={() => handleAction('View Details', userId, user.nickname || user.name || user.full_name)}
-                            style={{
-                              width: '100%',
-                              padding: '10px 16px',
-                              border: 'none',
-                              backgroundColor: 'transparent',
-                              textAlign: 'left',
-                              cursor: 'pointer',
-                              fontSize: '14px',
-                              color: '#74317e',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                              transition: 'background-color 0.2s'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                          >
-                            <Eye size={16} />
-                            View Details
-                          </button>
-                          <div style={{ 
-                            height: '1px', 
-                            backgroundColor: '#e0e0e0', 
-                            margin: '4px 0' 
-                          }} />
+                          {/* View Details - only show if user has users.read permission (not users.view) */}
+                          {(profile?.is_systemadmin || hasPermission('users.read')) && (
+                            <>
+                              <button
+                                onClick={() => handleAction('View Details', userId, user.nickname || user.name || user.full_name)}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px 16px',
+                                  border: 'none',
+                                  backgroundColor: 'transparent',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  color: '#74317e',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  transition: 'background-color 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                              >
+                                <Eye size={16} />
+                                View Details
+                              </button>
+                              <div style={{ 
+                                height: '1px', 
+                                backgroundColor: '#e0e0e0', 
+                                margin: '4px 0' 
+                              }} />
+                            </>
+                          )}
                           <button
                             onClick={() => handleAction('Update', userId, user.nickname || user.name || user.full_name)}
                             style={{

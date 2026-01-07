@@ -463,7 +463,7 @@ const Customers = () => {
       console.log('📤 Sending ticket data:', { ...ticketData, attachments: '...' });
       console.log('📤 Selected user_id from form:', createFormData.user_id);
       console.log('📤 Sending user_id to backend:', ticketData.user_id);
-      
+
       const response = await createTicket(ticketData);
       toast.success('Support ticket created successfully');
       setShowCreateModal(false);

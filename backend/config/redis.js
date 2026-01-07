@@ -9,7 +9,7 @@ const redisConfig = {
   port: process.env.REDIS_PORT || 6379,
   password: process.env.REDIS_PASSWORD || undefined,
   retryStrategy: (times) => {
-    const delay = Math.min(times * 50, 2000);
+    const delay = Math.min(times * 50, 2000); 
     return delay;
   },
   maxRetriesPerRequest: 3,
