@@ -498,6 +498,69 @@ export const sendTicketCreatedEmail = async ({
 };
 
 /**
+ * Send ticket created notification email to superadmins
+ * @param {Object} params
+ * @param {string} params.email - Superadmin email
+ * @param {string} params.ticket_number - Ticket number
+ * @param {string} params.subject - Ticket subject
+ * @param {string} params.message - Initial ticket message
+ * @param {string} params.user_name - Ticket creator's name
+ * @param {string} params.user_email - Ticket creator's email
+ * @param {string} params.priority - Ticket priority
+ * @param {string} params.category - Ticket category
+ * @param {string} params.ticket_id - Ticket ID (optional, for link generation)
+ * @param {Array} params.attachments - Array of attachment objects
+ */
+export const sendTicketCreatedAdminNotification = async ({
+  email,
+  ticket_number,
+  subject,
+  message,
+  user_name,
+  user_email,
+  priority = 'medium',
+  category = 'general',
+  ticket_id = '',
+  attachments = [],
+}) => {
+  try {
+    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+
+    const htmlContent = TicketCreatedAdminNotificationTemplate({
+      ticket_number,
+      subject,
+      message,
+      user_name,
+      user_email,
+      priority,
+      category,
+      ticket_id,
+      website_url,
+      attachments,
+    });
+
+    const msg = {
+      to: email,
+      from: {
+        email: Support_Sender_Email,
+        name: "DuhaNashrahAi"
+      },
+      subject: `New Ticket Created: ${ticket_number} - Action Required`,
+      html: htmlContent,
+    };
+
+    console.log("📧 Sending ticket created admin notification to:", email);
+    await sgMail.send(msg);
+    console.log("✅ Ticket created admin notification sent successfully");
+
+    return { success: true };
+  } catch (error) {
+    console.error("❌ Error sending ticket created admin notification:", error.response?.body || error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
  * Send ticket status changed email
  * @param {Object} params
  * @param {string} params.email - Recipient email
