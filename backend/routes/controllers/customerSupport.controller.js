@@ -1,7 +1,7 @@
 import { supabase, supabaseAdmin } from "../../config/database.js";
 import multer from "multer";
 import { cacheService } from '../../config/redis.js';
-import { sendTicketStatusChangedEmail, sendTicketReplyEmail } from '../../services/emailService.js';
+import { sendTicketStatusChangedEmail, sendTicketReplyEmail, sendTicketCreatedEmail } from '../../services/emailService.js';
 import {
   isValidUUID,
   validatePagination,
@@ -190,6 +190,32 @@ const generateTicketNumber = async () => {
     return `TICKET-${date}-${random}`;
   }
   return data;
+};
+
+/**
+ * Get all superadmin users
+ * @returns {Promise<Array>} Array of superadmin user objects with email and full_name
+ */
+const getAllSuperadmins = async () => {
+  try {
+    const { data, error } = await executeWithTimeout(
+      supabaseAdmin
+        .from('auth_role_with_profiles')
+        .select('email, full_name')
+        .eq('is_systemadmin', true),
+      5000
+    );
+
+    if (error) {
+      console.error('❌ Error fetching superadmins:', error);
+      return [];
+    }
+
+    return data || [];
+  } catch (error) {
+    console.error('❌ Exception fetching superadmins:', error);
+    return [];
+  }
 };
 
 /**
@@ -399,6 +425,7 @@ export const createTicket = async (req, res) => {
     // ========================================
     // 5. HANDLE ATTACHMENTS (with timeout, non-blocking)
     // ========================================
+    let ticketAttachments = [];
     if (attachments && Array.isArray(attachments) && attachments.length > 0) {
       const attachmentPromises = attachments
         .filter(att => att.file_name && att.file_path)
@@ -413,14 +440,24 @@ export const createTicket = async (req, res) => {
             file_size: attachment.file_size || 0,
             file_type: attachment.file_type || "application/octet-stream",
             file_extension: fileExtension,
-            uploaded_by: userId,
+            uploaded_by: adminUserId,
             is_public: false,
-          });
+          }).select('file_name, file_url, file_path, file_size');
         });
       
-      Promise.all(attachmentPromises).catch(attachmentError => {
+      try {
+        const attachmentResults = await Promise.all(attachmentPromises);
+        ticketAttachments = attachmentResults
+          .map(result => result.data?.[0])
+          .filter(att => att !== undefined)
+          .map(att => ({
+            file_name: att.file_name,
+            file_url: att.file_url || att.file_path,
+            file_size: att.file_size
+          }));
+      } catch (attachmentError) {
         console.warn('⚠️ Failed to store attachments:', attachmentError?.message);
-      });
+      }
     }
 
     // ========================================
@@ -430,7 +467,45 @@ export const createTicket = async (req, res) => {
     console.log('✅ Cache invalidated for ticket creation');
 
     // ========================================
-    // 7. DATA SANITIZATION
+    // 7. SEND EMAIL NOTIFICATIONS TO SUPERADMINS
+    // ========================================
+    // Send email to all superadmins when a new ticket is created (non-blocking)
+    getAllSuperadmins()
+      .then(async (superadmins) => {
+        if (superadmins && superadmins.length > 0) {
+          console.log(`📧 Sending ticket creation notifications to ${superadmins.length} superadmin(s)`);
+          
+          // Send emails to all superadmins in parallel
+          const emailPromises = superadmins.map(async (superadmin) => {
+            try {
+              await sendTicketCreatedEmail({
+                email: superadmin.email,
+                full_name: superadmin.full_name || superadmin.email.split('@')[0],
+                ticket_number: ticketNumber,
+                subject: subject.trim(),
+                message: message.trim(),
+                ticket_id: ticket.id,
+                attachments: ticketAttachments,
+              });
+              console.log(`✅ Ticket notification sent to superadmin: ${superadmin.email}`);
+            } catch (emailError) {
+              console.error(`❌ Failed to send ticket notification to ${superadmin.email}:`, emailError.message);
+            }
+          });
+
+          await Promise.allSettled(emailPromises);
+          console.log('✅ All superadmin notifications processed');
+        } else {
+          console.log('ℹ️ No superadmins found to notify');
+        }
+      })
+      .catch((error) => {
+        console.error('❌ Error sending superadmin notifications:', error);
+        // Don't fail the request if email sending fails
+      });
+
+    // ========================================
+    // 8. DATA SANITIZATION
     // ========================================
     const sanitizedTicket = sanitizeObject({
       ...ticket,

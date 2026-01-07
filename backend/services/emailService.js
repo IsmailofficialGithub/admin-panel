@@ -460,6 +460,7 @@ export const sendTicketCreatedEmail = async ({
   subject,
   message,
   ticket_id = '',
+  attachments = [],
 }) => {
   try {
     const website_url = process.env.CLIENT_URL || "http://localhost:3000";
@@ -471,6 +472,7 @@ export const sendTicketCreatedEmail = async ({
       message,
       ticket_id,
       website_url,
+      attachments,
     });
 
     const msg = {

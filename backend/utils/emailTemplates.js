@@ -694,6 +694,7 @@ export const TicketCreatedTemplate = ({
   message = 'Initial message',
   ticket_id = '',
   website_url = '#',
+  attachments = [],
 } = {}) => {
   const formatDate = (dateStr) => {
     try {
@@ -719,6 +720,38 @@ export const TicketCreatedTemplate = ({
   const messagePreview = message.length > 200 
     ? message.substring(0, 200) + '...'
     : message;
+
+  // Helper function to format file size
+  const formatFileSize = (bytes) => {
+    if (!bytes) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  // Format attachments list
+  let attachmentsHtml = '';
+  if (attachments && attachments.length > 0) {
+    attachmentsHtml = `
+      <tr>
+        <td style="padding: 12px 0 0 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+          <strong>Attachments:</strong>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 8px 0 0 0; color: #66698c; font-family: Verdana, Geneva, sans-serif;">
+          <ul style="margin: 0; padding-left: 20px; color: #66698c;">
+            ${attachments.map(att => `
+              <li style="margin: 4px 0;">
+                <a href="${att.file_url || att.file_path}" style="color: #8a3b9a; text-decoration: none;">${att.file_name}</a>
+                ${att.file_size ? ` <span style="color: #999; font-size: 12px;">(${formatFileSize(att.file_size)})</span>` : ''}
+              </li>
+            `).join('')}
+          </ul>
+        </td>
+      </tr>
+    `;
+  }
 
   const content = `
     <p style="margin: 0 0 12px 0; color: #232347;">
@@ -764,6 +797,7 @@ export const TicketCreatedTemplate = ({
                 ${messagePreview}
               </td>
             </tr>
+            ${attachmentsHtml}
             <tr>
               <td style="padding: 12px 0 0 0; font-size: 13px; color: #66698c; font-family: Verdana, Geneva, sans-serif;">
                 Our support team will review your ticket and respond as soon as possible. You can view and reply to your ticket using the button below.
