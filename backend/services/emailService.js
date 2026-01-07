@@ -9,6 +9,7 @@ import {
   InvoiceCreatedTemplate,
   InviteEmailTemplate,
   TicketCreatedTemplate,
+  TicketCreatedAdminNotificationTemplate,
   TicketStatusChangedTemplate,
   TicketReplyTemplate,
 } from "../utils/emailTemplates.js";
@@ -652,6 +653,7 @@ export default {
   sendInviteEmail,
   sendInvoiceCreatedEmail,
   sendTicketCreatedEmail,
+  sendTicketCreatedAdminNotification,
   sendTicketStatusChangedEmail,
   sendTicketReplyEmail,
   sendCustomEmail,

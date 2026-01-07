@@ -1,7 +1,7 @@
 import { supabase, supabaseAdmin } from "../../config/database.js";
 import multer from "multer";
 import { cacheService } from '../../config/redis.js';
-import { sendTicketStatusChangedEmail, sendTicketReplyEmail, sendTicketCreatedEmail } from '../../services/emailService.js';
+import { sendTicketStatusChangedEmail, sendTicketReplyEmail, sendTicketCreatedEmail, sendTicketCreatedAdminNotification } from '../../services/emailService.js';
 import {
   isValidUUID,
   validatePagination,
@@ -467,7 +467,25 @@ export const createTicket = async (req, res) => {
     console.log('✅ Cache invalidated for ticket creation');
 
     // ========================================
-    // 7. SEND EMAIL NOTIFICATIONS TO SUPERADMINS
+    // 7. SEND EMAIL TO TICKET CREATOR
+    // ========================================
+    // Send email to the person who created the ticket (non-blocking)
+    if (ticketUserEmail && ticket) {
+      sendTicketCreatedEmail({
+        email: ticketUserEmail,
+        full_name: ticketUserName,
+        ticket_number: ticketNumber,
+        subject: subject.trim(),
+        message: message.trim(),
+        ticket_id: ticket.id,
+        attachments: ticketAttachments,
+      }).catch(emailError => {
+        console.warn('⚠️ Failed to send ticket created email to user:', emailError?.message);
+      });
+    }
+
+    // ========================================
+    // 8. SEND EMAIL NOTIFICATIONS TO SUPERADMINS
     // ========================================
     // Send email to all superadmins when a new ticket is created (non-blocking)
     getAllSuperadmins()
@@ -478,12 +496,15 @@ export const createTicket = async (req, res) => {
           // Send emails to all superadmins in parallel
           const emailPromises = superadmins.map(async (superadmin) => {
             try {
-              await sendTicketCreatedEmail({
+              await sendTicketCreatedAdminNotification({
                 email: superadmin.email,
-                full_name: superadmin.full_name || superadmin.email.split('@')[0],
                 ticket_number: ticketNumber,
                 subject: subject.trim(),
                 message: message.trim(),
+                user_name: ticketUserName,
+                user_email: ticketUserEmail,
+                priority: priority || 'medium',
+                category: category || 'general',
                 ticket_id: ticket.id,
                 attachments: ticketAttachments,
               });
@@ -505,7 +526,7 @@ export const createTicket = async (req, res) => {
       });
 
     // ========================================
-    // 8. DATA SANITIZATION
+    // 9. DATA SANITIZATION
     // ========================================
     const sanitizedTicket = sanitizeObject({
       ...ticket,

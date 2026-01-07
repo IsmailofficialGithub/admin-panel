@@ -11,7 +11,7 @@ import {
   handleApiError,
 } from '../../utils/apiOptimization.js';
 import { cacheService } from '../../config/redis.js';
-import { sendTicketCreatedEmail } from '../../services/emailService.js';
+import { sendTicketCreatedEmail, sendTicketCreatedAdminNotification } from '../../services/emailService.js';
 
 /**
  * Generate unique ticket number
@@ -677,57 +677,63 @@ export const createPublicTicket = async (req, res) => {
     await cacheService.delByPattern('tickets:*').catch(() => {});
 
     // ========================================
-    // 10. SEND EMAIL NOTIFICATIONS (async, non-blocking)
+    // 10. SEND EMAIL NOTIFICATIONS (async, non-blocking with 30s delay)
     // ========================================
-    // Send email to ticket creator
-    if (email && ticket) {
-      sendTicketCreatedEmail({
-        email: email,
-        full_name: name || email.split('@')[0],
-        ticket_number: ticket.ticket_number,
-        subject: subject.trim(),
-        message: message.trim(),
-        ticket_id: ticket.id,
-        attachments: ticketAttachments,
-      }).catch(emailError => {
-        console.warn('⚠️ Failed to send ticket created email to user:', emailError?.message);
-      });
-    }
+    // Wait 30 seconds before sending emails (for public API)
+    setTimeout(() => {
+      // Send email to ticket creator
+      if (email && ticket) {
+        sendTicketCreatedEmail({
+          email: email,
+          full_name: name || email.split('@')[0],
+          ticket_number: ticket.ticket_number,
+          subject: subject.trim(),
+          message: message.trim(),
+          ticket_id: ticket.id,
+          attachments: ticketAttachments,
+        }).catch(emailError => {
+          console.warn('⚠️ Failed to send ticket created email to user:', emailError?.message);
+        });
+      }
 
-    // Send email notifications to all superadmins
-    getAllSuperadmins()
-      .then(async (superadmins) => {
-        if (superadmins && superadmins.length > 0 && ticket) {
-          console.log(`📧 Sending ticket creation notifications to ${superadmins.length} superadmin(s)`);
-          
-          // Send emails to all superadmins in parallel
-          const emailPromises = superadmins.map(async (superadmin) => {
-            try {
-              await sendTicketCreatedEmail({
-                email: superadmin.email,
-                full_name: superadmin.full_name || superadmin.email.split('@')[0],
-                ticket_number: ticket.ticket_number,
-                subject: subject.trim(),
-                message: message.trim(),
-                ticket_id: ticket.id,
-                attachments: ticketAttachments,
-              });
-              console.log(`✅ Ticket notification sent to superadmin: ${superadmin.email}`);
-            } catch (emailError) {
-              console.error(`❌ Failed to send ticket notification to ${superadmin.email}:`, emailError.message);
-            }
-          });
+      // Send email notifications to all superadmins
+      getAllSuperadmins()
+        .then(async (superadmins) => {
+          if (superadmins && superadmins.length > 0 && ticket) {
+            console.log(`📧 Sending ticket creation notifications to ${superadmins.length} superadmin(s)`);
+            
+            // Send emails to all superadmins in parallel
+            const emailPromises = superadmins.map(async (superadmin) => {
+              try {
+                await sendTicketCreatedAdminNotification({
+                  email: superadmin.email,
+                  ticket_number: ticket.ticket_number,
+                  subject: subject.trim(),
+                  message: message.trim(),
+                  user_name: name,
+                  user_email: email,
+                  priority: priority || 'medium',
+                  category: category || 'general',
+                  ticket_id: ticket.id,
+                  attachments: ticketAttachments,
+                });
+                console.log(`✅ Ticket notification sent to superadmin: ${superadmin.email}`);
+              } catch (emailError) {
+                console.error(`❌ Failed to send ticket notification to ${superadmin.email}:`, emailError.message);
+              }
+            });
 
-          await Promise.allSettled(emailPromises);
-          console.log('✅ All superadmin notifications processed');
-        } else {
-          console.log('ℹ️ No superadmins found to notify');
-        }
-      })
-      .catch((error) => {
-        console.error('❌ Error sending superadmin notifications:', error);
-        // Don't fail the request if email sending fails
-      });
+            await Promise.allSettled(emailPromises);
+            console.log('✅ All superadmin notifications processed');
+          } else {
+            console.log('ℹ️ No superadmins found to notify');
+          }
+        })
+        .catch((error) => {
+          console.error('❌ Error sending superadmin notifications:', error);
+          // Don't fail the request if email sending fails
+        });
+    }, 30000); // 30 second delay
 
     // ========================================
     // 11. RETURN SUCCESS RESPONSE
