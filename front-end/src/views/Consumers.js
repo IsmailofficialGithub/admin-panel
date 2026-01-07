@@ -1557,6 +1557,15 @@ const Consumers = () => {
                     textTransform: 'uppercase',
                     letterSpacing: '0.5px'
                   }}>CREATED AT</th>
+                  <th style={{ 
+                    padding: '15px 24px', 
+                    textAlign: 'left',
+                    color: '#555', 
+                    fontWeight: '600', 
+                    fontSize: '13px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>PRODUCT ACCESS</th>
                   {/* Only show ACTIONS header if user has at least one permission */}
                   {!checkingPermissions && (permissions.read || permissions.update || permissions.delete || permissions.invoiceCreate) && (
                     <th style={{ 
@@ -1677,6 +1686,35 @@ const Consumers = () => {
                         month: 'short', 
                         day: 'numeric' 
                       }) : '-'}
+                    </td>
+                    <td style={{ padding: '15px 24px' }}>
+                      {(() => {
+                        const productNames = user.productNames || [];
+                        if (productNames.length === 0) {
+                          return <span style={{ color: '#999', fontStyle: 'italic' }}>No access</span>;
+                        }
+                        return (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                            {productNames.map((name, idx) => (
+                              <span
+                                key={idx}
+                                style={{
+                                  backgroundColor: '#74317e',
+                                  color: 'white',
+                                  padding: '4px 10px',
+                                  borderRadius: '12px',
+                                  fontSize: '11px',
+                                  fontWeight: '500',
+                                  display: 'inline-block',
+                                  textTransform: 'capitalize'
+                                }}
+                              >
+                                {name}
+                              </span>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </td>
                       {/* Only show actions column if user has at least one permission */}
                       {!checkingPermissions && (permissions.read || permissions.update || permissions.delete || permissions.invoiceCreate) && (

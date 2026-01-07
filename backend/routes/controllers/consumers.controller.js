@@ -150,12 +150,32 @@ export const getAllConsumers = async (req, res) => {
             return {
               ...consumer,
               subscribed_products: [],
+              productNames: [],
               productSettings: {}
             };
           }
 
           // Extract product IDs into array
           const productIds = productAccess?.map(pa => pa.product_id) || [];
+
+          // Fetch product names from products table
+          let productNames = [];
+          if (productIds.length > 0) {
+            try {
+              const productsPromise = supabase
+                .from('products')
+                .select('id, name')
+                .in('id', productIds);
+
+              const { data: products, error: productsError } = await executeWithTimeout(productsPromise, 5000);
+
+              if (!productsError && products) {
+                productNames = products.map(p => p.name || '').filter(name => name);
+              }
+            } catch (productsErr) {
+              console.error(`Error fetching product names for consumer ${consumer.user_id}:`, productsErr);
+            }
+          }
 
           // Build productSettings object from product_settings
           const productSettings = {};
@@ -168,6 +188,7 @@ export const getAllConsumers = async (req, res) => {
           return {
             ...consumer,
             subscribed_products: productIds,
+            productNames: productNames,
             productSettings: productSettings
           };
         } catch (err) {
@@ -175,6 +196,7 @@ export const getAllConsumers = async (req, res) => {
           return {
             ...consumer,
             subscribed_products: [],
+            productNames: [],
             productSettings: {}
           };
         }
@@ -465,7 +487,7 @@ export const updateConsumer = async (req, res) => {
         }
       }
 
-      const validRoles = ['consumer', 'reseller'];
+      const validRoles = ['consumer', 'reseller', 'support'];
       const userRoles = rolesArray.map(r => String(r).toLowerCase()).filter(r => validRoles.includes(r));
 
       if (userRoles.length === 0) {
@@ -1005,7 +1027,17 @@ export const updateConsumer = async (req, res) => {
     // 4. CACHE INVALIDATION
     // ========================================
     await cacheService.del(CACHE_KEYS.CONSUMER_BY_ID(id));
-    await cacheService.delByPattern('consumers:list:*');
+    await cacheService.delByPattern('users:list:*');
+    await cacheService.delByPattern('consumers:*');
+    
+    // If roles were updated, also clear permission caches since permissions are role-based
+    if (updateData.role) {
+      await cacheService.delByPattern('permissions:*');
+      // Also clear user-specific permission cache
+      await cacheService.del(`permissions:user:${id}`);
+      console.log('✅ Also cleared permission caches due to role update');
+    }
+    
     console.log('✅ Cache invalidated for consumer update');
 
     // ========================================
@@ -1122,7 +1154,8 @@ export const deleteConsumer = async (req, res) => {
     // 4. CACHE INVALIDATION
     // ========================================
     await cacheService.del(CACHE_KEYS.CONSUMER_BY_ID(id));
-    await cacheService.delByPattern('consumers:list:*');
+    await cacheService.delByPattern('users:list:*');
+    await cacheService.delByPattern('consumers:*');
     console.log('✅ Cache invalidated for consumer deletion');
 
     res.json({
@@ -1405,7 +1438,8 @@ export const updateConsumerAccountStatus = async (req, res) => {
     // 5. CACHE INVALIDATION
     // ========================================
     await cacheService.del(CACHE_KEYS.CONSUMER_BY_ID(id));
-    await cacheService.delByPattern('consumers:list:*');
+    await cacheService.delByPattern('users:list:*');
+    await cacheService.delByPattern('consumers:*');
     console.log('✅ Cache invalidated for account status update');
 
     // ========================================
