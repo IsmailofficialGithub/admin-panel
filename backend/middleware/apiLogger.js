@@ -1,5 +1,13 @@
 import { writeApiLog } from '../services/apiLogger.js';
 
+// Import WebSocket namespace (will be set by server.js)
+let apiLogsNamespace = null;
+
+// Function to set the WebSocket namespace (called from server.js)
+export const setApiLogsNamespace = (namespace) => {
+  apiLogsNamespace = namespace;
+};
+
 /**
  * Public IP cache - stores the public IP and when it was fetched
  * Cache expires after 10 minutes
@@ -216,22 +224,110 @@ export const apiLogger = (req, res, next) => {
     request_body: req.body && Object.keys(req.body).length > 0 ? req.body : null
   };
 
+  // Capture response body by intercepting write/end/json
+  let responseBody = '';
+  const originalWrite = res.write;
+  const originalJson = res.json;
+
+  // Override json to capture response body
+  res.json = function(body) {
+    try {
+      responseBody = JSON.stringify(body);
+    } catch (e) {
+      responseBody = String(body);
+    }
+    return originalJson.call(this, body);
+  };
+
+  // Override write to capture response body chunks
+  res.write = function(chunk, encoding) {
+    if (chunk) {
+      responseBody += chunk.toString();
+    }
+    return originalWrite.call(this, chunk, encoding);
+  };
+
   // Override end function to capture response data
   res.end = function(chunk, encoding) {
+    // Capture final chunk if provided
+    if (chunk) {
+      responseBody += chunk.toString();
+    }
+
     // Calculate duration
     const duration = Date.now() - startTime;
+
+    // Parse response body if it's JSON
+    let parsedResponseBody = null;
+    try {
+      if (responseBody && responseBody.trim().startsWith('{') || responseBody.trim().startsWith('[')) {
+        parsedResponseBody = JSON.parse(responseBody);
+      } else {
+        parsedResponseBody = responseBody;
+      }
+    } catch (e) {
+      // Not JSON, keep as string
+      parsedResponseBody = responseBody;
+    }
+
+    // Capture response headers
+    const responseHeaders = {};
+    res.getHeaderNames().forEach(name => {
+      responseHeaders[name] = res.getHeader(name);
+    });
+
+    // Calculate response size
+    const responseSize = Buffer.byteLength(responseBody, encoding || 'utf8');
 
     // Capture response data
     const responseData = {
       status_code: res.statusCode,
       duration_ms: duration,
-      response_size: chunk ? Buffer.byteLength(chunk, encoding) : 0
+      response_size: responseSize,
+      response_body: parsedResponseBody,
+      response_headers: responseHeaders
     };
 
     // Combine request and response data
     const logData = {
       ...requestData,
       ...responseData
+    };
+
+    // Function to write log and emit via WebSocket
+    const writeAndEmitLog = (finalLogData) => {
+      // Write to file
+      writeApiLog(finalLogData);
+
+      // Emit via WebSocket (non-blocking)
+      if (apiLogsNamespace) {
+        setImmediate(() => {
+          try {
+            // Get connected clients count for debugging
+            const clientsCount = apiLogsNamespace.sockets.size;
+            if (clientsCount > 0) {
+              apiLogsNamespace.emit('new_log', finalLogData);
+              // Debug: log emissions more frequently to verify it's working
+              if (Math.random() < 0.1) { // Log 10% of emissions for debugging
+                console.log(`📡 WebSocket: Emitted log to ${clientsCount} connected client(s) - ${finalLogData.method} ${finalLogData.endpoint}`);
+              }
+            } else {
+              // Log when no clients are connected (less frequently)
+              if (Math.random() < 0.01) {
+                console.log(`⚠️ WebSocket: No clients connected to receive log - ${finalLogData.method} ${finalLogData.endpoint}`);
+              }
+            }
+          } catch (error) {
+            // Don't let WebSocket errors break logging
+            console.error('❌ Error emitting log via WebSocket:', error);
+          }
+        });
+      } else {
+        // Log when namespace is not set (very rarely)
+        if (Math.random() < 0.001) {
+          console.log('⚠️ WebSocket: apiLogsNamespace is not set');
+        }
+      }
     };
 
     // Add public IP if available (for private IPs only)
@@ -243,17 +339,17 @@ export const apiLogger = (req, res, next) => {
             logData.public_ip = publicIp;
           }
           // Write log with public IP
-          writeApiLog(logData);
+          writeAndEmitLog(logData);
         })
         .catch(() => {
           // If fetch fails, write log without public IP
-          writeApiLog(logData);
+          writeAndEmitLog(logData);
         });
     } else {
       // Write log immediately (no public IP needed)
       // Use setImmediate to ensure it doesn't block the response
       setImmediate(() => {
-        writeApiLog(logData);
+        writeAndEmitLog(logData);
       });
     }
 

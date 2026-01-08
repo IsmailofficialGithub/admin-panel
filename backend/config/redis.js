@@ -3,22 +3,21 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Redis configuration
+// Redis configuration - DISABLED for now (fail fast, no retries)
 const redisConfig = {
   host: process.env.REDIS_HOST || 'localhost',
   port: process.env.REDIS_PORT || 6379,
   password: process.env.REDIS_PASSWORD || undefined,
-  retryStrategy: (times) => {
-    const delay = Math.min(times * 50, 2000); 
-    return delay;
-  },
-  maxRetriesPerRequest: 3,
-  enableReadyCheck: true,
-  enableOfflineQueue: true, // Allow queuing when Redis is offline
-  lazyConnect: false, // Connect immediately
-  connectTimeout: 10000, // 10 second timeout
-  // Don't fail immediately if Redis is unavailable
-  showFriendlyErrorStack: true,
+  retryStrategy: () => null, // Disable retries - return null to stop retrying
+  maxRetriesPerRequest: 0, // No retries - fail immediately
+  enableReadyCheck: false, // Don't wait for ready
+  enableOfflineQueue: false, // Don't queue when offline
+  lazyConnect: true, // Don't connect until first use
+  connectTimeout: 1000, // 1 second timeout (fail fast)
+  showFriendlyErrorStack: false,
+  // Disable automatic reconnection
+  autoResubscribe: false,
+  autoResendUnfulfilledCommands: false,
 };
 
 // Create Redis client
@@ -34,33 +33,17 @@ redis.on('ready', () => {
 });
 
 redis.on('error', (err) => {
-  // Only log error if it's not a connection error (to avoid spam)
-  // With enableOfflineQueue: true, we won't get "Stream isn't writeable" errors
-  if (!err.message.includes('ECONNREFUSED') && !err.message.includes('connect ETIMEDOUT')) {
-    console.error('❌ Redis connection error:', err.message);
-  }
+  // Silently ignore all Redis errors - Redis is disabled
+  // Don't log anything to avoid spam
 });
 
-let reconnectCount = 0;
-let lastReconnectLog = 0;
-
+// Disable reconnection logging - Redis is disabled
 redis.on('close', () => {
-  // Only log close events occasionally to avoid spam
-  const now = Date.now();
-  if (now - lastReconnectLog > 10000) { // Log at most once every 10 seconds
-    console.log('⚠️ Redis connection closed');
-    lastReconnectLog = now;
-  }
+  // Silently ignore
 });
 
 redis.on('reconnecting', () => {
-  reconnectCount++;
-  const now = Date.now();
-  // Only log reconnection attempts occasionally to avoid spam
-  if (now - lastReconnectLog > 10000) { // Log at most once every 10 seconds
-    console.log(`🔄 Redis reconnecting... (attempt ${reconnectCount})`);
-    lastReconnectLog = now;
-  }
+  // Silently ignore - retries are disabled anyway
 });
 
 // Test connection
@@ -95,19 +78,8 @@ export const cacheService = {
    * @returns {Promise<any|null>} - Cached data or null
    */
   async get(key) {
-    try {
-      const data = await redis.get(key);
-      return data ? JSON.parse(data) : null;
-    } catch (error) {
-      // Silently fail - Redis is optional
-      // Only log if it's not a connection error
-      if (!error.message.includes('ECONNREFUSED') && 
-          !error.message.includes('timeout') && 
-          !error.message.includes('ETIMEDOUT')) {
-        console.error(`❌ Redis GET error for key ${key}:`, error.message);
-      }
-      return null;
-    }
+    // Redis disabled - always return null immediately
+    return null;
   },
 
   /**
@@ -118,20 +90,8 @@ export const cacheService = {
    * @returns {Promise<boolean>} - Success status
    */
   async set(key, value, ttl = 300) {
-    try {
-      const serialized = JSON.stringify(value);
-      await redis.setex(key, ttl, serialized);
-      return true;
-    } catch (error) {
-      // Silently fail - Redis is optional
-      // Only log if it's not a connection error
-      if (!error.message.includes('ECONNREFUSED') && 
-          !error.message.includes('timeout') && 
-          !error.message.includes('ETIMEDOUT')) {
-        console.error(`❌ Redis SET error for key ${key}:`, error.message);
-      }
-      return false;
-    }
+    // Redis disabled - always return false immediately
+    return false;
   },
 
   /**
@@ -140,18 +100,8 @@ export const cacheService = {
    * @returns {Promise<boolean>} - Success status
    */
   async del(key) {
-    try {
-      await redis.del(key);
-      return true;
-    } catch (error) {
-      // Silently fail - Redis is optional
-      if (!error.message.includes('ECONNREFUSED') && 
-          !error.message.includes('timeout') && 
-          !error.message.includes('ETIMEDOUT')) {
-        console.error(`❌ Redis DEL error for key ${key}:`, error.message);
-      }
-      return false;
-    }
+    // Redis disabled - always return false immediately
+    return false;
   },
 
   /**
@@ -160,19 +110,8 @@ export const cacheService = {
    * @returns {Promise<number>} - Number of keys deleted
    */
   async delByPattern(pattern) {
-    try {
-      const keys = await redis.keys(pattern);
-      if (keys.length === 0) return 0;
-      return await redis.del(...keys);
-    } catch (error) {
-      // Silently fail - Redis is optional
-      if (!error.message.includes('ECONNREFUSED') && 
-          !error.message.includes('timeout') && 
-          !error.message.includes('ETIMEDOUT')) {
-        console.error(`❌ Redis DEL pattern error for ${pattern}:`, error.message);
-      }
-      return 0;
-    }
+    // Redis disabled - always return 0 immediately
+    return 0;
   },
 
   /**
@@ -181,18 +120,8 @@ export const cacheService = {
    * @returns {Promise<boolean>} - Exists status
    */
   async exists(key) {
-    try {
-      const result = await redis.exists(key);
-      return result === 1;
-    } catch (error) {
-      // Silently fail - Redis is optional
-      if (!error.message.includes('ECONNREFUSED') && 
-          !error.message.includes('timeout') && 
-          !error.message.includes('ETIMEDOUT')) {
-        console.error(`❌ Redis EXISTS error for key ${key}:`, error.message);
-      }
-      return false;
-    }
+    // Redis disabled - always return false immediately
+    return false;
   },
 
   /**

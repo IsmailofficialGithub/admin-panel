@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Container, Row, Col, Card } from 'react-bootstrap';
-import { Activity, RefreshCw, Search, Filter, ChevronLeft, ChevronRight, User, Calendar, Globe, ChevronDown, ChevronUp, Server } from 'lucide-react';
+import { Activity, RefreshCw, Search, Filter, ChevronLeft, ChevronRight, User, Calendar, Globe, ChevronDown, ChevronUp, Server, Wifi, WifiOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getApiLogs } from '../api/backend/logs';
 import { useAuth } from '../hooks/useAuth';
-import { useHistory } from 'react-router-dom';
+import { useHistory, useLocation } from 'react-router-dom';
+import { useApiLogsWebSocket } from '../hooks/useApiLogsWebSocket';
 
 const ApiLogs = () => {
   const history = useHistory();
+  const location = useLocation();
   const { user, profile } = useAuth();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -29,6 +31,20 @@ const ApiLogs = () => {
   const [hasViewPermission, setHasViewPermission] = useState(false);
   const [checkingPermission, setCheckingPermission] = useState(true);
 
+  // Only enable WebSocket when on the api-logs page and user has permission
+  const isOnApiLogsPage = location.pathname === '/admin/api-logs';
+  const shouldConnectWebSocket = isOnApiLogsPage && hasViewPermission && !checkingPermission;
+
+  // WebSocket connection for real-time logs - only connect when on this page
+  const {
+    isConnected: wsConnected,
+    connectionError: wsError,
+    newLogs: wsNewLogs,
+    todayLogs: wsTodayLogs,
+    reconnect: wsReconnect,
+    clearNewLogs: wsClearNewLogs
+  } = useApiLogsWebSocket(shouldConnectWebSocket);
+
   // Check if user is superadmin
   useEffect(() => {
     if (!user || !profile) {
@@ -49,6 +65,54 @@ const ApiLogs = () => {
     }
   }, [user, profile, history]);
 
+  // Merge WebSocket logs with fetched logs
+  const mergedLogs = useMemo(() => {
+    if (!hasViewPermission) return logs;
+
+    // If we have WebSocket today logs and current filter is today, use WebSocket logs
+    const today = new Date().toISOString().split('T')[0];
+    const isTodayFilter = !filters.date || filters.date === today;
+
+    if (isTodayFilter && wsTodayLogs.length > 0) {
+      // Merge WebSocket logs with fetched logs, removing duplicates
+      const logMap = new Map();
+      
+      // Add fetched logs first
+      logs.forEach(log => {
+        const key = `${log.timestamp}_${log.method}_${log.endpoint}`;
+        logMap.set(key, log);
+      });
+      
+      // Add/update with WebSocket logs (they're more recent)
+      wsTodayLogs.forEach(log => {
+        const key = `${log.timestamp}_${log.method}_${log.endpoint}`;
+        logMap.set(key, log);
+      });
+      
+      const merged = Array.from(logMap.values()).sort((a, b) => {
+        const timeA = new Date(a.timestamp).getTime();
+        const timeB = new Date(b.timestamp).getTime();
+        return timeB - timeA;
+      });
+      
+      // Debug: log when logs are merged
+      
+      return merged;
+    }
+
+    return logs;
+  }, [logs, wsTodayLogs, filters.date, hasViewPermission]);
+
+  // Force update when new WebSocket logs arrive (for real-time updates)
+  useEffect(() => {
+    if (wsTodayLogs.length > 0 && hasViewPermission) {
+      const today = new Date().toISOString().split('T')[0];
+      const isTodayFilter = !filters.date || filters.date === today;
+      
+    
+    }
+  }, [wsTodayLogs.length, hasViewPermission, filters.date]);
+
   useEffect(() => {
     if (checkingPermission || !hasViewPermission) {
       return;
@@ -57,6 +121,13 @@ const ApiLogs = () => {
     setExpandedLogs(new Set());
     fetchApiLogs();
   }, [filters, checkingPermission, hasViewPermission]);
+
+  // Show toast when new logs arrive via WebSocket
+  useEffect(() => {
+    if (wsNewLogs.length > 0 && hasViewPermission) {
+      const latestLog = wsNewLogs[0];
+    }
+  }, [wsNewLogs.length, hasViewPermission]);
 
   const fetchApiLogs = async () => {
     setLoading(true);
@@ -271,9 +342,40 @@ const ApiLogs = () => {
                   <p style={{
                     margin: '4px 0 0 0',
                     color: '#666',
-                    fontSize: '14px'
+                    fontSize: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
                   }}>
                     View all API requests and responses
+                    {wsConnected ? (
+                      <span style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        color: '#10b981',
+                        fontSize: '12px',
+                        fontWeight: '500'
+                      }}>
+                        <Wifi size={14} />
+                        Live
+                      </span>
+                    ) : (
+                      <span style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        color: '#ef4444',
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        cursor: 'pointer'
+                      }}
+                      onClick={wsReconnect}
+                      title="Click to reconnect">
+                        <WifiOff size={14} />
+                        Offline
+                      </span>
+                    )}
                   </p>
                 </div>
                 <button
@@ -433,7 +535,7 @@ const ApiLogs = () => {
                   <Server size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
                   <p style={{ fontSize: '16px', margin: 0 }}>{error}</p>
                 </div>
-              ) : logs.length === 0 ? (
+              ) : mergedLogs.length === 0 ? (
                 <div style={{
                   flex: 1,
                   display: 'flex',
@@ -457,7 +559,7 @@ const ApiLogs = () => {
                       flexDirection: 'column',
                       gap: '8px'
                     }}>
-                      {logs.map((log, index) => {
+                      {mergedLogs.map((log, index) => {
                         const methodStyle = getMethodColor(log.method);
                         const statusStyle = getStatusColor(log.status_code);
                         const isExpanded = expandedLogs.has(index);
@@ -708,6 +810,64 @@ const ApiLogs = () => {
                                       overflow: 'auto'
                                     }}>
                                       {JSON.stringify(log.request_body, null, 2)}
+                                    </pre>
+                                  </div>
+                                )}
+
+                                {/* Response Headers */}
+                                {log.response_headers && Object.keys(log.response_headers).length > 0 && (
+                                  <div style={{
+                                    padding: '12px',
+                                    backgroundColor: '#f0fdf4',
+                                    borderRadius: '6px',
+                                    marginBottom: '12px'
+                                  }}>
+                                    <p style={{ fontSize: '11px', color: '#6b7280', margin: '0 0 8px 0', fontWeight: '600' }}>Response Headers</p>
+                                    <pre style={{
+                                      fontSize: '11px',
+                                      color: '#1f2937',
+                                      margin: 0,
+                                      whiteSpace: 'pre-wrap',
+                                      wordBreak: 'break-word',
+                                      fontFamily: 'monospace',
+                                      backgroundColor: 'white',
+                                      padding: '8px',
+                                      borderRadius: '4px',
+                                      border: '1px solid #86efac',
+                                      maxHeight: '300px',
+                                      overflow: 'auto'
+                                    }}>
+                                      {JSON.stringify(log.response_headers, null, 2)}
+                                    </pre>
+                                  </div>
+                                )}
+
+                                {/* Response Body */}
+                                {log.response_body !== null && log.response_body !== undefined && (
+                                  <div style={{
+                                    padding: '12px',
+                                    backgroundColor: '#f0fdf4',
+                                    borderRadius: '6px',
+                                    marginBottom: '12px'
+                                  }}>
+                                    <p style={{ fontSize: '11px', color: '#6b7280', margin: '0 0 8px 0', fontWeight: '600' }}>Response Body</p>
+                                    <pre style={{
+                                      fontSize: '11px',
+                                      color: '#1f2937',
+                                      margin: 0,
+                                      whiteSpace: 'pre-wrap',
+                                      wordBreak: 'break-word',
+                                      fontFamily: 'monospace',
+                                      backgroundColor: 'white',
+                                      padding: '8px',
+                                      borderRadius: '4px',
+                                      border: '1px solid #86efac',
+                                      maxHeight: '300px',
+                                      overflow: 'auto'
+                                    }}>
+                                      {typeof log.response_body === 'string' 
+                                        ? log.response_body 
+                                        : JSON.stringify(log.response_body, null, 2)}
                                     </pre>
                                   </div>
                                 )}
