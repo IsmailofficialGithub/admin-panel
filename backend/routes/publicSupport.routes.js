@@ -3,12 +3,15 @@ import multer from 'multer';
 import { createPublicTicket, getPublicTickets, uploadPublicFile, deletePublicFile, getPublicFileUrl, addPublicMessage, upload } from './controllers/publicSupport.controller.js';
 import {
   createRateLimitMiddleware,
+  createRateLimitMiddlewareWithWindow,
   sanitizeInputMiddleware
 } from '../utils/apiOptimization.js';
 
 const router = express.Router();
 
-// More lenient rate limiting for public endpoint (handled in controller by IP)
+// Custom rate limit for ticket creation: 1 request per 3 seconds
+const ticketCreateRateLimit = createRateLimitMiddlewareWithWindow('public-support-create', 1, 3);
+// More lenient rate limiting for other public endpoints
 const publicRateLimitMiddleware = createRateLimitMiddleware('public-support', 20); // 20 requests per minute
 
 /**
@@ -42,7 +45,7 @@ const publicRateLimitMiddleware = createRateLimitMiddleware('public-support', 20
  */
 router.post(
   '/tickets', 
-  publicRateLimitMiddleware,
+  ticketCreateRateLimit,
   upload.array('files', 5), // Handle up to 5 files
   sanitizeInputMiddleware, 
   createPublicTicket

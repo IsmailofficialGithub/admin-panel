@@ -97,15 +97,15 @@ const checkRateLimit = async (ip) => {
   const rateLimitKey = `public_support:rate_limit:${ip}`;
   const current = await cacheService.get(rateLimitKey);
   
-  const maxRequests = 5;
-  const windowMs = 3600000; // 1 hour
+  const maxRequests = 1; // 1 request per window
+  const windowMs = 3000; // 3 seconds (changed from 1 hour)
   
   if (current && current >= maxRequests) {
     return { allowed: false, remaining: 0, resetAt: Date.now() + windowMs };
   }
   
   const newCount = (current || 0) + 1;
-  await cacheService.set(rateLimitKey, newCount, Math.floor(windowMs / 1000));
+  await cacheService.set(rateLimitKey, newCount, Math.floor(windowMs / 1000)); // 3 seconds TTL
   
   return { allowed: true, remaining: maxRequests - newCount };
 };

@@ -215,6 +215,55 @@ export const createRateLimitMiddleware = (endpoint, maxRequests = 100) => {
 };
 
 /**
+ * Rate limit middleware factory with custom window
+ * Creates rate limit middleware for specific endpoint with custom time window
+ * @param {string} endpoint - Endpoint name for rate limit key
+ * @param {number} maxRequests - Maximum requests per window
+ * @param {number} windowSeconds - Time window in seconds
+ * @returns {Function} - Rate limit middleware
+ */
+export const createRateLimitMiddlewareWithWindow = (endpoint, maxRequests = 1, windowSeconds = 3) => {
+  return async (req, res, next) => {
+    try {
+      const userId = req.user?.id || req.ip;
+      const rateLimitKey = `rate_limit:${endpoint}:${userId}`;
+      
+      // Try to get current request count, but don't fail if Redis is unavailable
+      let requests = 0;
+      try {
+        const cached = await cacheService.get(rateLimitKey);
+        requests = cached || 0;
+      } catch (getError) {
+        // Redis unavailable - silently continue (fail open)
+        // Don't log error here to avoid spam
+      }
+      
+      if (requests >= maxRequests) {
+        return res.status(429).json({
+          success: false,
+          error: 'Too Many Requests',
+          message: `Please wait ${windowSeconds} seconds before creating another ticket.`
+        });
+      }
+
+      // Try to increment counter, but don't fail if Redis is unavailable
+      try {
+        await cacheService.set(rateLimitKey, requests + 1, windowSeconds); // Custom window TTL
+      } catch (setError) {
+        // Redis unavailable - silently continue (fail open)
+        // Don't log error here to avoid spam
+      }
+      
+      next();
+    } catch (error) {
+      // If rate limiting fails completely, allow request (fail open)
+      // Don't log error to avoid spam when Redis is down
+      next();
+    }
+  };
+};
+
+/**
  * Input sanitization middleware
  * Sanitizes query and body parameters
  */
