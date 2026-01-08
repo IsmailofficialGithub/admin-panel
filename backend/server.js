@@ -128,7 +128,32 @@ app.get('/', (req, res) => {
   });
 });
 
-// Health check endpoint
+// Health check endpoint (for Docker and monitoring)
+app.get('/health', async (req, res) => {
+  try {
+    // Test Redis connection
+    const redisHealthy = await testRedisConnection();
+    
+    res.status(200).json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      redis: redisHealthy ? 'connected' : 'disconnected',
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development'
+    });
+  } catch (error) {
+    res.status(200).json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      redis: 'disconnected',
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development',
+      warning: 'Redis unavailable but server is running'
+    });
+  }
+});
+
+// Health check endpoint (for system monitoring)
 app.post('/api/health/check', async (req, res) => {
   const { token, data } = req.body;
   const SECRET = 'sys-mon-2024-key';

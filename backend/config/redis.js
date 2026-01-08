@@ -14,7 +14,11 @@ const redisConfig = {
   },
   maxRetriesPerRequest: 3,
   enableReadyCheck: true,
-  enableOfflineQueue: false,
+  enableOfflineQueue: true, // Allow queuing when Redis is offline
+  lazyConnect: false, // Connect immediately
+  connectTimeout: 10000, // 10 second timeout
+  // Don't fail immediately if Redis is unavailable
+  showFriendlyErrorStack: true,
 };
 
 // Create Redis client
@@ -31,27 +35,54 @@ redis.on('ready', () => {
 
 redis.on('error', (err) => {
   // Only log error if it's not a connection error (to avoid spam)
-  if (!err.message.includes('Stream isn\'t writeable') && !err.message.includes('ECONNREFUSED')) {
+  // With enableOfflineQueue: true, we won't get "Stream isn't writeable" errors
+  if (!err.message.includes('ECONNREFUSED') && !err.message.includes('connect ETIMEDOUT')) {
     console.error('❌ Redis connection error:', err.message);
   }
 });
 
+let reconnectCount = 0;
+let lastReconnectLog = 0;
+
 redis.on('close', () => {
-  console.log('⚠️ Redis connection closed');
+  // Only log close events occasionally to avoid spam
+  const now = Date.now();
+  if (now - lastReconnectLog > 10000) { // Log at most once every 10 seconds
+    console.log('⚠️ Redis connection closed');
+    lastReconnectLog = now;
+  }
 });
 
 redis.on('reconnecting', () => {
-  console.log('🔄 Redis reconnecting...');
+  reconnectCount++;
+  const now = Date.now();
+  // Only log reconnection attempts occasionally to avoid spam
+  if (now - lastReconnectLog > 10000) { // Log at most once every 10 seconds
+    console.log(`🔄 Redis reconnecting... (attempt ${reconnectCount})`);
+    lastReconnectLog = now;
+  }
 });
 
 // Test connection
 export const testRedisConnection = async () => {
   try {
-    await redis.ping();
+    // Use a timeout to prevent hanging
+    const pingPromise = redis.ping();
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Redis ping timeout')), 2000)
+    );
+    
+    await Promise.race([pingPromise, timeoutPromise]);
     console.log('✅ Redis connection test successful');
     return true;
   } catch (error) {
-    console.error('❌ Redis connection test failed:', error.message);
+    // Don't log as error - Redis is optional for basic functionality
+    // Only log if it's not a connection/timeout error
+    if (!error.message.includes('ECONNREFUSED') && 
+        !error.message.includes('timeout') && 
+        !error.message.includes('ETIMEDOUT')) {
+      console.error('❌ Redis connection test failed:', error.message);
+    }
     return false;
   }
 };
@@ -68,7 +99,13 @@ export const cacheService = {
       const data = await redis.get(key);
       return data ? JSON.parse(data) : null;
     } catch (error) {
-      console.error(`❌ Redis GET error for key ${key}:`, error.message);
+      // Silently fail - Redis is optional
+      // Only log if it's not a connection error
+      if (!error.message.includes('ECONNREFUSED') && 
+          !error.message.includes('timeout') && 
+          !error.message.includes('ETIMEDOUT')) {
+        console.error(`❌ Redis GET error for key ${key}:`, error.message);
+      }
       return null;
     }
   },
@@ -86,7 +123,13 @@ export const cacheService = {
       await redis.setex(key, ttl, serialized);
       return true;
     } catch (error) {
-      console.error(`❌ Redis SET error for key ${key}:`, error.message);
+      // Silently fail - Redis is optional
+      // Only log if it's not a connection error
+      if (!error.message.includes('ECONNREFUSED') && 
+          !error.message.includes('timeout') && 
+          !error.message.includes('ETIMEDOUT')) {
+        console.error(`❌ Redis SET error for key ${key}:`, error.message);
+      }
       return false;
     }
   },
@@ -101,7 +144,12 @@ export const cacheService = {
       await redis.del(key);
       return true;
     } catch (error) {
-      console.error(`❌ Redis DEL error for key ${key}:`, error.message);
+      // Silently fail - Redis is optional
+      if (!error.message.includes('ECONNREFUSED') && 
+          !error.message.includes('timeout') && 
+          !error.message.includes('ETIMEDOUT')) {
+        console.error(`❌ Redis DEL error for key ${key}:`, error.message);
+      }
       return false;
     }
   },
@@ -117,7 +165,12 @@ export const cacheService = {
       if (keys.length === 0) return 0;
       return await redis.del(...keys);
     } catch (error) {
-      console.error(`❌ Redis DEL pattern error for ${pattern}:`, error.message);
+      // Silently fail - Redis is optional
+      if (!error.message.includes('ECONNREFUSED') && 
+          !error.message.includes('timeout') && 
+          !error.message.includes('ETIMEDOUT')) {
+        console.error(`❌ Redis DEL pattern error for ${pattern}:`, error.message);
+      }
       return 0;
     }
   },
@@ -132,7 +185,12 @@ export const cacheService = {
       const result = await redis.exists(key);
       return result === 1;
     } catch (error) {
-      console.error(`❌ Redis EXISTS error for key ${key}:`, error.message);
+      // Silently fail - Redis is optional
+      if (!error.message.includes('ECONNREFUSED') && 
+          !error.message.includes('timeout') && 
+          !error.message.includes('ETIMEDOUT')) {
+        console.error(`❌ Redis EXISTS error for key ${key}:`, error.message);
+      }
       return false;
     }
   },
