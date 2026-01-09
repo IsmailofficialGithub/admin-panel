@@ -137,16 +137,26 @@ export const useApiLogsWebSocket = (enabled = true) => {
 
   // Connect/disconnect based on enabled flag
   useEffect(() => {
+    console.log('🔄 useApiLogsWebSocket: Effect triggered, enabled:', enabled);
+    console.log('📊 useApiLogsWebSocket: Current state:', {
+      isConnected,
+      connectionError,
+      hasConnection: !!connectionRef.current
+    });
+    
     // Only connect if explicitly enabled
     if (enabled) {
+      console.log('✅ useApiLogsWebSocket: Enabled, connecting...');
       connect();
     } else {
       // Immediately disconnect if disabled
+      console.log('❌ useApiLogsWebSocket: Disabled, disconnecting...');
       disconnect();
     }
 
     // Cleanup on unmount - always disconnect
     return () => {
+      console.log('🧹 useApiLogsWebSocket: Cleanup - disconnecting on unmount');
       disconnect();
     };
   }, [enabled, connect, disconnect]); // Include all dependencies

@@ -159,10 +159,20 @@ let connectedClients = new Set();
 apiLogsNamespace.use(async (socket, next) => {
   try {
     console.log('🔐 WebSocket: Authentication attempt from', socket.handshake.address);
-    console.log('🔐 WebSocket: Auth data:', {
-      hasAuth: !!socket.handshake.auth,
-      hasToken: !!socket.handshake.auth?.token,
-      hasHeaders: !!socket.handshake.headers?.authorization
+    console.log('🔐 WebSocket: Full handshake data:', {
+      address: socket.handshake.address,
+      headers: {
+        origin: socket.handshake.headers.origin,
+        'user-agent': socket.handshake.headers['user-agent'],
+        authorization: socket.handshake.headers.authorization ? '***present***' : 'missing'
+      },
+      auth: socket.handshake.auth ? {
+        hasToken: !!socket.handshake.auth.token,
+        tokenLength: socket.handshake.auth.token?.length || 0
+      } : 'missing',
+      query: socket.handshake.query,
+      url: socket.handshake.url,
+      secure: socket.handshake.secure
     });
     
     const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.replace('Bearer ', '');
@@ -209,30 +219,60 @@ apiLogsNamespace.use(async (socket, next) => {
 
 apiLogsNamespace.on('connection', (socket) => {
   console.log(`✅ WebSocket connected: ${socket.userEmail} (${socket.userId})`);
+  console.log('📊 WebSocket: Connection details:', {
+    socketId: socket.id,
+    userId: socket.userId,
+    userEmail: socket.userEmail,
+    isSystemAdmin: socket.isSystemAdmin,
+    transport: socket.conn?.transport?.name,
+    totalConnectedClients: connectedClients.size + 1
+  });
   connectedClients.add(socket.id);
 
   // Send all today's logs on connection
   socket.on('request_today_logs', async () => {
     try {
+      console.log(`📤 WebSocket: ${socket.userEmail} requested today's logs`);
       const { readLogFile } = await import('./services/apiLogger.js');
       const today = new Date().toISOString().split('T')[0];
       const logs = readLogFile(today);
       
+      console.log(`📤 WebSocket: Sending ${logs.length} logs for ${today} to ${socket.userEmail}`);
       // Send logs in batches to avoid overwhelming the client
       socket.emit('today_logs', { logs, date: today });
+      console.log(`✅ WebSocket: Today's logs sent successfully to ${socket.userEmail}`);
     } catch (error) {
       console.error('❌ Error sending today logs:', error);
+      console.error('❌ Error stack:', error.stack);
       socket.emit('error', { message: 'Failed to load today logs' });
     }
   });
 
   socket.on('disconnect', (reason) => {
     console.log(`❌ WebSocket disconnected: ${socket.userEmail} - ${reason}`);
+    console.log('📊 WebSocket: Disconnect details:', {
+      socketId: socket.id,
+      reason,
+      totalConnectedClients: connectedClients.size - 1
+    });
     connectedClients.delete(socket.id);
   });
 
   socket.on('error', (error) => {
     console.error('❌ WebSocket error:', error);
+    console.error('❌ WebSocket error details:', {
+      message: error.message,
+      stack: error.stack,
+      socketId: socket.id,
+      userEmail: socket.userEmail
+    });
+  });
+  
+  // Log any other events for debugging
+  socket.onAny((event, ...args) => {
+    if (event !== 'request_today_logs' && event !== 'disconnect' && event !== 'error') {
+      console.log(`📡 WebSocket: Received event '${event}' from ${socket.userEmail}:`, args);
+    }
   });
 });
 

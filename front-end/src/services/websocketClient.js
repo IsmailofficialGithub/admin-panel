@@ -12,6 +12,12 @@ const API_BASE_URL = process.env.REACT_APP_Server_Url || 'http://localhost:5000'
 // Remove /api if it exists since Socket.IO namespaces are separate from REST API routes
 const WS_BASE_URL = API_BASE_URL.replace(/\/api$/, '');
 
+console.log('🔧 WebSocket Client Config:', {
+  API_BASE_URL,
+  WS_BASE_URL,
+  namespaceUrl: `${WS_BASE_URL}/api-logs`
+});
+
 /**
  * Get authentication token
  */
@@ -61,20 +67,38 @@ export const createApiLogsConnection = async (options = {}) => {
    */
   const connect = async () => {
     try {
+      console.log('🔌 WebSocket: Starting connection process...');
+      console.log('🔌 WebSocket: Current reconnect attempts:', reconnectAttempts);
+      
       // Get fresh token
+      console.log('🔐 WebSocket: Fetching authentication token...');
       const token = await getAuthToken();
       
       if (!token) {
-        console.error('❌ No authentication token available');
+        console.error('❌ WebSocket: No authentication token available');
         if (onError) onError(new Error('No authentication token'));
         return null;
       }
-
-      // Construct WebSocket URL (namespace is /api-logs, not /api/api-logs)
-      const wsUrl = `${WS_BASE_URL}/api-logs`;
       
-      // Create socket connection
-      socket = io(wsUrl, {
+      console.log('✅ WebSocket: Token obtained (length:', token.length, 'chars)');
+
+      // Connect directly to the /api-logs namespace
+      // In Socket.IO, namespaces are part of the URL path
+      const namespaceUrl = `${WS_BASE_URL}/api-logs`;
+      
+      console.log('🔌 WebSocket: Connection details:', {
+        namespaceUrl,
+        baseUrl: WS_BASE_URL,
+        path: '/socket.io',
+        hasToken: !!token,
+        tokenLength: token.length,
+        transports: ['websocket', 'polling']
+      });
+      
+      // Create socket connection directly to the namespace
+      console.log('🔌 WebSocket: Creating Socket.IO connection...');
+      socket = io(namespaceUrl, {
+        path: '/socket.io', // Default Socket.IO path (can be customized on server)
         auth: {
           token: token
         },
@@ -86,25 +110,55 @@ export const createApiLogsConnection = async (options = {}) => {
         upgrade: true
       });
       
-
+      console.log('✅ WebSocket: Socket.IO instance created, setting up event handlers...');
+      
       // Connection successful
       socket.on('connect', () => {
+        console.log('✅ WebSocket: Connected to /api-logs namespace');
+        console.log('📊 WebSocket: Connection details:', {
+          id: socket.id,
+          transport: socket.io.engine?.transport?.name,
+          namespace: socket.nsp.name,
+          connected: socket.connected
+        });
         reconnectAttempts = 0;
         reconnectDelay = 1000; // Reset delay
         
         if (onConnect) onConnect();
 
         // Request today's logs
+        console.log('📤 WebSocket: Requesting today\'s logs...');
         socket.emit('request_today_logs');
+      });
+      
+      // Log transport upgrades
+      socket.io.on('upgrade', () => {
+        console.log('⬆️ WebSocket: Transport upgraded to:', socket.io.engine?.transport?.name);
+      });
+      
+      // Log connection attempts
+      socket.io.on('reconnect_attempt', (attempt) => {
+        console.log('🔄 WebSocket: Reconnect attempt:', attempt);
+      });
+      
+      // Log ping/pong for debugging
+      socket.io.on('ping', () => {
+        console.log('🏓 WebSocket: Ping sent');
+      });
+      
+      socket.io.on('pong', (latency) => {
+        console.log('🏓 WebSocket: Pong received, latency:', latency, 'ms');
       });
 
       // Receive today's logs
       socket.on('today_logs', (data) => {
+        console.log(`📊 WebSocket: Received ${data.logs?.length || 0} logs for ${data.date}`);
         if (onTodayLogs) onTodayLogs(data.logs || []);
       });
 
       // Receive new log in real-time
       socket.on('new_log', (logData) => {
+        console.log('📡 WebSocket: New log received:', logData.method, logData.endpoint);
         if (onNewLog) onNewLog(logData);
       });
 
@@ -115,8 +169,19 @@ export const createApiLogsConnection = async (options = {}) => {
           message: error.message,
           type: error.type,
           description: error.description,
-          context: error.context
+          context: error.context,
+          data: error.data,
+          stack: error.stack
         });
+        console.error('❌ Socket state:', {
+          connected: socket.connected,
+          disconnected: socket.disconnected,
+          id: socket.id,
+          transport: socket.io?.engine?.transport?.name,
+          readyState: socket.io?.readyState
+        });
+        console.error('❌ Connection URL:', namespaceUrl);
+        console.error('❌ Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
         
         if (error.message && (error.message.includes('Authentication') || error.message.includes('token') || error.message.includes('System administrator'))) {
           // Authentication error - don't retry
@@ -130,19 +195,34 @@ export const createApiLogsConnection = async (options = {}) => {
           reconnectAttempts++;
           const delay = Math.min(reconnectDelay * Math.pow(2, reconnectAttempts - 1), 30000); // Max 30 seconds
           
-          
+          console.log(`🔄 WebSocket: Retrying connection in ${delay}ms (attempt ${reconnectAttempts}/${maxReconnectAttempts})...`);
+          console.log('🔄 WebSocket: Retry will connect to:', namespaceUrl);
           reconnectTimer = setTimeout(() => {
+            console.log('🔄 WebSocket: Executing retry now...');
             connect();
           }, delay);
         } else {
           console.error('❌ WebSocket: Max reconnection attempts reached');
+          console.error('❌ WebSocket: Final state:', {
+            reconnectAttempts,
+            maxReconnectAttempts,
+            isManualDisconnect
+          });
           if (onError) onError(error);
         }
       });
 
       // Disconnected
       socket.on('disconnect', (reason) => {
-        
+        console.log('❌ WebSocket: Disconnected:', reason);
+        console.log('📊 WebSocket: Disconnect details:', {
+          reason,
+          isManualDisconnect,
+          reconnectAttempts,
+          maxReconnectAttempts,
+          socketId: socket.id,
+          wasConnected: socket.connected
+        });
         if (onDisconnect) onDisconnect(reason);
 
         // Auto-reconnect if not manual disconnect
@@ -151,11 +231,17 @@ export const createApiLogsConnection = async (options = {}) => {
             reconnectAttempts++;
             const delay = Math.min(reconnectDelay * Math.pow(2, reconnectAttempts - 1), 30000);
             
-            
+            console.log(`🔄 WebSocket: Auto-reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${maxReconnectAttempts})...`);
+            console.log('🔄 WebSocket: Will reconnect to:', namespaceUrl);
             reconnectTimer = setTimeout(() => {
+              console.log('🔄 WebSocket: Executing auto-reconnect now...');
               connect();
             }, delay);
+          } else {
+            console.error('❌ WebSocket: Max auto-reconnect attempts reached, stopping');
           }
+        } else {
+          console.log('ℹ️ WebSocket: Not auto-reconnecting (manual disconnect or server disconnect)');
         }
       });
 
@@ -177,16 +263,26 @@ export const createApiLogsConnection = async (options = {}) => {
    * Disconnect from WebSocket server
    */
   const disconnect = () => {
+    console.log('🔌 WebSocket: Manual disconnect requested');
     isManualDisconnect = true;
     
     if (reconnectTimer) {
+      console.log('🛑 WebSocket: Clearing reconnect timer');
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
 
     if (socket) {
+      console.log('🔌 WebSocket: Disconnecting socket...');
+      console.log('📊 WebSocket: Socket state before disconnect:', {
+        connected: socket.connected,
+        id: socket.id
+      });
       socket.disconnect();
       socket = null;
+      console.log('✅ WebSocket: Socket disconnected and cleared');
+    } else {
+      console.log('ℹ️ WebSocket: No socket to disconnect');
     }
   };
 
@@ -194,10 +290,13 @@ export const createApiLogsConnection = async (options = {}) => {
    * Reconnect to WebSocket server
    */
   const reconnect = () => {
+    console.log('🔄 WebSocket: Manual reconnect requested');
     isManualDisconnect = false;
     reconnectAttempts = 0;
+    console.log('🔄 WebSocket: Reset reconnect state, disconnecting...');
     disconnect();
     setTimeout(() => {
+      console.log('🔄 WebSocket: Starting reconnect after 1 second delay...');
       connect();
     }, 1000);
   };
