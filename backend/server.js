@@ -140,7 +140,8 @@ const io = new Server(httpServer, {
         'https://social.duhanashrah.ai',
         'http://localhost:5173',
         'https://devstage.duhanashrah.ai',
-        'https://staging.duhanashrah.ai', // Add staging URL
+        'https://staging.duhanashrah.ai',
+        'https://dev.duhanashrah.ai', // Add staging URL
       ].filter(Boolean);
       
       // Allow all origins for now (can be restricted in production)
