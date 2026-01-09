@@ -112,7 +112,7 @@ export const sendPasswordResetEmail = async ({
   new_password,
 }) => {
   try {
-    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+    const website_url = process.env.CLIENT_URL || "dev.duhanashrah.ai";
 
     const htmlContent = PasswordResetTemplate({
       full_name,
@@ -226,7 +226,7 @@ export const sendTrialPeriodChangeEmail = async ({
   new_trial_date,
 }) => {
   try {
-    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+    const website_url = process.env.CLIENT_URL || "dev.duhanashrah.ai";
 
     const htmlContent = TrialPeriodChangeTemplate({
       full_name,
@@ -276,7 +276,7 @@ export const sendTrialExtensionEmail = async ({
   extension_days,
 }) => {
   try {
-    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+    const website_url = process.env.CLIENT_URL || "dev.duhanashrah.ai";
 
     const htmlContent = TrialExtensionTemplate({
       full_name,
@@ -386,7 +386,7 @@ export const sendInvoiceCreatedEmail = async ({
   created_by_role = 'admin' 
 }) => {
   try {
-    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+    const website_url = process.env.CLIENT_URL || "dev.duhanashrah.ai";
     
     // Encrypt payment data for secure URL (required)
     if (!invoice_id || !user_id || !invoice_number || !total) {
@@ -464,7 +464,7 @@ export const sendTicketCreatedEmail = async ({
   attachments = [],
 }) => {
   try {
-    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+    const website_url = process.env.CLIENT_URL || "dev.duhanashrah.ai";
 
     const htmlContent = TicketCreatedTemplate({
       full_name: full_name || email.split('@')[0],
@@ -524,7 +524,7 @@ export const sendTicketCreatedAdminNotification = async ({
   attachments = [],
 }) => {
   try {
-    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+    const website_url = process.env.CLIENT_URL || "dev.duhanashrah.ai";
 
     const htmlContent = TicketCreatedAdminNotificationTemplate({
       ticket_number,
@@ -579,7 +579,7 @@ export const sendTicketStatusChangedEmail = async ({
   ticket_id = '',
 }) => {
   try {
-    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+    const website_url = process.env.CLIENT_URL || "dev.duhanashrah.ai";
 
     const htmlContent = TicketStatusChangedTemplate({
       full_name: full_name || email.split('@')[0],
@@ -632,7 +632,7 @@ export const sendTicketReplyEmail = async ({
   ticket_id = '',
 }) => {
   try {
-    const website_url = process.env.CLIENT_URL || "http://localhost:3000";
+    const website_url = process.env.CLIENT_URL || "dev.duhanashrah.ai";
 
     const htmlContent = TicketReplyTemplate({
       full_name: full_name || email.split('@')[0],
