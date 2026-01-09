@@ -480,29 +480,12 @@ const CreateResellerModal = ({ isOpen, onClose, onCreate }) => {
 
   const handleClose = () => {
     if (!isSubmitting) {
-      setFormData({
-        full_name: '',
-        email: '',
-        password: '',
-        confirmPassword: '',
-        roles: ['reseller'],
-        phone: '',
-        country: '',
-        city: '',
-        referred_by: '',
-        subscribed_products: [],
-        trial_expiry_date: ''
-      });
-      setSelectedCountry(null);
-      setSelectedReseller(null);
-      setCountrySearch('');
-      setResellerSearchTerm('');
-      setShowPassword(false);
-      setShowConfirmPassword(false);
-      setShowProductsDropdown(false);
-      setShowResellerSuggestions(false);
+      // Don't reset form data - retain values when modal is hidden
+      // Only clear errors and submit messages
       setErrors({});
       setSubmitMessage({ type: '', text: '' });
+      setShowProductsDropdown(false);
+      setShowResellerSuggestions(false);
       onClose();
     }
   };
@@ -511,14 +494,15 @@ const CreateResellerModal = ({ isOpen, onClose, onCreate }) => {
 
   return (
     <div
-      onClick={handleClose}
       style={{
         position: 'fixed',
         top: 0,
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(4px)',
         zIndex: 1000,
         display: 'flex',
         alignItems: 'center',

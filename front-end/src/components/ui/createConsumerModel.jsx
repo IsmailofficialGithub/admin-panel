@@ -715,26 +715,12 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
 
   const handleClose = () => {
     if (!isSubmitting) {
-      setFormData({
-        full_name: '',
-        email: '',
-        password: '',
-        confirmPassword: '',
-        roles: ['consumer'],
-        phone: '',
-        trial_expiry_date: '',
-        country: '',
-        city: '',
-        referred_by: '',
-        subscribed_packages: []
-      });
-      setSelectedProducts([]);
-      setSelectedCountry(null);
-      setCountrySearch('');
-      setShowPassword(false);
-      setShowConfirmPassword(false);
+      // Don't reset form data - retain values when modal is hidden
+      // Only clear errors and submit messages
       setErrors({});
       setSubmitMessage({ type: '', text: '' });
+      setShowProductsDropdown(false);
+      setShowResellerSuggestions(false);
       onClose();
     }
   };
@@ -743,14 +729,15 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
 
   return (
     <div
-      onClick={handleClose}
       style={{
         position: 'fixed',
         top: 0,
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(4px)',
         zIndex: 1000,
         display: 'flex',
         alignItems: 'center',
