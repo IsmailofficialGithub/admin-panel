@@ -92,23 +92,30 @@ export const createApiLogsConnection = async (options = {}) => {
         path: '/socket.io',
         hasToken: !!token,
         tokenLength: token.length,
-        transports: ['websocket', 'polling']
+        transports: ['polling', 'websocket'], // Polling first for better proxy compatibility
+        note: 'Using polling first - will upgrade to websocket if available'
       });
       
       // Create socket connection directly to the namespace
       console.log('🔌 WebSocket: Creating Socket.IO connection...');
+      
+      // Try websocket first, but allow fallback to polling if websocket fails
+      // This helps when nginx doesn't support websocket upgrades
       socket = io(namespaceUrl, {
         path: '/socket.io', // Default Socket.IO path (can be customized on server)
         auth: {
           token: token
         },
-        transports: ['websocket', 'polling'],
+        transports: ['polling', 'websocket'], // Try polling first, then upgrade to websocket
         reconnection: false, // We'll handle reconnection manually
-        timeout: 10000,
+        timeout: 20000, // Increase timeout for slower connections
         // Add extra options for debugging
         forceNew: true,
-        upgrade: true
+        upgrade: true,
+        rememberUpgrade: false // Don't remember failed websocket upgrades
       });
+      
+      console.log('✅ WebSocket: Socket.IO instance created with polling fallback');
       
       console.log('✅ WebSocket: Socket.IO instance created, setting up event handlers...');
       
@@ -119,7 +126,8 @@ export const createApiLogsConnection = async (options = {}) => {
           id: socket.id,
           transport: socket.io.engine?.transport?.name,
           namespace: socket.nsp.name,
-          connected: socket.connected
+          connected: socket.connected,
+          readyState: socket.io?.readyState
         });
         reconnectAttempts = 0;
         reconnectDelay = 1000; // Reset delay
@@ -133,7 +141,19 @@ export const createApiLogsConnection = async (options = {}) => {
       
       // Log transport upgrades
       socket.io.on('upgrade', () => {
-        console.log('⬆️ WebSocket: Transport upgraded to:', socket.io.engine?.transport?.name);
+        const transport = socket.io.engine?.transport?.name;
+        console.log('⬆️ WebSocket: Transport upgraded to:', transport);
+        if (transport === 'websocket') {
+          console.log('✅ WebSocket: Successfully upgraded to WebSocket transport');
+        } else {
+          console.log('ℹ️ WebSocket: Using', transport, 'transport (WebSocket upgrade may have failed)');
+        }
+      });
+      
+      // Log when transport is ready
+      socket.io.on('open', () => {
+        console.log('✅ WebSocket: Socket.IO connection opened');
+        console.log('📊 WebSocket: Transport:', socket.io.engine?.transport?.name);
       });
       
       // Log connection attempts
@@ -141,13 +161,21 @@ export const createApiLogsConnection = async (options = {}) => {
         console.log('🔄 WebSocket: Reconnect attempt:', attempt);
       });
       
-      // Log ping/pong for debugging
-      socket.io.on('ping', () => {
-        console.log('🏓 WebSocket: Ping sent');
-      });
+      // Log ping/pong for debugging (only in dev to avoid spam)
+      if (process.env.NODE_ENV === 'development') {
+        socket.io.on('ping', () => {
+          console.log('🏓 WebSocket: Ping sent');
+        });
+        
+        socket.io.on('pong', (latency) => {
+          console.log('🏓 WebSocket: Pong received, latency:', latency, 'ms');
+        });
+      }
       
-      socket.io.on('pong', (latency) => {
-        console.log('🏓 WebSocket: Pong received, latency:', latency, 'ms');
+      // Log when polling transport is used
+      socket.io.engine?.on('upgradeError', (error) => {
+        console.warn('⚠️ WebSocket: Upgrade error (will continue with polling):', error.message);
+        console.log('ℹ️ WebSocket: Continuing with polling transport');
       });
 
       // Receive today's logs
@@ -178,10 +206,19 @@ export const createApiLogsConnection = async (options = {}) => {
           disconnected: socket.disconnected,
           id: socket.id,
           transport: socket.io?.engine?.transport?.name,
-          readyState: socket.io?.readyState
+          readyState: socket.io?.readyState,
+          attempts: reconnectAttempts
         });
         console.error('❌ Connection URL:', namespaceUrl);
         console.error('❌ Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+        
+        // Check if it's a transport error (websocket failed, polling might work)
+        if (error.type === 'TransportError' && error.message.includes('websocket')) {
+          console.warn('⚠️ WebSocket: WebSocket transport failed, Socket.IO should fallback to polling');
+          console.log('ℹ️ WebSocket: Waiting for polling fallback...');
+          // Don't immediately retry - let Socket.IO try polling first
+          return;
+        }
         
         if (error.message && (error.message.includes('Authentication') || error.message.includes('token') || error.message.includes('System administrator'))) {
           // Authentication error - don't retry

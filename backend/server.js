@@ -139,6 +139,8 @@ const io = new Server(httpServer, {
         'http://127.0.0.1:3001',
         'https://social.duhanashrah.ai',
         'http://localhost:5173',
+        'https://devstage.duhanashrah.ai',
+        'https://staging.duhanashrah.ai', // Add staging URL
       ].filter(Boolean);
       
       // Allow all origins for now (can be restricted in production)
@@ -147,7 +149,11 @@ const io = new Server(httpServer, {
     credentials: true,
     methods: ['GET', 'POST']
   },
-  transports: ['websocket', 'polling']
+  transports: ['polling', 'websocket'], // Polling first for better compatibility with proxies
+  allowEIO3: true, // Allow Engine.IO v3 clients
+  pingTimeout: 60000, // 60 seconds
+  pingInterval: 25000, // 25 seconds
+  upgradeTimeout: 30000 // 30 seconds for upgrade
 });
 
 // API Logs namespace - only for superadmins
