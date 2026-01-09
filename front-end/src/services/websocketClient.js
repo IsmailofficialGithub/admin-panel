@@ -8,14 +8,28 @@ import { supabase } from '../lib/supabase/Production/client';
 
 const API_BASE_URL = process.env.REACT_APP_Server_Url || 'http://localhost:5000';
 
-// For WebSocket, we need the base URL without /api prefix
-// Remove /api if it exists since Socket.IO namespaces are separate from REST API routes
-const WS_BASE_URL = API_BASE_URL.replace(/\/api$/, '');
+// Universal WebSocket base URL extraction
+// Works with any server configuration:
+// - https://dev.duhanashrah.ai/api
+// - https://dev.duhanashrah.ai/api/api  
+// - https://devstage.duhanashrah.ai
+// - https://devstage.duhanashrah.ai/api
+let WS_BASE_URL;
+try {
+  const url = new URL(API_BASE_URL);
+  // Extract just protocol + host, ignore all path segments
+  WS_BASE_URL = `${url.protocol}//${url.host}`;
+} catch (e) {
+  // Fallback for invalid URLs: extract domain using regex
+  const match = API_BASE_URL.match(/^(https?:\/\/[^\/]+)/);
+  WS_BASE_URL = match ? match[1] : API_BASE_URL.replace(/\/.*$/, '');
+}
 
 console.log('🔧 WebSocket Client Config:', {
   API_BASE_URL,
   WS_BASE_URL,
-  namespaceUrl: `${WS_BASE_URL}/api-logs`
+  namespaceUrl: `${WS_BASE_URL}/api-logs`,
+  note: 'Socket.IO namespace is always at root level, not under /api/'
 });
 
 /**
