@@ -61,6 +61,7 @@ const Customers = () => {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [uploadingFiles, setUploadingFiles] = useState(false);
+  const [loadingTicketDetails, setLoadingTicketDetails] = useState(false);
   
   // Create ticket state
   const [createFormData, setCreateFormData] = useState({
@@ -273,19 +274,18 @@ const Customers = () => {
               if (filters.currentPage === 1) {
                 const updatedTickets = [newTicket, ...prev].slice(0, ticketsPerPage);
                 // Update total count and pages
-                // React will batch these updates
-                setTotalTickets(prevCount => prevCount + 1);
-                setTotalPages(prev => {
-                  const newTotal = prev * ticketsPerPage + 1;
-                  return Math.ceil(newTotal / ticketsPerPage);
+                setTotalTickets(prevCount => {
+                  const newCount = prevCount + 1;
+                  setTotalPages(Math.ceil(newCount / ticketsPerPage));
+                  return newCount;
                 });
                 return updatedTickets;
               } else {
                 // Just increment the count, don't add to list
-                setTotalTickets(prevCount => prevCount + 1);
-                setTotalPages(prev => {
-                  const newTotal = prev * ticketsPerPage + 1;
-                  return Math.ceil(newTotal / ticketsPerPage);
+                setTotalTickets(prevCount => {
+                  const newCount = prevCount + 1;
+                  setTotalPages(Math.ceil(newCount / ticketsPerPage));
+                  return newCount;
                 });
                 return prev;
               }
@@ -390,8 +390,11 @@ const Customers = () => {
             const ticketExists = prev.some(t => t.id === deletedTicketId);
             if (ticketExists) {
               const newTickets = prev.filter(t => t.id !== deletedTicketId);
-              setTotalTickets(prevCount => Math.max(0, prevCount - 1));
-              setTotalPages(prev => Math.max(1, Math.ceil((prev * ticketsPerPage - 1) / ticketsPerPage)));
+              setTotalTickets(prevCount => {
+                const newCount = Math.max(0, prevCount - 1);
+                setTotalPages(Math.max(1, Math.ceil(newCount / ticketsPerPage)));
+                return newCount;
+              });
               return newTickets;
             }
             return prev;
@@ -475,12 +478,15 @@ const Customers = () => {
 
   const fetchTicketDetails = async (ticketId) => {
     try {
+      setLoadingTicketDetails(true);
       const response = await getTicket(ticketId);
       setTicketMessages(response.data.messages || []);
       setTicketAttachments(response.data.attachments || []);
       setSelectedTicket(response.data.ticket);
     } catch (err) {
       toast.error('Failed to load ticket details');
+    } finally {
+      setLoadingTicketDetails(false);
     }
   };
 
@@ -847,6 +853,10 @@ const Customers = () => {
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.5; }
+        }
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
         }
       `}</style>
       <div style={{ padding: '24px' }}>
@@ -1643,6 +1653,7 @@ const Customers = () => {
                   setTicketAttachments([]);
                   setNewMessage('');
                   setSelectedFiles([]);
+                  setLoadingTicketDetails(false);
                 }}
                 style={{
                   background: 'none',
@@ -1730,6 +1741,7 @@ const Customers = () => {
             <div style={{ 
               flex: 1, 
               marginBottom: '16px', 
+              minHeight: '300px',
               maxHeight: '500px', 
               overflowY: 'auto',
               overflowX: 'hidden',
@@ -1740,7 +1752,30 @@ const Customers = () => {
               flexDirection: 'column',
               gap: '8px'
             }}>
-              {ticketMessages.length === 0 ? (
+              {loadingTicketDetails ? (
+                <div style={{ 
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minHeight: '300px',
+                  padding: '40px',
+                  color: '#6c757d'
+                }}>
+                  <div style={{
+                    width: '50px',
+                    height: '50px',
+                    border: '4px solid #f3f3f3',
+                    borderTop: '4px solid #8a3b9a',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite',
+                    marginBottom: '16px'
+                  }} />
+                  <p style={{ margin: 0, fontSize: '14px', color: '#6c757d' }}>
+                    Loading ticket details...
+                  </p>
+                </div>
+              ) : ticketMessages.length === 0 ? (
                 <div style={{ 
                   textAlign: 'center', 
                   padding: '40px', 
