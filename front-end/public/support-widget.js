@@ -64,6 +64,7 @@
     supabaseClient: null, // Supabase client instance
     loadedTickets: [], // Store loaded tickets for click handling
     currentTicketsEmail: null, // Email used to load current tickets list
+    isSubmitting: false, // Flag to prevent multiple simultaneous submissions
 
     /**
      * Initialize the widget
@@ -86,9 +87,10 @@
         this.initSupabase();
       }
 
+      // Inject styles FIRST to ensure fonts load before creating DOM elements
+      this.injectStyles();
       this.createButton();
       this.createModal();
-      this.injectStyles();
       console.log('✅ Support Widget initialized');
     },
 
@@ -690,12 +692,12 @@
 
       if (this.config.userName && nameField) {
         nameField.value = this.config.userName;
-        nameField.disabled = true; // Prevent editing if auto-filled from config
+        nameField.readOnly = true; // Prevent editing if auto-filled from config (use readOnly so value is included in FormData)
       }
 
       if (this.config.userEmail && emailField) {
         emailField.value = this.config.userEmail;
-        emailField.disabled = true; // Prevent editing if auto-filled from config
+        emailField.readOnly = true; // Prevent editing if auto-filled from config (use readOnly so value is included in FormData)
       }
 
       if (this.config.userEmail && ticketsEmailField) {
@@ -1469,11 +1471,16 @@
       const formData = new FormData(form);
       const errors = {};
 
-      // Get field values
-      const name = (formData.get('name') || '').trim();
-      const email = (formData.get('email') || '').trim();
-      const subject = (formData.get('subject') || '').trim();
-      const message = (formData.get('message') || '').trim();
+      // Get field values - use DOM element value if FormData doesn't include it (for disabled/readonly fields)
+      const nameField = document.getElementById('support-name');
+      const emailField = document.getElementById('support-email');
+      const subjectField = document.getElementById('support-subject');
+      const messageField = document.getElementById('support-message');
+      
+      const name = (formData.get('name') || nameField?.value || '').trim();
+      const email = (formData.get('email') || emailField?.value || '').trim();
+      const subject = (formData.get('subject') || subjectField?.value || '').trim();
+      const message = (formData.get('message') || messageField?.value || '').trim();
 
       // Clear previous errors
       this.clearFieldErrors();
@@ -1568,7 +1575,8 @@
       
       if (!field) return true;
 
-      let value = (formData.get(fieldName) || '').trim();
+      // Use DOM element value if FormData doesn't include it (for disabled/readonly fields)
+      let value = (formData.get(fieldName) || field.value || '').trim();
       let error = null;
 
       switch(fieldName) {
@@ -1684,6 +1692,11 @@
      * Submit ticket
      */
     submitTicket: function() {
+      // Prevent multiple simultaneous submissions
+      if (this.isSubmitting) {
+        return;
+      }
+
       // Validate form before submission
       if (!this.validateForm()) {
         const messageDiv = document.getElementById('support-widget-message');
@@ -1691,6 +1704,9 @@
         messageDiv.innerHTML = '<strong>✗ Please fix the errors above</strong>';
         return;
       }
+
+      // Set submitting flag to prevent multiple submissions
+      this.isSubmitting = true;
 
       const form = document.getElementById('support-widget-form');
       const submitBtn = document.getElementById('support-widget-submit');
@@ -1702,11 +1718,17 @@
       messageDiv.className = 'support-widget-message';
 
       const formData = new FormData(form);
+      // Get field elements to read values directly if FormData doesn't include them (for readonly fields)
+      const nameField = document.getElementById('support-name');
+      const emailField = document.getElementById('support-email');
+      const subjectField = document.getElementById('support-subject');
+      const messageField = document.getElementById('support-message');
+      
       const data = {
-        name: formData.get('name'),
-        email: formData.get('email'),
-        subject: formData.get('subject'),
-        message: formData.get('message'),
+        name: formData.get('name') || nameField?.value || '',
+        email: formData.get('email') || emailField?.value || '',
+        subject: formData.get('subject') || subjectField?.value || '',
+        message: formData.get('message') || messageField?.value || '',
         category: formData.get('category') || 'general',
         priority: formData.get('priority') || 'medium',
         api_key: this.config.apiKey,
@@ -1804,6 +1826,7 @@
         messageDiv.innerHTML = `<strong>✗ Error:</strong> ${this.escapeHtml(error.message || 'Failed to submit ticket. Please try again.')}`;
       })
       .finally(() => {
+        this.isSubmitting = false;
         submitBtn.disabled = false;
         submitBtn.textContent = 'Submit Ticket';
       });
@@ -1813,14 +1836,22 @@
      * Inject CSS styles with production-quality fonts
      */
     injectStyles: function() {
+      // Check if styles already injected
+      if (document.getElementById('support-widget-styles')) {
+        return;
+      }
+
       const style = document.createElement('style');
+      style.id = 'support-widget-styles';
       style.textContent = `
-        /* System Font Stack - Production Quality */
-        * {
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-          -webkit-font-smoothing: antialiased;
-          -moz-osx-font-smoothing: grayscale;
-          text-rendering: optimizeLegibility;
+        /* System Font Stack - Scoped to Widget Elements Only */
+        .support-widget-btn,
+        .support-widget-modal,
+        .support-widget-modal * {
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji" !important;
+          -webkit-font-smoothing: antialiased !important;
+          -moz-osx-font-smoothing: grayscale !important;
+          text-rendering: optimizeLegibility !important;
         }
 
         /* Widget Button - Enhanced Professional Design */
@@ -2026,6 +2057,12 @@
           border-color: #667eea;
           box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.12), 0 2px 8px rgba(102, 126, 234, 0.08);
           transform: translateY(-1px);
+        }
+        .support-widget-field input[readonly],
+        .support-widget-field textarea[readonly] {
+          background-color: #f8f9fa;
+          cursor: not-allowed;
+          opacity: 0.9;
         }
         .support-widget-field input.support-widget-field-error,
         .support-widget-field textarea.support-widget-field-error {
