@@ -171,7 +171,7 @@
                   <label for="support-subject">Subject *</label>
                   <input type="text" id="support-subject" name="subject" required maxlength="255">
                   <div class="support-widget-char-count">
-                    <span id="support-subject-count">0</span>/255 characters
+                    <span id="support-subject-count">0/255</span> characters
                   </div>
                 </div>
                 <div class="support-widget-field">
@@ -189,7 +189,7 @@
                   <label for="support-message">Message *</label>
                   <textarea id="support-message" name="message" rows="5" required placeholder="Please describe your issue in detail..." maxlength="5000"></textarea>
                   <div class="support-widget-char-count">
-                    <span id="support-message-count">0</span>/5000 characters
+                    <span id="support-message-count">0/5000</span> characters
                   </div>
                 </div>
                 <div class="support-widget-field">

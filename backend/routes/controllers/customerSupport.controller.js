@@ -630,7 +630,7 @@ export const getTickets = async (req, res) => {
     // ========================================
     let query = supabase
       .from("support_tickets")
-      .select("id, ticket_number, subject, user_id, user_email, user_name, user_role, category, priority, status, assigned_to, message_count, created_at, updated_at", { count: "exact" })
+      .select("id, ticket_number, subject, user_id, user_email, user_name, user_role, category, priority, status, assigned_to, message_count, has_unread_messages, created_at, updated_at", { count: "exact" })
       .order("created_at", { ascending: false });
 
     // Non-admins can only see their own tickets
@@ -739,7 +739,7 @@ export const getTicket = async (req, res) => {
     // ========================================
     const ticketPromise = supabase
       .from("support_tickets")
-      .select("id, ticket_number, subject, user_id, user_email, user_name, user_role, category, priority, status, assigned_to, message_count, created_at, updated_at")
+      .select("id, ticket_number, subject, user_id, user_email, user_name, user_role, category, priority, status, assigned_to, message_count, has_unread_messages, created_at, updated_at")
       .eq("id", ticketId)
       .single();
 
@@ -790,7 +790,7 @@ export const getTicket = async (req, res) => {
     ]);
 
     // ========================================
-    // 5. MARK MESSAGES AS READ (with timeout, non-blocking)
+    // 5. MARK MESSAGES AND TICKET AS READ (with timeout, non-blocking)
     // ========================================
     if (isAdmin && messages && messages.length > 0) {
       const unreadUserMessages = messages.filter(
@@ -812,6 +812,21 @@ export const getTicket = async (req, res) => {
           console.warn('⚠️ Failed to mark messages as read:', markReadError?.message);
         });
       }
+    }
+
+    // Mark ticket as read when viewing (non-blocking)
+    if (ticket.has_unread_messages) {
+      const markTicketReadPromise = supabase
+        .from("support_tickets")
+        .update({ has_unread_messages: false })
+        .eq("id", ticketId);
+
+      executeWithTimeout(markTicketReadPromise, 3000).catch(ticketReadError => {
+        console.warn('⚠️ Failed to mark ticket as read:', ticketReadError?.message);
+      });
+      
+      // Update ticket object immediately for response
+      ticket.has_unread_messages = false;
     }
 
     // ========================================

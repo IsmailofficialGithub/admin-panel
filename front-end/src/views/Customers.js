@@ -4,7 +4,7 @@ import {
   MessageSquare, Search, Filter, Plus, Eye, MoreVertical, 
   Send, Paperclip, X, CheckCircle, Clock, AlertCircle, 
   User, Calendar, Tag, ChevronLeft, ChevronRight, FileText,
-  Download, Image as ImageIcon
+  Download, Image as ImageIcon, Wifi, WifiOff
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { 
@@ -52,6 +52,7 @@ const Customers = () => {
   const [showTicketModal, setShowTicketModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [stats, setStats] = useState(null);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
   
   // Ticket detail state
   const [ticketMessages, setTicketMessages] = useState([]);
@@ -206,6 +207,239 @@ const Customers = () => {
     }
   }, [currentPage, searchQuery, statusFilter, priorityFilter, checkingViewPermission, hasViewPermission, isAdmin]);
 
+  // Set up realtime subscription for tickets list
+  useEffect(() => {
+    // Don't subscribe if still checking permission or if user doesn't have permission
+    if (checkingViewPermission || !hasViewPermission || !user) {
+      return;
+    }
+
+    // Clean up previous subscription
+    if (ticketsSubscriptionRef.current) {
+      supabase.removeChannel(ticketsSubscriptionRef.current);
+      ticketsSubscriptionRef.current = null;
+    }
+
+    // Create a unique channel name
+    const channelName = `tickets-list-${user.id}-${Date.now()}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'support_tickets'
+        },
+        (payload) => {
+          console.log('New ticket created:', payload.new);
+          // Check if the new ticket matches current filters before adding
+          const newTicket = payload.new;
+          const filters = filtersRef.current;
+          const matchesFilters = () => {
+            // Apply status filter
+            if (filters.statusFilter !== 'all' && newTicket.status !== filters.statusFilter) {
+              return false;
+            }
+            // Apply priority filter
+            if (filters.priorityFilter !== 'all' && newTicket.priority !== filters.priorityFilter) {
+              return false;
+            }
+            // Apply search filter
+            if (filters.searchQuery) {
+              const searchLower = filters.searchQuery.toLowerCase();
+              const matchesSearch = 
+                newTicket.subject?.toLowerCase().includes(searchLower) ||
+                newTicket.ticket_number?.toLowerCase().includes(searchLower);
+              if (!matchesSearch) {
+                return false;
+              }
+            }
+            // For non-admins, only show their own tickets
+            if (!filters.isAdmin && newTicket.user_id !== filters.user?.id) {
+              return false;
+            }
+            return true;
+          };
+
+          if (matchesFilters()) {
+            // Add to the beginning of the list if it matches filters
+            setTickets(prev => {
+              // Check if ticket already exists (avoid duplicates)
+              const exists = prev.some(t => t.id === newTicket.id);
+              if (exists) return prev;
+              
+              // If we're on page 1, add it. Otherwise, just increment total count
+              if (filters.currentPage === 1) {
+                const updatedTickets = [newTicket, ...prev].slice(0, ticketsPerPage);
+                // Update total count and pages
+                // React will batch these updates
+                setTotalTickets(prevCount => prevCount + 1);
+                setTotalPages(prev => {
+                  const newTotal = prev * ticketsPerPage + 1;
+                  return Math.ceil(newTotal / ticketsPerPage);
+                });
+                return updatedTickets;
+              } else {
+                // Just increment the count, don't add to list
+                setTotalTickets(prevCount => prevCount + 1);
+                setTotalPages(prev => {
+                  const newTotal = prev * ticketsPerPage + 1;
+                  return Math.ceil(newTotal / ticketsPerPage);
+                });
+                return prev;
+              }
+            });
+            
+          // Refresh stats if admin
+          if (filters.isAdmin) {
+            fetchStats();
+          }
+            
+            // Show notification
+            toast.success(`New ticket: ${newTicket.subject || newTicket.ticket_number}`);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'support_tickets'
+        },
+        (payload) => {
+          console.log('Ticket updated:', payload.new);
+          const updatedTicket = payload.new;
+          const filters = filtersRef.current;
+          
+          // Check if ticket matches current filters
+          const matchesFilters = () => {
+            if (filters.statusFilter !== 'all' && updatedTicket.status !== filters.statusFilter) {
+              return false;
+            }
+            if (filters.priorityFilter !== 'all' && updatedTicket.priority !== filters.priorityFilter) {
+              return false;
+            }
+            if (filters.searchQuery) {
+              const searchLower = filters.searchQuery.toLowerCase();
+              const matchesSearch = 
+                updatedTicket.subject?.toLowerCase().includes(searchLower) ||
+                updatedTicket.ticket_number?.toLowerCase().includes(searchLower);
+              if (!matchesSearch) {
+                return false;
+              }
+            }
+            if (!filters.isAdmin && updatedTicket.user_id !== filters.user?.id) {
+              return false;
+            }
+            return true;
+          };
+
+          setTickets(prev => {
+            const ticketIndex = prev.findIndex(t => t.id === updatedTicket.id);
+            
+            // If ticket exists in current list
+            if (ticketIndex !== -1) {
+              // If it still matches filters, update it
+              if (matchesFilters()) {
+                const newTickets = [...prev];
+                newTickets[ticketIndex] = updatedTicket;
+                return newTickets;
+              } else {
+                // If it no longer matches filters, remove it
+                const newTickets = prev.filter(t => t.id !== updatedTicket.id);
+                setTotalTickets(prevCount => Math.max(0, prevCount - 1));
+                return newTickets;
+              }
+            } else {
+              // If ticket doesn't exist in current list but now matches filters, add it
+              if (matchesFilters() && filters.currentPage === 1) {
+                return [updatedTicket, ...prev].slice(0, ticketsPerPage);
+              }
+              return prev;
+            }
+          });
+
+          // Update selected ticket if it's the one being viewed (need to check current selectedTicket)
+          setSelectedTicket(prevSelected => {
+            if (prevSelected?.id === updatedTicket.id) {
+              return updatedTicket;
+            }
+            return prevSelected;
+          });
+
+          // Refresh stats if admin
+          if (filters.isAdmin) {
+            fetchStats();
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'support_tickets'
+        },
+        (payload) => {
+          console.log('Ticket deleted:', payload.old);
+          const deletedTicketId = payload.old.id;
+          
+          setTickets(prev => {
+            const ticketExists = prev.some(t => t.id === deletedTicketId);
+            if (ticketExists) {
+              const newTickets = prev.filter(t => t.id !== deletedTicketId);
+              setTotalTickets(prevCount => Math.max(0, prevCount - 1));
+              setTotalPages(prev => Math.max(1, Math.ceil((prev * ticketsPerPage - 1) / ticketsPerPage)));
+              return newTickets;
+            }
+            return prev;
+          });
+
+          // Close modal if the deleted ticket is being viewed
+          setSelectedTicket(prevSelected => {
+            if (prevSelected?.id === deletedTicketId) {
+              setShowTicketModal(false);
+              return null;
+            }
+            return prevSelected;
+          });
+
+          // Refresh stats if admin
+          const filters = filtersRef.current;
+          if (filters.isAdmin) {
+            fetchStats();
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Tickets subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to tickets realtime updates');
+          setIsRealtimeConnected(true);
+        } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT' || status === 'CHANNEL_ERROR') {
+          console.error('Tickets subscription error or closed:', status);
+          setIsRealtimeConnected(false);
+        } else if (status === 'CLOSED') {
+          setIsRealtimeConnected(false);
+        }
+      });
+
+    ticketsSubscriptionRef.current = channel;
+
+    // Cleanup function
+    return () => {
+      if (ticketsSubscriptionRef.current) {
+        setIsRealtimeConnected(false);
+        supabase.removeChannel(ticketsSubscriptionRef.current).then(() => {
+          console.log('Tickets channel removed');
+        });
+        ticketsSubscriptionRef.current = null;
+      }
+    };
+  }, [checkingViewPermission, hasViewPermission, user?.id, isAdmin]);
+
   const fetchTickets = async () => {
     try {
       setLoading(true);
@@ -252,6 +486,14 @@ const Customers = () => {
 
   const messagesEndRef = useRef(null);
   const subscriptionRef = useRef(null);
+  const ticketsSubscriptionRef = useRef(null);
+  // Refs for filters to avoid recreating subscriptions
+  const filtersRef = useRef({ statusFilter, priorityFilter, searchQuery, isAdmin, currentPage, user });
+  
+  // Update filters ref when they change
+  useEffect(() => {
+    filtersRef.current = { statusFilter, priorityFilter, searchQuery, isAdmin, currentPage, user };
+  }, [statusFilter, priorityFilter, searchQuery, isAdmin, currentPage, user]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -600,18 +842,50 @@ const Customers = () => {
   }
 
   return (
-    <div style={{ padding: '24px' }}>
-      {/* Header */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
+    <>
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      `}</style>
+      <div style={{ padding: '24px' }}>
+        {/* Header */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: '24px'
       }}>
         <div>
-          <h1 style={{ fontSize: '28px', fontWeight: '700', color: '#2c3e50', margin: 0 }}>
-            Customer Support
-          </h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <h1 style={{ fontSize: '28px', fontWeight: '700', color: '#2c3e50', margin: 0 }}>
+              Customer Support
+            </h1>
+            {/* Realtime Connection Status */}
+            <span style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 12px',
+              borderRadius: '20px',
+              fontSize: '12px',
+              fontWeight: '500',
+              backgroundColor: isRealtimeConnected ? '#d4edda' : '#f8d7da',
+              color: isRealtimeConnected ? '#28a745' : '#dc3545',
+              border: `1px solid ${isRealtimeConnected ? '#28a745' : '#dc3545'}20`
+            }}>
+              {isRealtimeConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
+              <span style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                backgroundColor: isRealtimeConnected ? '#28a745' : '#dc3545',
+                animation: isRealtimeConnected ? 'pulse 2s infinite' : 'none'
+              }} />
+              {isRealtimeConnected ? 'Live' : 'Disconnected'}
+            </span>
+          </div>
           {stats && (
             <div style={{ display: 'flex', gap: '16px', marginTop: '8px', fontSize: '14px', color: '#6c757d' }}>
               <span>Total: {stats.total}</span>
@@ -784,8 +1058,22 @@ const Customers = () => {
                     <td style={{ padding: '12px', color: '#212529', fontWeight: '600' }}>
                       {ticket.ticket_number}
                     </td>
-                    <td style={{ padding: '12px', color: '#212529' }}>
-                      {ticket.subject}
+                    <td style={{ padding: '12px', color: '#212529', position: 'relative' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {ticket.has_unread_messages && (
+                          <span style={{
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            backgroundColor: '#dc3545',
+                            display: 'inline-block',
+                            flexShrink: 0
+                          }} title="Unread messages" />
+                        )}
+                        <span style={{ fontWeight: ticket.has_unread_messages ? '600' : '400' }}>
+                          {ticket.subject}
+                        </span>
+                      </div>
                     </td>
                     <td style={{ padding: '12px', color: '#6c757d' }}>
                       {ticket.user_name || ticket.user_email}
@@ -1720,7 +2008,8 @@ const Customers = () => {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 };
 
