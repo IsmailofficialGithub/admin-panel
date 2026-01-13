@@ -72,6 +72,8 @@ const Customers = () => {
     attachments: [],
     user_id: '' // User for whom the ticket is being created (on behalf of)
   });
+  const [customCategory, setCustomCategory] = useState('');
+  const [showCustomCategoryInput, setShowCustomCategoryInput] = useState(false);
   const [creatingTicket, setCreatingTicket] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [userSearchResults, setUserSearchResults] = useState([]);
@@ -723,6 +725,8 @@ const Customers = () => {
         attachments: [],
         user_id: ''
       });
+      setCustomCategory('');
+      setShowCustomCategoryInput(false);
       setSelectedFiles([]);
       setSelectedUserForTicket(null);
       setUserSearchQuery('');
@@ -1235,6 +1239,8 @@ const Customers = () => {
                     attachments: [],
                     user_id: ''
                   });
+                  setCustomCategory('');
+                  setShowCustomCategoryInput(false);
                   setSelectedFiles([]);
                   setSelectedUserForTicket(null);
                   setUserSearchQuery('');
@@ -1296,19 +1302,57 @@ const Customers = () => {
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#495057' }}>
                   Category
                 </label>
-                <input
-                  type="text"
-                  value={createFormData.category}
-                  onChange={(e) => setCreateFormData({ ...createFormData, category: e.target.value })}
-                  placeholder="e.g., Technical, Billing"
+                <select
+                  value={showCustomCategoryInput ? 'other' : createFormData.category}
+                  onChange={(e) => {
+                    const selectedValue = e.target.value;
+                    if (selectedValue === 'other') {
+                      setShowCustomCategoryInput(true);
+                      setCustomCategory('');
+                      setCreateFormData({ ...createFormData, category: '' });
+                    } else {
+                      setShowCustomCategoryInput(false);
+                      setCustomCategory('');
+                      setCreateFormData({ ...createFormData, category: selectedValue });
+                    }
+                  }}
                   style={{
                     width: '100%',
                     padding: '12px',
                     border: '1px solid #ddd',
                     borderRadius: '8px',
-                    fontSize: '14px'
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    marginBottom: showCustomCategoryInput ? '8px' : '0'
                   }}
-                />
+                >
+                  <option value="">Select a category</option>
+                  <option value="general">General</option>
+                  <option value="technical">Technical</option>
+                  <option value="billing">Billing</option>
+                  <option value="feature_request">Feature Request</option>
+                  <option value="bug_report">Bug Report</option>
+                  <option value="other">Other (Custom)</option>
+                </select>
+                {showCustomCategoryInput && (
+                  <input
+                    type="text"
+                    value={customCategory}
+                    onChange={(e) => {
+                      setCustomCategory(e.target.value);
+                      setCreateFormData({ ...createFormData, category: e.target.value.trim() });
+                    }}
+                    placeholder="Enter custom category"
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      border: '1px solid #ddd',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      marginTop: '8px'
+                    }}
+                  />
+                )}
               </div>
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#495057' }}>
@@ -1547,6 +1591,8 @@ const Customers = () => {
                     attachments: [],
                     user_id: ''
                   });
+                  setCustomCategory('');
+                  setShowCustomCategoryInput(false);
                   setSelectedFiles([]);
                   setSelectedUserForTicket(null);
                   setUserSearchQuery('');
