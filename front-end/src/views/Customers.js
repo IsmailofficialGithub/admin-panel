@@ -4,7 +4,7 @@ import {
   MessageSquare, Search, Filter, Plus, Eye, MoreVertical, 
   Send, Paperclip, X, CheckCircle, Clock, AlertCircle, 
   User, Calendar, Tag, ChevronLeft, ChevronRight, FileText,
-  Download, Image as ImageIcon, Wifi, WifiOff
+  Download, Image as ImageIcon, Wifi, WifiOff, Check
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { 
@@ -83,6 +83,7 @@ const Customers = () => {
   
   // Status update state (admin only)
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [selectedStatusValue, setSelectedStatusValue] = useState('');
   const [statusUpdateData, setStatusUpdateData] = useState({
     status: '',
     priority: '',
@@ -513,6 +514,7 @@ const Customers = () => {
 
   const handleViewTicket = async (ticket) => {
     setSelectedTicket(ticket);
+    setSelectedStatusValue('');
     setShowTicketModal(true);
     await fetchTicketDetails(ticket.id);
     
@@ -589,8 +591,14 @@ const Customers = () => {
         console.log('Channel removed on modal close');
       });
       subscriptionRef.current = null;
+      setSelectedStatusValue('');
     }
   }, [showTicketModal]);
+
+  // Reset selected status when ticket changes
+  useEffect(() => {
+    setSelectedStatusValue('');
+  }, [selectedTicket?.id]);
 
   const handleFileSelect = (e) => {
     const files = Array.from(e.target.files);
@@ -758,6 +766,37 @@ const Customers = () => {
       if (isAdmin) await fetchStats();
     } catch (err) {
       toast.error('Failed to update ticket');
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
+  const handleStatusChange = async () => {
+    if (!selectedTicket) return;
+
+    // Check permission before updating status
+    if (!permissions.update) {
+      toast.error('You do not have permission to update ticket status.');
+      return;
+    }
+
+    // Don't update if status hasn't changed
+    if (!selectedStatusValue || selectedTicket.status === selectedStatusValue) {
+      setSelectedStatusValue('');
+      return;
+    }
+
+    setUpdatingStatus(true);
+    try {
+      await updateTicketStatus(selectedTicket.id, { status: selectedStatusValue });
+      toast.success('Ticket status updated successfully');
+      setSelectedStatusValue('');
+      await fetchTicketDetails(selectedTicket.id);
+      await fetchTickets();
+      if (isAdmin) await fetchStats();
+    } catch (err) {
+      console.error('Error updating ticket status:', err);
+      toast.error('Failed to update ticket status');
     } finally {
       setUpdatingStatus(false);
     }
@@ -1695,6 +1734,7 @@ const Customers = () => {
                 onClick={() => {
                   setShowTicketModal(false);
                   setSelectedTicket(null);
+                  setSelectedStatusValue('');
                   setTicketMessages([]);
                   setTicketAttachments([]);
                   setNewMessage('');
@@ -2061,6 +2101,55 @@ const Customers = () => {
                   >
                     <Paperclip size={18} color="#6c757d" />
                   </label>
+                  {isAdmin && (
+                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      <select
+                        value={selectedStatusValue || selectedTicket?.status || ''}
+                        onChange={(e) => setSelectedStatusValue(e.target.value)}
+                        disabled={updatingStatus}
+                        style={{
+                          padding: '10px 12px',
+                          border: '1px solid #ddd',
+                          borderRadius: '8px',
+                          fontSize: '14px',
+                          cursor: updatingStatus ? 'not-allowed' : 'pointer',
+                          backgroundColor: 'white',
+                          color: '#495057',
+                          fontWeight: '500',
+                          minWidth: '140px',
+                          opacity: updatingStatus ? 0.6 : 1
+                        }}
+                      >
+                        <option value="open">Open</option>
+                        <option value="pending">Pending</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="resolved">Resolved</option>
+                        <option value="closed">Closed</option>
+                      </select>
+                      {selectedStatusValue && selectedStatusValue !== selectedTicket?.status && (
+                        <button
+                          onClick={handleStatusChange}
+                          disabled={updatingStatus}
+                          style={{
+                            padding: '8px',
+                            border: 'none',
+                            borderRadius: '6px',
+                            backgroundColor: '#28a745',
+                            color: 'white',
+                            cursor: updatingStatus ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            opacity: updatingStatus ? 0.6 : 1,
+                            transition: 'opacity 0.2s'
+                          }}
+                          title="Confirm status change"
+                        >
+                          <Check size={16} />
+                        </button>
+                      )}
+                    </div>
+                  )}
                   <button
                     onClick={handleSendMessage}
                     disabled={sendingMessage || uploadingFiles || (!newMessage.trim() && selectedFiles.length === 0)}
