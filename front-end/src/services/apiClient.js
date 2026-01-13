@@ -194,6 +194,33 @@ axiosInstance.interceptors.response.use(
       console.error('❌ API Error:', error.response?.status, error.config?.url);
     }
 
+    // Handle 401 Unauthorized errors (any authentication error - redirect to login without toast)
+    if (error.response?.status === 401) {
+      // Sign out and clear storage
+      try {
+        await supabase.auth.signOut();
+      } catch (signOutError) {
+        // Ignore sign out errors
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 200));
+      localStorage.clear();
+      sessionStorage.clear();
+
+      // Clear cookies
+      document.cookie.split(";").forEach((c) => {
+        const cookieName = c.split("=")[0].trim();
+        document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=${window.location.hostname};`;
+        document.cookie = `${cookieName}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+      });
+
+      // Redirect to login immediately (no toast will be shown)
+      window.location.href = '/login';
+      
+      // Return a rejected promise that never resolves (prevents error propagation)
+      return Promise.reject(new Error('Authentication required - redirecting to login'));
+    }
+
     // Handle 403 Forbidden errors (account deactivated)
     if (error.response?.status === 403) {
       const errorMessage = error.response?.data?.message || '';
