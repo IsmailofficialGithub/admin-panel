@@ -11,7 +11,7 @@ import {
   handleApiError,
 } from '../../utils/apiOptimization.js';
 import { cacheService } from '../../config/redis.js';
-import { sendTicketCreatedEmail, sendTicketCreatedAdminNotification } from '../../services/emailService.js';
+import { sendTicketCreatedEmail, sendTicketCreatedAdminNotification, sendTicketReplyEmail } from '../../services/emailService.js';
 
 /**
  * Generate unique ticket number
@@ -603,6 +603,21 @@ export const createPublicTicket = async (req, res) => {
               // Don't fail the request if system message creation fails
             } else {
               console.log("✅ Webhook system message created successfully");
+              
+              // Send email notification for the webhook system message
+              if (email && ticket) {
+                sendTicketReplyEmail({
+                  email: email,
+                  full_name: name || email.split('@')[0],
+                  ticket_number: ticket.ticket_number,
+                  admin_name: "DNAI Customer Success Team",
+                  message: webhookData.output,
+                  attachments: [],
+                  ticket_id: ticket.id,
+                }).catch(emailError => {
+                  console.warn('⚠️ Failed to send webhook reply email to user:', emailError?.message);
+                });
+              }
             }
           } catch (systemMessageError) {
             console.error("❌ Exception creating webhook system message:", systemMessageError);
