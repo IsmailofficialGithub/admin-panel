@@ -1342,7 +1342,7 @@ const Customers = () => {
                   Category
                 </label>
                 <select
-                  value={showCustomCategoryInput ? 'other' : createFormData.category}
+                  value={showCustomCategoryInput ? 'other' : (createFormData.category || '')}
                   onChange={(e) => {
                     const selectedValue = e.target.value;
                     if (selectedValue === 'other') {
@@ -1355,6 +1355,12 @@ const Customers = () => {
                       setCreateFormData({ ...createFormData, category: selectedValue });
                     }
                   }}
+                  onKeyDown={(e) => {
+                    // Prevent typing in select - only allow arrow keys and enter
+                    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                      e.preventDefault();
+                    }
+                  }}
                   style={{
                     width: '100%',
                     padding: '12px',
@@ -1362,7 +1368,10 @@ const Customers = () => {
                     borderRadius: '8px',
                     fontSize: '14px',
                     cursor: 'pointer',
-                    marginBottom: showCustomCategoryInput ? '8px' : '0'
+                    marginBottom: showCustomCategoryInput ? '8px' : '0',
+                    WebkitAppearance: 'menulist',
+                    MozAppearance: 'menulist',
+                    appearance: 'menulist'
                   }}
                 >
                   <option value="">Select a category</option>
@@ -1378,10 +1387,12 @@ const Customers = () => {
                     type="text"
                     value={customCategory}
                     onChange={(e) => {
-                      setCustomCategory(e.target.value);
-                      setCreateFormData({ ...createFormData, category: e.target.value.trim() });
+                      const customValue = e.target.value;
+                      setCustomCategory(customValue);
+                      setCreateFormData({ ...createFormData, category: customValue.trim() });
                     }}
                     placeholder="Enter custom category"
+                    autoFocus
                     style={{
                       width: '100%',
                       padding: '12px',

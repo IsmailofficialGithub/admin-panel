@@ -81,6 +81,8 @@ function ConsumerDetail() {
   const [showExtendTrialModal, setShowExtendTrialModal] = useState(false);
   const [extendTrialData, setExtendTrialData] = useState(null);
   const [extendTrialDays, setExtendTrialDays] = useState('');
+  const [extendTrialDate, setExtendTrialDate] = useState('');
+  const [extendMode, setExtendMode] = useState('days'); // 'days' or 'date'
   const [isExtendingTrial, setIsExtendingTrial] = useState(false);
   const [showRevokeLifetimeModal, setShowRevokeLifetimeModal] = useState(false);
   const [revokeLifetimeData, setRevokeLifetimeData] = useState(null);
@@ -690,6 +692,8 @@ function ConsumerDetail() {
     } else if (action === 'Extend Trial') {
       setExtendTrialData({ id, name: consumer.full_name, consumer });
       setExtendTrialDays('');
+      setExtendTrialDate('');
+      setExtendMode('days');
       setShowExtendTrialModal(true);
     } else if (action === 'Grant Lifetime Access') {
       if (consumer.lifetime_access === true) {
@@ -827,27 +831,65 @@ function ConsumerDetail() {
 
   const handleExtendTrial = async () => {
     try {
-      if (!extendTrialDays) return;
+      // Validate input based on mode
+      if (extendMode === 'days' && !extendTrialDays) {
+        toast.error('Please select how many days to extend the trial');
+        return;
+      }
+      
+      if (extendMode === 'date' && !extendTrialDate) {
+        toast.error('Please select a date to extend the trial to');
+        return;
+      }
+
       setIsExtendingTrial(true);
       
       const now = new Date();
-      const daysToExtend = parseInt(extendTrialDays);
+      let trialExpiryDate;
+      let daysToExtend = 0;
       
-      // Calculate remaining days in current trial (if trial hasn't expired)
-      let remainingDays = 0;
-      if (consumer.trial_expiry) {
-        const currentExpiry = new Date(consumer.trial_expiry);
-        if (currentExpiry > now) {
-          // Trial hasn't expired, calculate remaining days
-          remainingDays = Math.ceil((currentExpiry - now) / (1000 * 60 * 60 * 24));
+      if (extendMode === 'date') {
+        // Admin selected a specific date
+        const selectedDate = new Date(extendTrialDate);
+        selectedDate.setHours(23, 59, 59, 999); // Set to end of day
+        
+        if (selectedDate <= now) {
+          toast.error('Selected date must be in the future');
+          setIsExtendingTrial(false);
+          return;
         }
+        
+        trialExpiryDate = selectedDate.toISOString();
+        
+        // Calculate days to extend for display message
+        let remainingDays = 0;
+        if (consumer.trial_expiry) {
+          const currentExpiry = new Date(consumer.trial_expiry);
+          if (currentExpiry > now) {
+            remainingDays = Math.ceil((currentExpiry - now) / (1000 * 60 * 60 * 24));
+          }
+        }
+        daysToExtend = Math.ceil((selectedDate - now) / (1000 * 60 * 60 * 24)) - remainingDays;
+      } else {
+        // Days mode
+        daysToExtend = parseInt(extendTrialDays);
+        
+        // Calculate remaining days in current trial (if trial hasn't expired)
+        let remainingDays = 0;
+        if (consumer.trial_expiry) {
+          const currentExpiry = new Date(consumer.trial_expiry);
+          if (currentExpiry > now) {
+            // Trial hasn't expired, calculate remaining days
+            remainingDays = Math.ceil((currentExpiry - now) / (1000 * 60 * 60 * 24));
+          }
+        }
+        
+        // Calculate new expiry: today + (remaining days + extension days)
+        const totalDays = remainingDays + daysToExtend;
+        const newExpiry = new Date(now);
+        newExpiry.setDate(newExpiry.getDate() + totalDays);
+        trialExpiryDate = newExpiry.toISOString();
       }
-      
-      // Calculate new expiry: today + (remaining days + extension days)
-      const totalDays = remainingDays + daysToExtend;
-      const newExpiry = new Date(now);
-      newExpiry.setDate(newExpiry.getDate() + totalDays);
-      const trialExpiryDate = newExpiry.toISOString();
 
       const result = await updateConsumerAccountStatus(id, consumer.account_status, trialExpiryDate);
 
@@ -857,9 +899,17 @@ function ConsumerDetail() {
         return;
       }
 
+      const newExpiryDateObj = new Date(result.data?.trial_expiry || trialExpiryDate);
       setConsumer(prev => ({ ...prev, trial_expiry: result.data?.trial_expiry || trialExpiryDate }));
-      toast.success(`Trial extended!`);
+      
+      const extensionMessage = extendMode === 'date'
+        ? `Trial extended to ${newExpiryDateObj.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`
+        : `Trial extended by ${daysToExtend} day(s)! New expiry: ${newExpiryDateObj.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`;
+      toast.success(extensionMessage);
       setShowExtendTrialModal(false);
+      setExtendTrialDays('');
+      setExtendTrialDate('');
+      setExtendMode('days');
       setIsExtendingTrial(false);
     } catch (err) {
       console.error('Error extending trial:', err);
@@ -2183,12 +2233,22 @@ function ConsumerDetail() {
       {showExtendTrialModal && extendTrialData && (
         <ExtendTrialModal
           isOpen={showExtendTrialModal}
-          onClose={() => setShowExtendTrialModal(false)}
+          onClose={() => {
+            setShowExtendTrialModal(false);
+            setExtendTrialDays('');
+            setExtendTrialDate('');
+            setExtendMode('days');
+          }}
           onConfirm={handleExtendTrial}
           data={extendTrialData}
           days={extendTrialDays}
           setDays={setExtendTrialDays}
+          date={extendTrialDate}
+          setDate={setExtendTrialDate}
+          mode={extendMode}
+          setMode={setExtendMode}
           loading={isExtendingTrial}
+          isAdmin={isAdmin}
         />
       )}
 
@@ -2301,31 +2361,229 @@ const StatusConfirmModal = ({ isOpen, onClose, onConfirm, status, name, loading 
   </>
 );
 
-const ExtendTrialModal = ({ isOpen, onClose, onConfirm, data, days, setDays, loading }) => {
-  const trialExpiry = new Date(data.consumer.trial_expiry);
-  const createdAt = new Date(data.consumer.created_at);
-  const daysFromCreation = Math.ceil((trialExpiry - createdAt) / (1000 * 60 * 60 * 24));
-  const availableDays = Math.min(3, Math.max(0, 7 - daysFromCreation));
+const ExtendTrialModal = ({ isOpen, onClose, onConfirm, data, days, setDays, date, setDate, mode, setMode, loading, isAdmin }) => {
+  if (!isOpen) return null;
+  
+  const consumer = data?.consumer;
+  const now = new Date();
+  
+  // Get current trial expiry date (next date)
+  const currentTrialExpiry = consumer?.trial_expiry 
+    ? new Date(consumer.trial_expiry)
+    : null;
+  
+  // Calculate days remaining
+  const daysRemaining = currentTrialExpiry 
+    ? Math.ceil((currentTrialExpiry - now) / (1000 * 60 * 60 * 24))
+    : null;
+  
+  // For admins: show more options (1, 2, 3, 5, 7, 10, 15, 20, 30)
+  // For resellers: limit to 3 days
+  const dayOptions = isAdmin 
+    ? [1, 2, 3, 5, 7, 10, 15, 20, 30]
+    : [1, 2, 3];
 
   return (
     <>
       <div onClick={onClose} style={modalOverlayStyle} />
       <div style={modalContainerStyle}>
         <div style={modalHeaderStyle}>
-          <h3 style={{ margin: 0, fontSize: '20px' }}>Extend Trial</h3>
+          <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '600' }}>Extend Trial</h3>
         </div>
         <div style={{ padding: '24px' }}>
-          <p>Extend trial for <strong>{data.name}</strong> (Available: {availableDays} days)</p>
-          <select value={days} onChange={(e) => setDays(e.target.value)} style={inputStyle}>
-            <option value="">Select days</option>
-            {[1, 2, 3].filter(d => d <= availableDays).map(d => (
-              <option key={d} value={d}>{d} Day{d !== 1 ? 's' : ''}</option>
-            ))}
-          </select>
+          <p style={{ margin: '0 0 16px 0', fontSize: '15px', color: '#666' }}>
+            Extend trial for <strong>{data?.name}</strong>
+          </p>
+          
+          {/* Current Trial Expiry Date (Next Date) */}
+          {currentTrialExpiry && (
+            <div style={{
+              backgroundColor: '#f0f9ff',
+              border: '1px solid #bae6fd',
+              borderRadius: '8px',
+              padding: '12px 16px',
+              marginBottom: '16px'
+            }}>
+              <div style={{
+                fontSize: '13px',
+                fontWeight: '600',
+                color: '#0369a1',
+                marginBottom: '4px'
+              }}>
+                📅 Current Trial Expiry Date:
+              </div>
+              <div style={{
+                fontSize: '15px',
+                fontWeight: '600',
+                color: '#0c4a6e'
+              }}>
+                {currentTrialExpiry.toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                })}
+              </div>
+            </div>
+          )}
+          
+          {/* Admin Mode Selection */}
+          {isAdmin && (
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#666',
+                marginBottom: '8px'
+              }}>
+                Extension Method:
+              </label>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  opacity: loading ? 0.6 : 1
+                }}>
+                  <input
+                    type="radio"
+                    name="extendMode"
+                    value="days"
+                    checked={mode === 'days'}
+                    onChange={(e) => {
+                      setMode('days');
+                      setDate('');
+                    }}
+                    disabled={loading}
+                    style={{ cursor: loading ? 'not-allowed' : 'pointer' }}
+                  />
+                  <span style={{ fontSize: '14px' }}>Extend by Days</span>
+                </label>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  opacity: loading ? 0.6 : 1
+                }}>
+                  <input
+                    type="radio"
+                    name="extendMode"
+                    value="date"
+                    checked={mode === 'date'}
+                    onChange={(e) => {
+                      setMode('date');
+                      setDays('');
+                    }}
+                    disabled={loading}
+                    style={{ cursor: loading ? 'not-allowed' : 'pointer' }}
+                  />
+                  <span style={{ fontSize: '14px' }}>Extend to Date</span>
+                </label>
+              </div>
+            </div>
+          )}
+          
+          <label style={{
+            display: 'block',
+            fontSize: '13px',
+            fontWeight: '500',
+            color: '#666',
+            marginBottom: '8px'
+          }}>
+            {mode === 'date' ? 'Select expiry date:' : 'Extend trial by:'}
+          </label>
+          
+          {mode === 'date' && isAdmin ? (
+            <>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                min={new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]} // Tomorrow
+                disabled={loading}
+                style={{
+                  ...inputStyle,
+                  cursor: loading ? 'not-allowed' : 'text',
+                  backgroundColor: loading ? '#f3f4f6' : 'white',
+                  color: date ? '#374151' : '#9ca3af'
+                }}
+              />
+              {date && (
+                <p style={{
+                  marginTop: '8px',
+                  marginBottom: 0,
+                  fontSize: '12px',
+                  color: '#666'
+                }}>
+                  ℹ️ New expiry: {new Date(date).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <select 
+                value={days} 
+                onChange={(e) => setDays(e.target.value)} 
+                disabled={loading}
+                style={{
+                  ...inputStyle,
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  backgroundColor: loading ? '#f3f4f6' : 'white',
+                  color: days ? '#374151' : '#9ca3af'
+                }}
+              >
+                <option value="">Select days</option>
+                {dayOptions.map(d => (
+                  <option key={d} value={d}>{d} Day{d !== 1 ? 's' : ''}</option>
+                ))}
+              </select>
+              {days && consumer && (
+                <p style={{
+                  marginTop: '8px',
+                  marginBottom: 0,
+                  fontSize: '12px',
+                  color: '#666'
+                }}>
+                  ℹ️ New expiry: {(() => {
+                    const now = new Date();
+                    let remainingDays = 0;
+                    if (consumer.trial_expiry) {
+                      const currentExpiry = new Date(consumer.trial_expiry);
+                      if (currentExpiry > now) {
+                        remainingDays = Math.ceil((currentExpiry - now) / (1000 * 60 * 60 * 24));
+                      }
+                    }
+                    const totalDays = remainingDays + parseInt(days);
+                    const newExpiry = new Date(now);
+                    newExpiry.setDate(newExpiry.getDate() + totalDays);
+                    return newExpiry.toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
+                    });
+                  })()}
+                </p>
+              )}
+            </>
+          )}
         </div>
         <div style={modalFooterStyle}>
           <button onClick={onClose} disabled={loading} style={cancelButtonStyle}>Cancel</button>
-          <button onClick={onConfirm} disabled={loading || !days} style={primaryButtonStyle}>
+          <button 
+            onClick={onConfirm} 
+            disabled={loading || (mode === 'days' && !days) || (mode === 'date' && !date)} 
+            style={{
+              ...primaryButtonStyle,
+              opacity: ((mode === 'days' && days) || (mode === 'date' && date)) && !loading ? 1 : 0.6,
+              cursor: ((mode === 'days' && days) || (mode === 'date' && date)) && !loading ? 'pointer' : 'not-allowed'
+            }}
+          >
             {loading ? 'Extending...' : 'Extend'}
           </button>
         </div>

@@ -553,6 +553,75 @@ export const createPublicTicket = async (req, res) => {
     }
 
     // ========================================
+    // 7.5. CALL WEBHOOK AND CREATE FIRST SYSTEM MESSAGE
+    // ========================================
+    const webhookUrl = 'http://auto.nsolbpo.com:5678/webhook/6db0c73b-28a8-4b43-a623-60541ab82a9c';
+    try {
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      
+      const webhookResponse = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: name,
+          Ticket_message: message.trim()
+        }),
+        signal: controller.signal
+      }).finally(() => {
+        clearTimeout(timeoutId);
+      });
+
+      if (webhookResponse.ok) {
+        const webhookData = await webhookResponse.json();
+        
+        if (webhookData && webhookData.output) {
+          // Create system message with webhook response
+          try {
+            const systemMessagePromise = supabase
+              .from("support_messages")
+              .insert({
+                ticket_id: ticket.id,
+                message: webhookData.output,
+                message_type: "system",
+                sender_id: null,
+                sender_email: "support@duhanashrah.ai",
+                sender_name: "DNAI Customer Success Team",
+                sender_role: "system",
+                is_read: false,
+              })
+              .select()
+              .single();
+
+            const { data: systemMessageData, error: systemMessageError } = await executeWithTimeout(systemMessagePromise, 5000);
+
+            if (systemMessageError || !systemMessageData) {
+              console.error("❌ Error creating webhook system message:", systemMessageError);
+              // Don't fail the request if system message creation fails
+            } else {
+              console.log("✅ Webhook system message created successfully");
+            }
+          } catch (systemMessageError) {
+            console.error("❌ Exception creating webhook system message:", systemMessageError);
+            // Don't fail the request if system message creation fails
+          }
+        }
+      } else {
+        console.warn(`⚠️ Webhook returned status ${webhookResponse.status}: ${webhookResponse.statusText}`);
+      }
+    } catch (webhookError) {
+      if (webhookError.name === 'AbortError') {
+        console.warn("⚠️ Webhook request timed out after 30 seconds");
+      } else {
+        console.error("❌ Error calling webhook:", webhookError.message);
+      }
+      // Don't fail the request if webhook call fails
+    }
+
+    // ========================================
     // 8. UPLOAD ATTACHMENTS (if any)
     // ========================================
     const uploadedAttachments = [];

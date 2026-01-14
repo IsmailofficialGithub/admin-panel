@@ -1,15 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Mail, Shield, Calendar, Globe, MapPin, Phone, ChevronDown, Tag } from 'lucide-react';
+import { X, User, Mail, Shield, Calendar, Globe, MapPin, Phone, ChevronDown, Tag, Users, Package } from 'lucide-react';
 import { countries, searchCountries } from '../../utils/countryData';
+import { getResellers, getProducts } from '../../api/backend';
+import { getAllVapiAccounts } from '../../api/backend/vapi';
+import { useAuth } from '../../hooks/useAuth';
+import { hasRole } from '../../utils/roleUtils';
 
 const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
+  const { profile } = useAuth();
   const [formData, setFormData] = useState({
     name: '',
     roles: ['user'], // Default to user role
     country: '',
     city: '',
     phone: '',
-    nickname: ''
+    nickname: '',
+    subscribed_products: [],
+    referred_by: '',
+    trial_expiry_date: ''
   });
 
   // Available roles for user form
@@ -22,10 +30,144 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
     { value: 'support', label: 'Support' }
   ];
 
+  // Check if consumer role is selected
+  const isConsumerSelected = formData.roles?.includes('consumer') || false;
+
   const [countrySearch, setCountrySearch] = useState('');
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState(null);
   const [errors, setErrors] = useState({});
+  
+  // Consumer-specific state
+  const [products, setProducts] = useState([]);
+  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [showProductsDropdown, setShowProductsDropdown] = useState(false);
+  const [resellers, setResellers] = useState([]);
+  const [loadingResellers, setLoadingResellers] = useState(false);
+  const [resellerSearchTerm, setResellerSearchTerm] = useState('');
+  const [showResellerSuggestions, setShowResellerSuggestions] = useState(false);
+  const [selectedReseller, setSelectedReseller] = useState(null);
+  
+  // Product settings state
+  const [productSettings, setProductSettings] = useState({});
+  const [vapiAccounts, setVapiAccounts] = useState([]);
+  const [loadingVapiAccounts, setLoadingVapiAccounts] = useState(false);
+  
+  // Check if genie product is selected
+  const isGenieProductSelected = formData.subscribed_products.some(productId => {
+    const product = products.find(p => p.id === productId || p.product_id === productId);
+    return product && product.name && product.name.toLowerCase() === 'genie';
+  });
+
+  // Check if beeba product is selected
+  const isBeebaProductSelected = formData.subscribed_products.some(productId => {
+    const product = products.find(p => p.id === productId || p.product_id === productId);
+    return product && product.name && product.name.toLowerCase() === 'beeba';
+  });
+
+  // Check if user is admin or superadmin (only they can see Genie and Beeba Product Settings)
+  const isAdmin = hasRole(profile?.role, 'admin');
+  const isSuperAdmin = profile?.is_systemadmin === true;
+  const canViewGenieSettings = isAdmin || isSuperAdmin;
+  const canViewBeebaSettings = isAdmin || isSuperAdmin;
+
+  // Fetch products and VAPI accounts when modal opens and consumer is selected
+  useEffect(() => {
+    if (isOpen && isConsumerSelected) {
+      const fetchProducts = async () => {
+        setLoadingProducts(true);
+        try {
+          const result = await getProducts();
+          if (result && result.success && result.data && Array.isArray(result.data)) {
+            setProducts(result.data);
+          } else if (result && result.error) {
+            console.error('Error from getProducts:', result.error);
+          }
+        } catch (error) {
+          console.error('Error fetching products:', error);
+        } finally {
+          setLoadingProducts(false);
+        }
+      };
+      
+      const fetchVapiAccounts = async () => {
+        setLoadingVapiAccounts(true);
+        try {
+          const result = await getAllVapiAccounts();
+          if (result && result.success && result.data && Array.isArray(result.data)) {
+            setVapiAccounts(result.data);
+          } else if (result && result.error) {
+            console.error('Error from getAllVapiAccounts:', result.error);
+          }
+        } catch (error) {
+          console.error('Error fetching VAPI accounts:', error);
+        } finally {
+          setLoadingVapiAccounts(false);
+        }
+      };
+      
+      fetchProducts();
+      fetchVapiAccounts();
+    }
+  }, [isOpen, isConsumerSelected]);
+
+  // Search resellers when user types 2+ characters
+  useEffect(() => {
+    if (isConsumerSelected && resellerSearchTerm.length >= 2) {
+      const fetchResellers = async () => {
+        setLoadingResellers(true);
+        try {
+          const result = await getResellers({ search: resellerSearchTerm });
+          if (result && !result.error) {
+            let resellersList = [];
+            if (Array.isArray(result)) {
+              resellersList = result;
+            } else if (result.data && Array.isArray(result.data)) {
+              resellersList = result.data;
+            } else if (result.success && Array.isArray(result.data)) {
+              resellersList = result.data;
+            }
+            setResellers(resellersList);
+          } else {
+            setResellers([]);
+          }
+        } catch (error) {
+          console.error('Error fetching resellers:', error);
+          setResellers([]);
+        } finally {
+          setLoadingResellers(false);
+        }
+      };
+      
+      const debounceTimer = setTimeout(() => {
+        fetchResellers();
+      }, 300);
+      
+      return () => clearTimeout(debounceTimer);
+    } else {
+      setResellers([]);
+      setShowResellerSuggestions(false);
+    }
+  }, [resellerSearchTerm, isConsumerSelected]);
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showResellerSuggestions && !event.target.closest('.reseller-search-container')) {
+        setShowResellerSuggestions(false);
+      }
+      if (showProductsDropdown && !event.target.closest('.products-dropdown-container')) {
+        setShowProductsDropdown(false);
+      }
+    };
+    
+    if (showResellerSuggestions || showProductsDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [showResellerSuggestions, showProductsDropdown]);
 
   useEffect(() => {
     if (user) {
@@ -41,7 +183,10 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
         country: user.country || '',
         city: user.city || '',
         phone: '',
-        nickname: user.nickname || ''
+        nickname: user.nickname || '',
+        subscribed_products: user.subscribed_products || [],
+        referred_by: user.referred_by || '',
+        trial_expiry_date: user.trial_expiry ? new Date(user.trial_expiry).toISOString().split('T')[0] : ''
       });
       
       // If user has a country, find and set it
@@ -73,6 +218,27 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
         if (user.phone) {
           setFormData(prev => ({ ...prev, phone: String(user.phone).trim() }));
         }
+      }
+      
+      // Load reseller if referred_by exists
+      if (user.referred_by) {
+        // Try to find reseller in user data or fetch it
+        if (user.referred_by_name && user.referred_by_email) {
+          setSelectedReseller({
+            user_id: user.referred_by,
+            full_name: user.referred_by_name,
+            email: user.referred_by_email
+          });
+        }
+      } else {
+        setSelectedReseller(null);
+      }
+      
+      // Load product settings if they exist
+      if (user.productSettings && typeof user.productSettings === 'object') {
+        setProductSettings(user.productSettings);
+      } else if (user.product_settings && typeof user.product_settings === 'object') {
+        setProductSettings(user.product_settings);
       }
       
       setCountrySearch('');
@@ -137,9 +303,19 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
         newRoles = [...currentRoles, roleValue];
       }
       
+      // If consumer role is removed, clear consumer-specific fields
+      const wasConsumer = currentRoles.includes('consumer');
+      const isNowConsumer = newRoles.includes('consumer');
+      
       return {
         ...prev,
-        roles: newRoles
+        roles: newRoles,
+        // Clear consumer-specific fields if consumer role is removed
+        ...(wasConsumer && !isNowConsumer ? {
+          referred_by: '',
+          subscribed_products: [],
+          trial_expiry_date: ''
+        } : {})
       };
     });
     
@@ -147,6 +323,117 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
     if (errors.roles) {
       setErrors(prev => ({ ...prev, roles: '' }));
     }
+  };
+
+  // Handle product selection
+  const handleProductToggle = (productId) => {
+    // Clear products error when user makes a selection
+    if (errors.subscribed_products) {
+      setErrors(prev => ({
+        ...prev,
+        subscribed_products: ''
+      }));
+    }
+    
+    const isSelected = formData.subscribed_products.includes(productId);
+    const product = products.find(p => p.id === productId || p.product_id === productId);
+    const productName = product?.name?.toLowerCase();
+    
+    setFormData(prev => ({
+      ...prev,
+      subscribed_products: isSelected
+        ? prev.subscribed_products.filter(id => id !== productId)
+        : [...prev.subscribed_products, productId]
+    }));
+    
+    // If removing genie product, clear its settings
+    if (isSelected && productName === 'genie') {
+      setProductSettings(prevSettings => {
+        const newSettings = { ...prevSettings };
+        delete newSettings[productId];
+        return newSettings;
+      });
+    }
+    
+    // If removing beeba product, clear its settings
+    if (isSelected && productName === 'beeba') {
+      setProductSettings(prevSettings => {
+        const newSettings = { ...prevSettings };
+        delete newSettings[productId];
+        return newSettings;
+      });
+    }
+    
+    // If adding genie product, initialize with default values
+    if (!isSelected && productName === 'genie') {
+      setProductSettings(prevSettings => {
+        if (!prevSettings[productId]) {
+          return {
+            ...prevSettings,
+            [productId]: {
+              list_limit: 1,
+              agent_number: 3,
+              vapi_account: 1,
+              duration_limit: 60,
+              concurrency_limit: 1
+            }
+          };
+        }
+        return prevSettings;
+      });
+    }
+    
+    // If adding beeba product, initialize with default values
+    if (!isSelected && productName === 'beeba') {
+      setProductSettings(prevSettings => {
+        if (!prevSettings[productId]) {
+          return {
+            ...prevSettings,
+            [productId]: {
+              posts: 10,
+              video: 5,
+              brands: 3,
+              images: 10,
+              analysis: 3,
+              carasoul: 5
+            }
+          };
+        }
+        return prevSettings;
+      });
+    }
+  };
+
+  // Handle product settings change
+  const handleProductSettingChange = (productId, field, value) => {
+    setProductSettings(prev => ({
+      ...prev,
+      [productId]: {
+        ...(prev[productId] || {}),
+        [field]: value === '' ? undefined : (field === 'vapi_account' || field === 'agent_number' || field === 'duration_limit' || field === 'list_limit' || field === 'concurrency_limit' || field === 'brands' || field === 'posts' || field === 'analysis' || field === 'images' || field === 'video' || field === 'carasoul' ? parseInt(value) || undefined : value)
+      }
+    }));
+  };
+
+  // Get genie product ID
+  const getGenieProductId = () => {
+    return formData.subscribed_products.find(productId => {
+      const product = products.find(p => p.id === productId || p.product_id === productId);
+      return product && product.name && product.name.toLowerCase() === 'genie';
+    });
+  };
+
+  // Get beeba product ID
+  const getBeebaProductId = () => {
+    return formData.subscribed_products.find(productId => {
+      const product = products.find(p => p.id === productId || p.product_id === productId);
+      return product && product.name && product.name.toLowerCase() === 'beeba';
+    });
+  };
+
+  // Check if product is selected
+  const isProductSelected = (productId) => {
+    return formData.subscribed_products.includes(productId);
   };
 
   const handleCountrySelect = (country) => {
@@ -225,6 +512,14 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
       newErrors.roles = 'At least one role is required';
     }
     
+    // Consumer-specific validations
+    if (isConsumerSelected) {
+      // Require at least one product when consumer is selected
+      if (!formData.subscribed_products || formData.subscribed_products.length === 0) {
+        newErrors.subscribed_products = 'At least one product is required for consumers';
+      }
+    }
+    
     if (!formData.country.trim()) {
       newErrors.country = 'Country is required';
     }
@@ -279,7 +574,7 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
         ? `${selectedCountry.phoneCode} ${formData.phone.trim()}`
         : formData.phone.trim() || null;
 
-      onUpdate({
+      const updateData = {
         ...user,
         full_name: formData.name,  // Map 'name' to 'full_name'
         roles: formData.roles || ['user'], // Send roles array (already lowercase)
@@ -288,7 +583,20 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
         city: formData.city.trim() || null,
         phone: fullPhone,
         nickname: formData.nickname.trim() || null
-      });
+      };
+
+      // Add consumer-specific fields if consumer role is selected
+      if (isConsumerSelected) {
+        updateData.referred_by = formData.referred_by || null;
+        updateData.subscribed_products = formData.subscribed_products || [];
+        updateData.trial_expiry_date = formData.trial_expiry_date || null;
+        // Include product settings if any exist
+        if (Object.keys(productSettings).length > 0) {
+          updateData.productSettings = productSettings;
+        }
+      }
+
+      onUpdate(updateData);
       onClose();
     }
   };
@@ -618,6 +926,926 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
               </p>
             )}
           </div>
+
+          {/* Consumer-specific fields - only show when consumer role is selected */}
+          {isConsumerSelected && (
+            <>
+              {/* Assign to Reseller Field (Optional) */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: '#374151',
+                  marginBottom: '8px'
+                }}>
+                  Assign to Reseller <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+                </label>
+                <div style={{ position: 'relative' }} className="reseller-search-container">
+                  <div style={{
+                    position: 'absolute',
+                    left: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#9ca3af',
+                    zIndex: 1,
+                    pointerEvents: 'none'
+                  }}>
+                    <Users size={18} />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder={selectedReseller ? `${selectedReseller.full_name} (${selectedReseller.email})` : "Type at least 2 characters to search resellers..."}
+                    value={selectedReseller ? `${selectedReseller.full_name} (${selectedReseller.email})` : resellerSearchTerm}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setResellerSearchTerm(value);
+                      if (selectedReseller) {
+                        setSelectedReseller(null);
+                        setFormData(prev => ({ ...prev, referred_by: '' }));
+                      }
+                      setShowResellerSuggestions(value.length >= 2);
+                    }}
+                    onFocus={() => {
+                      if (resellerSearchTerm.length >= 2 || resellers.length > 0) {
+                        setShowResellerSuggestions(true);
+                      }
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px 10px 40px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box',
+                      backgroundColor: 'white',
+                      cursor: 'text',
+                      fontFamily: 'inherit',
+                      color: selectedReseller ? '#374151' : '#9ca3af'
+                    }}
+                  />
+                  {selectedReseller && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedReseller(null);
+                        setResellerSearchTerm('');
+                        setFormData(prev => ({ ...prev, referred_by: '' }));
+                        setShowResellerSuggestions(false);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: '#9ca3af',
+                        padding: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
+                      onMouseLeave={(e) => e.currentTarget.style.color = '#9ca3af'}
+                    >
+                      <X size={18} />
+                    </button>
+                  )}
+                  
+                  {/* Reseller Suggestions */}
+                  {showResellerSuggestions && resellerSearchTerm.length >= 2 && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        marginTop: '4px',
+                        backgroundColor: 'white',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                        maxHeight: '300px',
+                        overflowY: 'auto',
+                        zIndex: 1000
+                      }}
+                      onMouseDown={(e) => e.preventDefault()}
+                    >
+                      {loadingResellers ? (
+                        <div style={{ padding: '12px', textAlign: 'center', color: '#6b7280', fontSize: '14px' }}>
+                          Searching...
+                        </div>
+                      ) : resellers.length > 0 ? (
+                        resellers.map(reseller => (
+                          <div
+                            key={reseller.user_id}
+                            onClick={() => {
+                              setSelectedReseller(reseller);
+                              setFormData(prev => ({
+                                ...prev,
+                                referred_by: reseller.user_id
+                              }));
+                              setResellerSearchTerm('');
+                              setShowResellerSuggestions(false);
+                            }}
+                            style={{
+                              padding: '10px 12px',
+                              cursor: 'pointer',
+                              borderBottom: '1px solid #f3f4f6',
+                              transition: 'background-color 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                          >
+                            <div style={{ fontSize: '14px', fontWeight: '500', color: '#1f2937' }}>
+                              {reseller.full_name || 'No Name'}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>
+                              {reseller.email || reseller.user_id}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div style={{ padding: '12px', textAlign: 'center', color: '#6b7280', fontSize: '14px' }}>
+                          No resellers found
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {selectedReseller && (
+                  <p style={{
+                    color: '#6b7280',
+                    fontSize: '12px',
+                    marginTop: '6px',
+                    marginBottom: 0
+                  }}>
+                    This consumer will be assigned to: {selectedReseller.full_name}
+                  </p>
+                )}
+              </div>
+
+              {/* Subscribed Products Field (Multi-select) */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: '#374151',
+                  marginBottom: '8px'
+                }}>
+                  <Package size={16} style={{ color: '#6b7280' }} />
+                  Subscribed Products <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <div style={{ position: 'relative' }} className="products-dropdown-container">
+                  <div
+                    onClick={() => setShowProductsDropdown(!showProductsDropdown)}
+                    style={{
+                      width: '100%',
+                      minHeight: '42px',
+                      padding: '8px 40px 8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      backgroundColor: 'white',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '6px',
+                      alignItems: 'center'
+                    }}
+                  >
+                    {formData.subscribed_products.length === 0 ? (
+                      <span style={{ color: '#9ca3af', fontSize: '14px' }}>Select products...</span>
+                    ) : (
+                      formData.subscribed_products.map(productId => {
+                        const product = products.find(p => p.id === productId || p.product_id === productId);
+                        return product ? (
+                          <span
+                            key={productId}
+                            style={{
+                              backgroundColor: '#f3f4f6',
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                              fontSize: '12px',
+                              color: '#374151',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleProductToggle(productId);
+                            }}
+                          >
+                            {product.name || product.product_name}
+                            <X size={12} style={{ cursor: 'pointer' }} />
+                          </span>
+                        ) : null;
+                      })
+                    )}
+                  </div>
+                  <div style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#9ca3af',
+                    pointerEvents: 'none'
+                  }}>
+                    <ChevronDown size={18} style={{ transform: showProductsDropdown ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
+                  </div>
+                  
+                  {showProductsDropdown && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        marginTop: '4px',
+                        backgroundColor: 'white',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                        maxHeight: '300px',
+                        overflowY: 'auto',
+                        zIndex: 1000
+                      }}
+                      onMouseDown={(e) => e.preventDefault()}
+                    >
+                      {loadingProducts ? (
+                        <div style={{ padding: '12px', textAlign: 'center', color: '#6b7280', fontSize: '14px' }}>
+                          Loading products...
+                        </div>
+                      ) : products.length > 0 ? (
+                        products.map(product => {
+                          const productId = product.id || product.product_id;
+                          const isSelected = isProductSelected(productId);
+                          return (
+                            <label
+                              key={productId}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                padding: '10px 12px',
+                                cursor: 'pointer',
+                                borderBottom: '1px solid #f3f4f6',
+                                backgroundColor: isSelected ? '#f9fafb' : 'white',
+                                transition: 'background-color 0.2s'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!isSelected) {
+                                  e.currentTarget.style.backgroundColor = '#f9fafb';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (!isSelected) {
+                                  e.currentTarget.style.backgroundColor = 'white';
+                                }
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleProductToggle(productId)}
+                                style={{
+                                  width: '18px',
+                                  height: '18px',
+                                  marginRight: '12px',
+                                  cursor: 'pointer',
+                                  accentColor: '#74317e'
+                                }}
+                              />
+                              <span style={{ fontSize: '14px', color: '#374151' }}>
+                                {product.name || product.product_name}
+                              </span>
+                            </label>
+                          );
+                        })
+                      ) : (
+                        <div style={{ padding: '12px', textAlign: 'center', color: '#6b7280', fontSize: '14px' }}>
+                          No products available
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {formData.subscribed_products.length > 0 && (
+                  <p style={{
+                    color: '#6b7280',
+                    fontSize: '12px',
+                    marginTop: '6px',
+                    marginBottom: 0
+                  }}>
+                    {formData.subscribed_products.length} product(s) selected
+                  </p>
+                )}
+                {errors.subscribed_products && (
+                  <p style={{
+                    color: '#ef4444',
+                    fontSize: '12px',
+                    marginTop: '6px',
+                    marginBottom: 0
+                  }}>
+                    {errors.subscribed_products}
+                  </p>
+                )}
+              </div>
+
+              {/* Genie Product Settings Section */}
+              {isGenieProductSelected && canViewGenieSettings && (
+                <div style={{ 
+                  marginBottom: '20px',
+                  padding: '16px',
+                  backgroundColor: '#f9fafb',
+                  borderRadius: '8px',
+                  border: '1px solid #e5e7eb'
+                }}>
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#374151',
+                    marginBottom: '16px'
+                  }}>
+                    <Package size={16} style={{ color: '#74317e' }} />
+                    Genie Product Settings <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+                  </label>
+                  
+                  {(() => {
+                    const genieProductId = getGenieProductId();
+                    const settings = productSettings[genieProductId] || {
+                      list_limit: 1,
+                      agent_number: 3,
+                      vapi_account: 1,
+                      duration_limit: 60,
+                      concurrency_limit: 1
+                    };
+                    
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {/* VAPI Account */}
+                        <div>
+                          <label style={{
+                            display: 'block',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            color: '#374151',
+                            marginBottom: '6px'
+                          }}>
+                            VAPI Account
+                          </label>
+                          <div style={{ position: 'relative' }}>
+                            <select
+                              value={settings.vapi_account || ''}
+                              onChange={(e) => handleProductSettingChange(genieProductId, 'vapi_account', e.target.value)}
+                              style={{
+                                width: '100%',
+                                padding: '8px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '14px',
+                                outline: 'none',
+                                transition: 'all 0.2s',
+                                boxSizing: 'border-box',
+                                backgroundColor: 'white',
+                                cursor: 'pointer',
+                                fontFamily: 'inherit',
+                                color: settings.vapi_account ? '#374151' : '#9ca3af',
+                                appearance: 'none',
+                                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 9L1 4h10z'/%3E%3C/svg%3E")`,
+                                backgroundRepeat: 'no-repeat',
+                                backgroundPosition: 'right 12px center',
+                                paddingRight: '32px'
+                              }}
+                              onFocus={(e) => {
+                                e.target.style.borderColor = '#74317e';
+                                e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                              }}
+                              onBlur={(e) => {
+                                e.target.style.borderColor = '#d1d5db';
+                                e.target.style.boxShadow = 'none';
+                              }}
+                            >
+                              <option value="">Select VAPI account...</option>
+                              {loadingVapiAccounts ? (
+                                <option disabled>Loading...</option>
+                              ) : (
+                                vapiAccounts.map(account => (
+                                  <option key={account.id} value={account.id}>
+                                    {account.account_name}
+                                  </option>
+                                ))
+                              )}
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Agent Number */}
+                        <div>
+                          <label style={{
+                            display: 'block',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            color: '#374151',
+                            marginBottom: '6px'
+                          }}>
+                            Agent Number
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={settings.agent_number || ''}
+                            onChange={(e) => handleProductSettingChange(genieProductId, 'agent_number', e.target.value)}
+                            placeholder="Enter agent number"
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '14px',
+                              outline: 'none',
+                              transition: 'all 0.2s',
+                              boxSizing: 'border-box',
+                              backgroundColor: 'white'
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#74317e';
+                              e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = '#d1d5db';
+                              e.target.style.boxShadow = 'none';
+                            }}
+                          />
+                        </div>
+
+                        {/* Duration Limit */}
+                        <div>
+                          <label style={{
+                            display: 'block',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            color: '#374151',
+                            marginBottom: '6px'
+                          }}>
+                            Duration Limit <span style={{ color: '#9ca3af', fontWeight: '400' }}>(minutes)</span>
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={settings.duration_limit || ''}
+                            onChange={(e) => handleProductSettingChange(genieProductId, 'duration_limit', e.target.value)}
+                            placeholder="Enter duration limit in minutes"
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '14px',
+                              outline: 'none',
+                              transition: 'all 0.2s',
+                              boxSizing: 'border-box',
+                              backgroundColor: 'white'
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#74317e';
+                              e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = '#d1d5db';
+                              e.target.style.boxShadow = 'none';
+                            }}
+                          />
+                        </div>
+
+                        {/* List Limit */}
+                        <div>
+                          <label style={{
+                            display: 'block',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            color: '#374151',
+                            marginBottom: '6px'
+                          }}>
+                            List Limit
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={settings.list_limit || ''}
+                            onChange={(e) => handleProductSettingChange(genieProductId, 'list_limit', e.target.value)}
+                            placeholder="Enter list limit"
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '14px',
+                              outline: 'none',
+                              transition: 'all 0.2s',
+                              boxSizing: 'border-box',
+                              backgroundColor: 'white'
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#74317e';
+                              e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = '#d1d5db';
+                              e.target.style.boxShadow = 'none';
+                            }}
+                          />
+                        </div>
+
+                        {/* Concurrency Limit */}
+                        <div>
+                          <label style={{
+                            display: 'block',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            color: '#374151',
+                            marginBottom: '6px'
+                          }}>
+                            Concurrency Limit
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={settings.concurrency_limit || ''}
+                            onChange={(e) => handleProductSettingChange(genieProductId, 'concurrency_limit', e.target.value)}
+                            placeholder="Enter concurrency limit"
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '14px',
+                              outline: 'none',
+                              transition: 'all 0.2s',
+                              boxSizing: 'border-box',
+                              backgroundColor: 'white'
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#74317e';
+                              e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = '#d1d5db';
+                              e.target.style.boxShadow = 'none';
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* Beeba Product Settings Section */}
+              {isBeebaProductSelected && canViewBeebaSettings && (
+                <div style={{ 
+                  marginBottom: '20px',
+                  padding: '16px',
+                  backgroundColor: '#f9fafb',
+                  borderRadius: '8px',
+                  border: '1px solid #e5e7eb'
+                }}>
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#374151',
+                    marginBottom: '16px'
+                  }}>
+                    <Package size={16} style={{ color: '#74317e' }} />
+                    Beeba Product Settings <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+                  </label>
+                  
+                  {(() => {
+                    const beebaProductId = getBeebaProductId();
+                    const settings = productSettings[beebaProductId] || {
+                      posts: 10,
+                      video: 5,
+                      brands: 3,
+                      images: 10,
+                      analysis: 3,
+                      carasoul: 5
+                    };
+                    
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {/* Brands */}
+                        <div>
+                          <label style={{
+                            display: 'block',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            color: '#374151',
+                            marginBottom: '6px'
+                          }}>
+                            Brands
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={settings.brands || ''}
+                            onChange={(e) => handleProductSettingChange(beebaProductId, 'brands', e.target.value)}
+                            placeholder="Enter brands limit"
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '14px',
+                              outline: 'none',
+                              transition: 'all 0.2s',
+                              boxSizing: 'border-box',
+                              backgroundColor: 'white'
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#74317e';
+                              e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = '#d1d5db';
+                              e.target.style.boxShadow = 'none';
+                            }}
+                          />
+                        </div>
+
+                        {/* Posts */}
+                        <div>
+                          <label style={{
+                            display: 'block',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            color: '#374151',
+                            marginBottom: '6px'
+                          }}>
+                            Posts
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={settings.posts || ''}
+                            onChange={(e) => handleProductSettingChange(beebaProductId, 'posts', e.target.value)}
+                            placeholder="Enter posts limit"
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '14px',
+                              outline: 'none',
+                              transition: 'all 0.2s',
+                              boxSizing: 'border-box',
+                              backgroundColor: 'white'
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#74317e';
+                              e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = '#d1d5db';
+                              e.target.style.boxShadow = 'none';
+                            }}
+                          />
+                        </div>
+
+                        {/* Analysis */}
+                        <div>
+                          <label style={{
+                            display: 'block',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            color: '#374151',
+                            marginBottom: '6px'
+                          }}>
+                            Analysis
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={settings.analysis || ''}
+                            onChange={(e) => handleProductSettingChange(beebaProductId, 'analysis', e.target.value)}
+                            placeholder="Enter analysis limit"
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '14px',
+                              outline: 'none',
+                              transition: 'all 0.2s',
+                              boxSizing: 'border-box',
+                              backgroundColor: 'white'
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#74317e';
+                              e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = '#d1d5db';
+                              e.target.style.boxShadow = 'none';
+                            }}
+                          />
+                        </div>
+
+                        {/* Images */}
+                        <div>
+                          <label style={{
+                            display: 'block',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            color: '#374151',
+                            marginBottom: '6px'
+                          }}>
+                            Images
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={settings.images || ''}
+                            onChange={(e) => handleProductSettingChange(beebaProductId, 'images', e.target.value)}
+                            placeholder="Enter images limit"
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '14px',
+                              outline: 'none',
+                              transition: 'all 0.2s',
+                              boxSizing: 'border-box',
+                              backgroundColor: 'white'
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#74317e';
+                              e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = '#d1d5db';
+                              e.target.style.boxShadow = 'none';
+                            }}
+                          />
+                        </div>
+
+                        {/* Video */}
+                        <div>
+                          <label style={{
+                            display: 'block',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            color: '#374151',
+                            marginBottom: '6px'
+                          }}>
+                            Video
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={settings.video || ''}
+                            onChange={(e) => handleProductSettingChange(beebaProductId, 'video', e.target.value)}
+                            placeholder="Enter video limit"
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '14px',
+                              outline: 'none',
+                              transition: 'all 0.2s',
+                              boxSizing: 'border-box',
+                              backgroundColor: 'white'
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#74317e';
+                              e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = '#d1d5db';
+                              e.target.style.boxShadow = 'none';
+                            }}
+                          />
+                        </div>
+
+                        {/* Carasoul */}
+                        <div>
+                          <label style={{
+                            display: 'block',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            color: '#374151',
+                            marginBottom: '6px'
+                          }}>
+                            Carasoul
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={settings.carasoul || ''}
+                            onChange={(e) => handleProductSettingChange(beebaProductId, 'carasoul', e.target.value)}
+                            placeholder="Enter carasoul limit"
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '14px',
+                              outline: 'none',
+                              transition: 'all 0.2s',
+                              boxSizing: 'border-box',
+                              backgroundColor: 'white'
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#74317e';
+                              e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = '#d1d5db';
+                              e.target.style.boxShadow = 'none';
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* Trial Period Field (Required for Consumer) */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: '#374151',
+                  marginBottom: '8px'
+                }}>
+                  Trial Period <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <div style={{
+                    position: 'absolute',
+                    left: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#9ca3af'
+                  }}>
+                    <Calendar size={18} />
+                  </div>
+                  <input
+                    type="date"
+                    name="trial_expiry_date"
+                    value={formData.trial_expiry_date}
+                    onChange={handleChange}
+                    min={new Date().toISOString().split('T')[0]}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px 10px 40px',
+                      border: errors.trial_expiry_date ? '1px solid #ef4444' : '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none',
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => {
+                      if (!errors.trial_expiry_date) {
+                        e.target.style.borderColor = '#74317e';
+                        e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                      }
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = errors.trial_expiry_date ? '#ef4444' : '#d1d5db';
+                      e.target.style.boxShadow = 'none';
+                    }}
+                  />
+                </div>
+                {errors.trial_expiry_date && (
+                  <p style={{
+                    color: '#ef4444',
+                    fontSize: '12px',
+                    marginTop: '6px',
+                    marginBottom: 0
+                  }}>
+                    {errors.trial_expiry_date}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
 
           {/* Country Field */}
           <div style={{ marginBottom: '20px' }}>

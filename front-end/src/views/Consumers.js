@@ -22,7 +22,7 @@ import CreateConsumerModal from '../components/ui/createConsumerModel';
 import UpdateConsumerModal from '../components/ui/updateConsumerModel';
 import DeleteModal from '../components/ui/deleteModel';
 import CreateInvoiceModal from '../components/ui/createInvoiceModal';
-import { getRolesString } from '../utils/roleUtils';
+import { getRolesString, hasRole } from '../utils/roleUtils';
 
 const Consumers = () => {
   const location = useLocation();
@@ -56,6 +56,8 @@ const Consumers = () => {
   const [showExtendTrialModal, setShowExtendTrialModal] = useState(false);
   const [extendTrialData, setExtendTrialData] = useState(null);
   const [extendTrialDays, setExtendTrialDays] = useState('');
+  const [extendTrialDate, setExtendTrialDate] = useState('');
+  const [extendMode, setExtendMode] = useState('days'); // 'days' or 'date'
   const [isExtendingTrial, setIsExtendingTrial] = useState(false);
   const [showRevokeLifetimeModal, setShowRevokeLifetimeModal] = useState(false);
   const [revokeLifetimeData, setRevokeLifetimeData] = useState(null);
@@ -367,6 +369,8 @@ const Consumers = () => {
       if (consumer) {
         setExtendTrialData({ id: userId, name: userName, consumer });
         setExtendTrialDays('');
+        setExtendTrialDate('');
+        setExtendMode('days');
         setShowExtendTrialModal(true);
       }
     } else if (action === 'Grant Lifetime Access') {
@@ -756,8 +760,24 @@ const Consumers = () => {
 
   const handleExtendTrial = async () => {
     try {
-      if (!extendTrialData || !extendTrialDays) {
+      // Check if current user is admin or reseller
+      const currentUserRole = profile?.role || null;
+      const isAdmin = hasRole(currentUserRole, 'admin') || profile?.is_systemadmin === true;
+      const isReseller = hasRole(currentUserRole, 'reseller');
+
+      if (!extendTrialData) {
+        toast.error('Trial extension data not found');
+        return;
+      }
+
+      // Validate input based on mode
+      if (extendMode === 'days' && !extendTrialDays) {
         toast.error('Please select how many days to extend the trial');
+        return;
+      }
+      
+      if (extendMode === 'date' && !extendTrialDate) {
+        toast.error('Please select a date to extend the trial to');
         return;
       }
 
@@ -767,56 +787,85 @@ const Consumers = () => {
         return;
       }
 
-      const daysToExtend = parseInt(extendTrialDays);
       const now = new Date();
       const createdAt = new Date(consumer.created_at);
       
-      // Calculate remaining days in current trial (if trial hasn't expired)
-      let remainingDays = 0;
-      if (consumer.trial_expiry) {
-        const currentExpiry = new Date(consumer.trial_expiry);
-        if (currentExpiry > now) {
-          // Trial hasn't expired, calculate remaining days
-          remainingDays = Math.ceil((currentExpiry - now) / (1000 * 60 * 60 * 24));
+      let trialExpiryDate;
+      let daysToExtend = 0;
+      
+      if (extendMode === 'date') {
+        // Admin selected a specific date
+        const selectedDate = new Date(extendTrialDate);
+        selectedDate.setHours(23, 59, 59, 999); // Set to end of day
+        
+        if (selectedDate <= now) {
+          toast.error('Selected date must be in the future');
+          setIsExtendingTrial(false);
+          return;
         }
-      }
-      
-      // Calculate total days: remaining + extension
-      const totalDays = remainingDays + daysToExtend;
-      
-      // Calculate new expiry date: today + total days
-      const newExpiryDate = new Date(now);
-      newExpiryDate.setDate(newExpiryDate.getDate() + totalDays);
-      
-      // Calculate total days from account creation to new expiry
-      const totalDaysFromCreation = Math.ceil((newExpiryDate - createdAt) / (1000 * 60 * 60 * 24));
-      
-      // Validate: total trial days cannot exceed 7 days from account creation
-      if (totalDaysFromCreation > 7) {
-        const maxTrialDate = new Date(createdAt);
-        maxTrialDate.setDate(maxTrialDate.getDate() + 7);
-        const maxDaysFromToday = Math.ceil((maxTrialDate - now) / (1000 * 60 * 60 * 24));
-        const maxDaysCanAdd = Math.max(0, maxDaysFromToday - remainingDays);
-        if (maxDaysCanAdd <= 0) {
-          toast.error(`Cannot extend trial. The 7-day limit from account creation date has been reached.`);
-        } else {
-          toast.error(`Cannot extend beyond 7-day limit. Maximum ${maxDaysCanAdd} day(s) available to extend (you have ${remainingDays} remaining day(s)).`);
+        
+        trialExpiryDate = selectedDate.toISOString();
+        
+        // Calculate days to extend for display message
+        let remainingDays = 0;
+        if (consumer.trial_expiry) {
+          const currentExpiry = new Date(consumer.trial_expiry);
+          if (currentExpiry > now) {
+            remainingDays = Math.ceil((currentExpiry - now) / (1000 * 60 * 60 * 24));
+          }
         }
-        return;
-      }
+        daysToExtend = Math.ceil((selectedDate - now) / (1000 * 60 * 60 * 24)) - remainingDays;
+      } else {
+        // Days mode (for both admin and reseller)
+        daysToExtend = parseInt(extendTrialDays);
+        
+        // Calculate remaining days in current trial (if trial hasn't expired)
+        let remainingDays = 0;
+        if (consumer.trial_expiry) {
+          const currentExpiry = new Date(consumer.trial_expiry);
+          if (currentExpiry > now) {
+            // Trial hasn't expired, calculate remaining days
+            remainingDays = Math.ceil((currentExpiry - now) / (1000 * 60 * 60 * 24));
+          }
+        }
+        
+        // Calculate total days: remaining + extension
+        const totalDays = remainingDays + daysToExtend;
+        
+        // Calculate new expiry date: today + total days
+        const newExpiryDate = new Date(now);
+        newExpiryDate.setDate(newExpiryDate.getDate() + totalDays);
+        
+        // Calculate total days from account creation to new expiry
+        const totalDaysFromCreation = Math.ceil((newExpiryDate - createdAt) / (1000 * 60 * 60 * 24));
+        
+        // Validate: resellers can only extend up to 7 days from account creation
+        // Admins can extend as long as they want (no limit)
+        if (isReseller && totalDaysFromCreation > 7) {
+          const maxTrialDate = new Date(createdAt);
+          maxTrialDate.setDate(maxTrialDate.getDate() + 7);
+          const maxDaysFromToday = Math.ceil((maxTrialDate - now) / (1000 * 60 * 60 * 24));
+          const maxDaysCanAdd = Math.max(0, maxDaysFromToday - remainingDays);
+          if (maxDaysCanAdd <= 0) {
+            toast.error(`Cannot extend trial. The 7-day limit from account creation date has been reached.`);
+          } else {
+            toast.error(`Cannot extend beyond 7-day limit. Maximum ${maxDaysCanAdd} day(s) available to extend (you have ${remainingDays} remaining day(s)).`);
+          }
+          setIsExtendingTrial(false);
+          return;
+        }
 
-      if (daysToExtend > 3) {
-        toast.error('Cannot extend more than 3 days at a time');
-        return;
+        // Only apply 3-day limit per extension for resellers
+        if (isReseller && daysToExtend > 3) {
+          toast.error('Cannot extend more than 3 days at a time');
+          setIsExtendingTrial(false);
+          return;
+        }
+        
+        trialExpiryDate = newExpiryDate.toISOString();
       }
 
       setIsExtendingTrial(true);
-
-      // Calculate new expiry: today + (remaining days + extension days)
-      // (remainingDays and totalDays already calculated above in validation)
-      const newExpiry = new Date(now);
-      newExpiry.setDate(newExpiry.getDate() + totalDays);
-      const trialExpiryDate = newExpiry.toISOString();
 
       // Call backend API to update trial expiry (status remains unchanged)
       const result = await updateConsumerAccountStatus(extendTrialData.id, consumer.account_status, trialExpiryDate);
@@ -829,6 +878,7 @@ const Consumers = () => {
       }
       
       // Update consumer trial_expiry in the local state
+      const newExpiryDateObj = new Date(result.data?.trial_expiry || trialExpiryDate);
       setUsers(prevUsers => 
         prevUsers.map(user => {
           if (user.user_id === extendTrialData.id) {
@@ -841,15 +891,17 @@ const Consumers = () => {
         })
       );
       
-      const extensionMessage = remainingDays > 0 
-        ? `Trial extended! You had ${remainingDays} day(s) remaining, added ${daysToExtend} day(s) = ${totalDays} day(s) total. New expiry: ${newExpiry.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`
-        : `Trial extended by ${daysToExtend} day(s)! New expiry: ${newExpiry.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`;
+      const extensionMessage = extendMode === 'date'
+        ? `Trial extended to ${newExpiryDateObj.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`
+        : `Trial extended by ${daysToExtend} day(s)! New expiry: ${newExpiryDateObj.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`;
       toast.success(extensionMessage);
       
       // Close modal
       setShowExtendTrialModal(false);
       setExtendTrialData(null);
       setExtendTrialDays('');
+      setExtendTrialDate('');
+      setExtendMode('days');
       setIsExtendingTrial(false);
     } catch (err) {
       console.error('Error extending trial:', err);
@@ -2553,6 +2605,8 @@ const Consumers = () => {
                 setShowExtendTrialModal(false);
                 setExtendTrialData(null);
                 setExtendTrialDays('');
+                setExtendTrialDate('');
+                setExtendMode('days');
               }
             }}
             style={{
@@ -2599,26 +2653,44 @@ const Consumers = () => {
                   );
                 }
 
+                // Check if current user is admin
+                const currentUserRole = profile?.role || null;
+                const isAdmin = hasRole(currentUserRole, 'admin') || profile?.is_systemadmin === true;
+                const isReseller = hasRole(currentUserRole, 'reseller');
+
                 const now = new Date();
                 
                 // Get current total_trial_days_used from consumer (default to 0 if not set)
                 const currentTrialDaysUsed = consumer.total_trial_days_used || 0;
                 
                 // Calculate remaining days that can be added (max 7 days total from creation)
-                const maxDaysCanAdd = Math.max(0, 7 - currentTrialDaysUsed);
+                // For admins: no limit, so we set a high value
+                const maxDaysCanAdd = isAdmin ? 999 : Math.max(0, 7 - currentTrialDaysUsed);
                 
                 // Calculate days remaining in current trial (if trial_expiry exists)
                 const daysRemaining = consumer.trial_expiry 
                   ? Math.ceil((new Date(consumer.trial_expiry) - now) / (1000 * 60 * 60 * 24))
                   : null;
                 
-                // Limit to 3 days per extension
-                const availableDays = Math.min(3, maxDaysCanAdd);
+                // Get current trial expiry date (next date)
+                const currentTrialExpiry = consumer.trial_expiry 
+                  ? new Date(consumer.trial_expiry)
+                  : null;
+                
+                // For resellers: limit to 3 days per extension and respect 7-day limit
+                // For admins: show all options (1, 2, 3, 5, 7, 10, 15, 20, 30) with no limit
+                const availableDays = isAdmin ? 30 : Math.min(3, maxDaysCanAdd);
                 
                 // Generate available options
                 const dayOptions = [];
-                for (let i = 1; i <= availableDays; i++) {
-                  dayOptions.push(i);
+                if (isAdmin) {
+                  // Admin options: always show all options (1, 2, 3, 5, 7, 10, 15, 20, 30)
+                  dayOptions.push(1, 2, 3, 5, 7, 10, 15, 20, 30);
+                } else {
+                  // Reseller options: 1, 2, 3 (limited by availableDays)
+                  for (let i = 1; i <= availableDays; i++) {
+                    dayOptions.push(i);
+                  }
                 }
 
                 const isTrialExpired = daysRemaining !== null && daysRemaining < 0;
@@ -2631,6 +2703,38 @@ const Consumers = () => {
                     <p style={{ margin: '0 0 16px 0', fontSize: '15px', color: '#666', lineHeight: '1.6' }}>
                       Extend trial for <strong>{extendTrialData.name}</strong>
                     </p>
+                    
+                    {/* Current Trial Expiry Date (Next Date) */}
+                    {currentTrialExpiry && (
+                      <div style={{
+                        backgroundColor: '#f0f9ff',
+                        border: '1px solid #bae6fd',
+                        borderRadius: '8px',
+                        padding: '12px 16px',
+                        marginBottom: '16px'
+                      }}>
+                        <div style={{
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          color: '#0369a1',
+                          marginBottom: '4px'
+                        }}>
+                          📅 Current Trial Expiry Date:
+                        </div>
+                        <div style={{
+                          fontSize: '15px',
+                          fontWeight: '600',
+                          color: '#0c4a6e'
+                        }}>
+                          {currentTrialExpiry.toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric'
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    
                     <div style={{
                       backgroundColor: warningBg,
                       border: `1px solid ${warningBorder}`,
@@ -2650,17 +2754,79 @@ const Consumers = () => {
                             : `${daysRemaining <= 2 ? '⚠️' : 'ℹ️'} Trial expires in ${daysRemaining} day${daysRemaining !== 1 ? 's' : ''}`
                         ) : 'ℹ️ No trial expiry set'}
                       </div>
-                      <div style={{
-                        fontSize: '12px',
-                        color: '#666',
-                        marginBottom: '12px'
-                      }}>
-                        📅 Account created: {new Date(consumer.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        <br />
-                        🔒 Days used: {currentTrialDaysUsed} / 7 days max
-                        <br />
-                        ✅ Available to extend: {availableDays} day{availableDays !== 1 ? 's' : ''}
-                      </div>
+                      {!isAdmin && (
+                        <div style={{
+                          fontSize: '12px',
+                          color: '#666',
+                          marginBottom: '12px'
+                        }}>
+                          📅 Account created: {new Date(consumer.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          <br />
+                          🔒 Days used: {currentTrialDaysUsed} / 7 days max
+                          <br />
+                          ✅ Available to extend: {availableDays} day{availableDays !== 1 ? 's' : ''}
+                        </div>
+                      )}
+                      
+                      {/* Admin Mode Selection */}
+                      {isAdmin && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <label style={{
+                            display: 'block',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            color: '#666',
+                            marginBottom: '8px'
+                          }}>
+                            Extension Method:
+                          </label>
+                          <div style={{ display: 'flex', gap: '12px' }}>
+                            <label style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              cursor: isExtendingTrial ? 'not-allowed' : 'pointer',
+                              opacity: isExtendingTrial ? 0.6 : 1
+                            }}>
+                              <input
+                                type="radio"
+                                name="extendMode"
+                                value="days"
+                                checked={extendMode === 'days'}
+                                onChange={(e) => {
+                                  setExtendMode('days');
+                                  setExtendTrialDate('');
+                                }}
+                                disabled={isExtendingTrial}
+                                style={{ cursor: isExtendingTrial ? 'not-allowed' : 'pointer' }}
+                              />
+                              <span style={{ fontSize: '14px' }}>Extend by Days</span>
+                            </label>
+                            <label style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              cursor: isExtendingTrial ? 'not-allowed' : 'pointer',
+                              opacity: isExtendingTrial ? 0.6 : 1
+                            }}>
+                              <input
+                                type="radio"
+                                name="extendMode"
+                                value="date"
+                                checked={extendMode === 'date'}
+                                onChange={(e) => {
+                                  setExtendMode('date');
+                                  setExtendTrialDays('');
+                                }}
+                                disabled={isExtendingTrial}
+                                style={{ cursor: isExtendingTrial ? 'not-allowed' : 'pointer' }}
+                              />
+                              <span style={{ fontSize: '14px' }}>Extend to Date</span>
+                            </label>
+                          </div>
+                        </div>
+                      )}
+                      
                       <label style={{
                         display: 'block',
                         fontSize: '13px',
@@ -2668,13 +2834,16 @@ const Consumers = () => {
                         color: '#666',
                         marginBottom: '8px'
                       }}>
-                        Extend trial by:
+                        {extendMode === 'date' ? 'Select expiry date:' : 'Extend trial by:'}
                       </label>
-                      {availableDays > 0 ? (
+                      
+                      {extendMode === 'date' && isAdmin ? (
                         <>
-                          <select
-                            value={extendTrialDays}
-                            onChange={(e) => setExtendTrialDays(e.target.value)}
+                          <input
+                            type="date"
+                            value={extendTrialDate}
+                            onChange={(e) => setExtendTrialDate(e.target.value)}
+                            min={new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]} // Tomorrow
                             disabled={isExtendingTrial}
                             style={{
                               width: '100%',
@@ -2683,57 +2852,104 @@ const Consumers = () => {
                               borderRadius: '6px',
                               fontSize: '14px',
                               outline: 'none',
-                              cursor: isExtendingTrial ? 'not-allowed' : 'pointer',
-                              backgroundColor: 'white',
-                              color: extendTrialDays ? '#374151' : '#9ca3af'
+                              cursor: isExtendingTrial ? 'not-allowed' : 'text',
+                              backgroundColor: isExtendingTrial ? '#f3f4f6' : 'white',
+                              color: extendTrialDate ? '#374151' : '#9ca3af'
                             }}
-                          >
-                            <option value="">Select days to extend</option>
-                            {dayOptions.map(day => (
-                              <option key={day} value={day}>{day} Day{day !== 1 ? 's' : ''}</option>
-                            ))}
-                          </select>
-                          {extendTrialDays && (
+                            onFocus={(e) => {
+                              if (!isExtendingTrial) {
+                                e.target.style.borderColor = '#74317e';
+                                e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
+                              }
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = '#d1d5db';
+                              e.target.style.boxShadow = 'none';
+                            }}
+                          />
+                          {extendTrialDate && (
                             <p style={{
                               marginTop: '8px',
                               marginBottom: 0,
                               fontSize: '12px',
                               color: '#666'
                             }}>
-                              ℹ️ New expiry: {(() => {
-                                const now = new Date();
-                                // Calculate remaining days
-                                let remainingDays = 0;
-                                if (consumer.trial_expiry) {
-                                  const currentExpiry = new Date(consumer.trial_expiry);
-                                  if (currentExpiry > now) {
-                                    remainingDays = Math.ceil((currentExpiry - now) / (1000 * 60 * 60 * 24));
-                                  }
-                                }
-                                // Calculate new expiry: today + (remaining + extension)
-                                const totalDays = remainingDays + parseInt(extendTrialDays);
-                                const newExpiry = new Date(now);
-                                newExpiry.setDate(newExpiry.getDate() + totalDays);
-                                return newExpiry.toLocaleDateString('en-US', {
-                                  year: 'numeric',
-                                  month: 'long',
-                                  day: 'numeric'
-                                });
-                              })()}
+                              ℹ️ New expiry: {new Date(extendTrialDate).toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric'
+                              })}
                             </p>
                           )}
                         </>
                       ) : (
-                        <div style={{
-                          padding: '12px',
-                          backgroundColor: '#f3f4f6',
-                          borderRadius: '6px',
-                          fontSize: '13px',
-                          color: '#dc3545',
-                          fontWeight: '500'
-                        }}>
-                          ❌ Maximum 7-day trial limit reached. Cannot extend further.
-                        </div>
+                        <>
+                          {isAdmin || availableDays > 0 ? (
+                            <>
+                              <select
+                                value={extendTrialDays}
+                                onChange={(e) => setExtendTrialDays(e.target.value)}
+                                disabled={isExtendingTrial}
+                                style={{
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  border: '1px solid #d1d5db',
+                                  borderRadius: '6px',
+                                  fontSize: '14px',
+                                  outline: 'none',
+                                  cursor: isExtendingTrial ? 'not-allowed' : 'pointer',
+                                  backgroundColor: 'white',
+                                  color: extendTrialDays ? '#374151' : '#9ca3af'
+                                }}
+                              >
+                                <option value="">Select days to extend</option>
+                                {dayOptions.map(day => (
+                                  <option key={day} value={day}>{day} Day{day !== 1 ? 's' : ''}</option>
+                                ))}
+                              </select>
+                              {extendTrialDays && (
+                                <p style={{
+                                  marginTop: '8px',
+                                  marginBottom: 0,
+                                  fontSize: '12px',
+                                  color: '#666'
+                                }}>
+                                  ℹ️ New expiry: {(() => {
+                                    const now = new Date();
+                                    // Calculate remaining days
+                                    let remainingDays = 0;
+                                    if (consumer.trial_expiry) {
+                                      const currentExpiry = new Date(consumer.trial_expiry);
+                                      if (currentExpiry > now) {
+                                        remainingDays = Math.ceil((currentExpiry - now) / (1000 * 60 * 60 * 24));
+                                      }
+                                    }
+                                    // Calculate new expiry: today + (remaining + extension)
+                                    const totalDays = remainingDays + parseInt(extendTrialDays);
+                                    const newExpiry = new Date(now);
+                                    newExpiry.setDate(newExpiry.getDate() + totalDays);
+                                    return newExpiry.toLocaleDateString('en-US', {
+                                      year: 'numeric',
+                                      month: 'long',
+                                      day: 'numeric'
+                                    });
+                                  })()}
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <div style={{
+                              padding: '12px',
+                              backgroundColor: '#f3f4f6',
+                              borderRadius: '6px',
+                              fontSize: '13px',
+                              color: '#dc3545',
+                              fontWeight: '500'
+                            }}>
+                              ❌ Maximum 7-day trial limit reached. Cannot extend further.
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   </>
@@ -2753,6 +2969,8 @@ const Consumers = () => {
                     setShowExtendTrialModal(false);
                     setExtendTrialData(null);
                     setExtendTrialDays('');
+                    setExtendTrialDate('');
+                    setExtendMode('days');
                   }
                 }}
                 disabled={isExtendingTrial}
@@ -2772,16 +2990,16 @@ const Consumers = () => {
               </button>
               <button
                 onClick={handleExtendTrial}
-                disabled={isExtendingTrial || !extendTrialDays}
+                disabled={isExtendingTrial || (extendMode === 'days' && !extendTrialDays) || (extendMode === 'date' && !extendTrialDate)}
                 style={{
                   padding: '10px 24px',
                   border: 'none',
                   borderRadius: '6px',
-                  backgroundColor: extendTrialDays && !isExtendingTrial ? '#28a745' : '#9ca3af',
+                  backgroundColor: ((extendMode === 'days' && extendTrialDays) || (extendMode === 'date' && extendTrialDate)) && !isExtendingTrial ? '#28a745' : '#9ca3af',
                   color: 'white',
                   fontSize: '14px',
                   fontWeight: '500',
-                  cursor: extendTrialDays && !isExtendingTrial ? 'pointer' : 'not-allowed',
+                  cursor: ((extendMode === 'days' && extendTrialDays) || (extendMode === 'date' && extendTrialDate)) && !isExtendingTrial ? 'pointer' : 'not-allowed',
                   opacity: isExtendingTrial ? 0.7 : 1,
                   display: 'flex',
                   alignItems: 'center',

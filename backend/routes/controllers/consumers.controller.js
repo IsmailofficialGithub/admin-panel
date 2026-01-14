@@ -1300,11 +1300,17 @@ export const updateConsumerAccountStatus = async (req, res) => {
         // Calculate total days from account creation to new expiry date
         const totalDaysFromCreation = Math.ceil((requestedExpiryDate - createdAt) / (1000 * 60 * 60 * 24));
         
-        // Validate: total trial days cannot exceed 7 days from account creation
-        if (totalDaysFromCreation > 7) {
+        // Get current user's role to check permissions
+        const currentUserRole = req.userProfile?.role || req.user?.role || null;
+        const isAdmin = hasRole(currentUserRole, 'admin') || req.userProfile?.is_systemadmin === true;
+        const isReseller = hasRole(currentUserRole, 'reseller');
+        
+        // Validate: resellers can only extend up to 7 days from account creation
+        // Admins can extend as long as they want (no limit)
+        if (isReseller && totalDaysFromCreation > 7) {
           return res.status(400).json({
             error: 'Bad Request',
-            message: `Cannot extend beyond 7 days from account creation date. Maximum 7 days allowed. Use lifetime_access: true for unlimited access.`
+            message: `Cannot extend beyond 7 days from account creation date. Maximum 7 days allowed for resellers. Use lifetime_access: true for unlimited access.`
           });
         }
         
@@ -1314,6 +1320,9 @@ export const updateConsumerAccountStatus = async (req, res) => {
         updateData.total_trial_days_used = totalDaysFromCreation;
         console.log(`📅 Setting trial_expiry to provided date: ${trial_expiry_date}`);
         console.log(`📊 Updating total_trial_days_used: ${totalDaysFromCreation} days (from account creation to new expiry)`);
+        if (isAdmin) {
+          console.log(`✅ Admin override: Allowing trial extension beyond 7 days (${totalDaysFromCreation} days)`);
+        }
       } else {
         // If no trial_expiry_date provided, use existing trial_expiry or calculate default
         if (consumer.trial_expiry) {
