@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Calendar, Plus, MoreVertical, X, Clock, Globe, Users, CheckCircle, XCircle, Pause, Play, Search } from "lucide-react";
-import { getAllCampaigns, cancelCampaign, pauseCampaign, resumeCampaign, getAllBots, getAllContactLists } from "api/backend/genie";
+import { useHistory } from "react-router-dom";
+import { Calendar, Plus, MoreVertical, X, Clock, Globe, Users, CheckCircle, XCircle, Pause, Play, Search, Target, Eye, PlayCircle } from "lucide-react";
+import { getAllCampaigns, cancelCampaign, pauseCampaign, resumeCampaign, getAllBots, getAllContactLists, getAllLeads } from "api/backend/genie";
 import { usePermissions } from "hooks/usePermissions";
 import { useGenieWebSocket } from "hooks/useGenieWebSocket";
 import CreateCampaignModal from "./CreateCampaignModal";
@@ -8,6 +9,7 @@ import ConfirmationModal from "../ui/ConfirmationModal";
 import toast from "react-hot-toast";
 
 function CampaignsTab() {
+  const history = useHistory();
   const { hasPermission } = usePermissions();
   const { lastCampaignEvent, joinCampaign, leaveCampaign } = useGenieWebSocket();
   
@@ -19,6 +21,7 @@ function CampaignsTab() {
   
   // Filters
   const [statusFilter, setStatusFilter] = useState("");
+  const [leadFilter, setLeadFilter] = useState("");
   const [campaignSearchInput, setCampaignSearchInput] = useState("");
   const [campaignSearch, setCampaignSearch] = useState("");
   const [consumerSearchInput, setConsumerSearchInput] = useState("");
@@ -31,6 +34,12 @@ function CampaignsTab() {
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState(null);
   const [cancelLoading, setCancelLoading] = useState(false);
+
+  // Leads Modal
+  const [showLeadsModal, setShowLeadsModal] = useState(false);
+  const [campaignLeads, setCampaignLeads] = useState([]);
+  const [leadsLoading, setLeadsLoading] = useState(false);
+  const [selectedCampaignForLeads, setSelectedCampaignForLeads] = useState(null);
 
   // Dropdown state
   const [openDropdown, setOpenDropdown] = useState(null);
@@ -48,6 +57,7 @@ function CampaignsTab() {
       const params = {
         limit: 50,
         status: statusFilter || undefined,
+        hasLeads: leadFilter || undefined,
         campaignSearch: campaignSearch || undefined,
         consumerSearch: consumerSearch || undefined,
       };
@@ -72,7 +82,7 @@ function CampaignsTab() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, campaignSearch, consumerSearch, joinCampaign]);
+  }, [statusFilter, leadFilter, campaignSearch, consumerSearch, joinCampaign]);
 
   // Fetch supporting data
   const fetchSupportingData = useCallback(async () => {
@@ -120,7 +130,7 @@ function CampaignsTab() {
   // Fetch campaigns when filters change
   useEffect(() => {
     fetchCampaigns();
-  }, [statusFilter, campaignSearch, consumerSearch, fetchCampaigns]);
+  }, [statusFilter, leadFilter, campaignSearch, consumerSearch, fetchCampaigns]);
 
   // Handle click outside dropdown
   useEffect(() => {
@@ -344,6 +354,74 @@ function CampaignsTab() {
     fetchCampaigns();
   };
 
+  // Open leads modal
+  const openLeadsModal = async (campaign) => {
+    if (!campaign.leads_count || campaign.leads_count === 0) {
+      toast.error("This campaign has no leads");
+      return;
+    }
+
+    setSelectedCampaignForLeads(campaign);
+    setShowLeadsModal(true);
+    setLeadsLoading(true);
+    setCampaignLeads([]);
+
+    try {
+      const listId = campaign.genie_contact_lists?.id;
+      if (!listId) {
+        toast.error("Unable to fetch leads: campaign list not found");
+        setLeadsLoading(false);
+        return;
+      }
+
+      const response = await getAllLeads({ listId, limit: 100 });
+      if (response?.error) {
+        toast.error(response.error);
+        setLeadsLoading(false);
+        return;
+      }
+
+      setCampaignLeads(response?.data || []);
+    } catch (error) {
+      console.error("Error fetching campaign leads:", error);
+      toast.error("Failed to fetch leads");
+    } finally {
+      setLeadsLoading(false);
+    }
+  };
+
+  // Close leads modal
+  const closeLeadsModal = () => {
+    setShowLeadsModal(false);
+    setSelectedCampaignForLeads(null);
+    setCampaignLeads([]);
+  };
+
+  // Format date for leads
+  const formatLeadDate = (dateStr) => {
+    if (!dateStr) return "-";
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  // Get initials
+  const getInitials = (name) => {
+    if (!name) return "?";
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
+  // Truncate text
+  const truncateText = (text, maxLength = 50) => {
+    if (!text) return "-";
+    return text.length > maxLength ? text.substring(0, maxLength) + "..." : text;
+  };
+
   return (
     <div>
       {/* Header */}
@@ -449,6 +527,24 @@ function CampaignsTab() {
             <option value="completed">Completed</option>
             <option value="in_progress">In Progress</option>
             <option value="paused">Paused</option>
+          </select>
+          <select
+            value={leadFilter}
+            onChange={(e) => setLeadFilter(e.target.value)}
+            style={{
+              padding: '10px 14px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              fontSize: '14px',
+              outline: 'none',
+              backgroundColor: 'white',
+              cursor: 'pointer',
+              minWidth: '150px'
+            }}
+          >
+            <option value="">All Campaigns</option>
+            <option value="true">With Leads</option>
+            <option value="false">Without Leads</option>
           </select>
           {canCreate && (
             <button 
@@ -770,6 +866,46 @@ function CampaignsTab() {
                       <div style={{ fontSize: '20px', fontWeight: '700', color: '#ef4444' }}>{campaign.calls_failed || 0}</div>
                       <div style={{ fontSize: '12px', color: '#64748b' }}>Failed</div>
                       </div>
+                    <div 
+                      style={{ 
+                        textAlign: 'center', 
+                        flex: 1,
+                        cursor: campaign.leads_count > 0 ? 'pointer' : 'default',
+                        opacity: campaign.leads_count > 0 ? 1 : 0.6,
+                        transition: 'all 0.2s ease'
+                      }}
+                      onClick={() => {
+                        if (campaign.leads_count > 0) {
+                          openLeadsModal(campaign);
+                        }
+                      }}
+                      onMouseEnter={(e) => {
+                        if (campaign.leads_count > 0) {
+                          e.currentTarget.style.opacity = '0.8';
+                          e.currentTarget.style.transform = 'scale(1.05)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (campaign.leads_count > 0) {
+                          e.currentTarget.style.opacity = '1';
+                          e.currentTarget.style.transform = 'scale(1)';
+                        }
+                      }}
+                    >
+                      <div style={{ 
+                        fontSize: '20px', 
+                        fontWeight: '700', 
+                        color: campaign.leads_count > 0 ? '#8b5cf6' : '#64748b',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px'
+                      }}>
+                        {campaign.leads_count > 0 && <Target size={16} />}
+                        {campaign.leads_count || 0}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#64748b' }}>Leads</div>
+                      </div>
                     </div>
 
                     {/* Schedule Info */}
@@ -825,6 +961,236 @@ function CampaignsTab() {
         loadingText="Cancelling..."
       />
 
+      {/* Campaign Leads Modal */}
+      {showLeadsModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px'
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              closeLeadsModal();
+            }
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '12px',
+              width: '100%',
+              maxWidth: '1200px',
+              maxHeight: '90vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div style={{
+              padding: '20px 24px',
+              borderBottom: '1px solid #e5e7eb',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '600', color: '#1e293b' }}>
+                  Campaign Leads
+                </h3>
+                <p style={{ margin: '4px 0 0 0', fontSize: '14px', color: '#64748b' }}>
+                  {selectedCampaignForLeads?.genie_bots?.name || 'Campaign'} - {campaignLeads.length} lead{campaignLeads.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <button
+                onClick={closeLeadsModal}
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: '#f1f5f9',
+                  color: '#64748b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#e2e8f0';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#f1f5f9';
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{
+              padding: '24px',
+              overflowY: 'auto',
+              flex: 1
+            }}>
+              {leadsLoading ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 20px' }}>
+                  <div style={{ width: '48px', height: '48px', border: '3px solid #f1f5f9', borderTopColor: '#74317e', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                  <p style={{ marginTop: '16px', color: '#64748b', fontSize: '14px' }}>Loading leads...</p>
+                </div>
+              ) : campaignLeads.length === 0 ? (
+                <div style={{ padding: '60px 20px', textAlign: 'center' }}>
+                  <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', color: '#94a3b8' }}>
+                    <Target size={32} />
+                  </div>
+                  <h5 style={{ margin: '0 0 8px 0', color: '#1e293b', fontWeight: '600' }}>No leads found</h5>
+                  <p style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>This campaign has no leads yet</p>
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
+                    <thead style={{ backgroundColor: '#f8fafc' }}>
+                      <tr>
+                        <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Contact</th>
+                        <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Owner</th>
+                        <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Bot</th>
+                        <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Summary</th>
+                        <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Date</th>
+                        <th style={{ padding: '14px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0', width: '120px' }}>Recording</th>
+                        <th style={{ padding: '14px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0', width: '100px' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {campaignLeads.map((lead) => (
+                        <tr
+                          key={lead.id}
+                          style={{
+                            borderBottom: '1px solid #f1f5f9',
+                            transition: 'background-color 0.2s',
+                            cursor: 'pointer'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                          onClick={() => history.push(`/admin/genie/leads/${lead.id}`)}
+                        >
+                          <td style={{ padding: '14px 16px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                              <div style={{
+                                width: '40px',
+                                height: '40px',
+                                borderRadius: '10px',
+                                background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: 'white',
+                                fontWeight: '600',
+                                fontSize: '14px'
+                              }}>
+                                {getInitials(lead.name)}
+                              </div>
+                              <div>
+                                <div style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>{lead.name || "Unknown"}</div>
+                                <div style={{ color: '#64748b', fontSize: '13px' }}>{lead.phone || "-"}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '14px' }}>
+                            {lead.owner_name || lead.email || "-"}
+                          </td>
+                          <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '14px' }}>
+                            {lead.genie_bots?.name || "-"}
+                          </td>
+                          <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '13px' }}>
+                            {truncateText(lead.summary, 40)}
+                          </td>
+                          <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '14px' }}>
+                            {formatLeadDate(lead.created_at)}
+                          </td>
+                          <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                            {lead.recording_url ? (
+                              <a
+                                href={lead.recording_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  padding: '6px 12px',
+                                  backgroundColor: '#f1f5f9',
+                                  borderRadius: '6px',
+                                  color: '#74317e',
+                                  textDecoration: 'none',
+                                  fontSize: '13px',
+                                  fontWeight: '500',
+                                  transition: 'all 0.2s'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#e2e8f0';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#f1f5f9';
+                                }}
+                              >
+                                <PlayCircle size={14} /> Play
+                              </a>
+                            ) : (
+                              <span style={{ color: '#94a3b8', fontSize: '13px' }}>-</span>
+                            )}
+                          </td>
+                          <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                history.push(`/admin/genie/leads/${lead.id}`);
+                              }}
+                              style={{
+                                padding: '6px 12px',
+                                backgroundColor: '#74317e',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '6px',
+                                fontSize: '13px',
+                                fontWeight: '500',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                transition: 'all 0.2s'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#5a2570';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = '#74317e';
+                              }}
+                            >
+                              <Eye size={14} /> View
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Animation styles */}
       <style>{`

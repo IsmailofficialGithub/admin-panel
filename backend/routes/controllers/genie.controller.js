@@ -670,7 +670,7 @@ export const updateCallLeadStatus = async (req, res) => {
  */
 export const getAllCampaigns = async (req, res) => {
   try {
-    const { page, limit, status, ownerUserId, campaignSearch, consumerSearch } = req.query;
+    const { page, limit, status, ownerUserId, campaignSearch, consumerSearch, hasLeads } = req.query;
     const { pageNum, limitNum } = validatePagination(page, limit);
     const offset = (pageNum - 1) * limitNum;
     const userId = req.user.id;
@@ -689,6 +689,7 @@ export const getAllCampaigns = async (req, res) => {
       page: pageNum,
       limit: limitNum,
       status,
+      hasLeads,
       isSystemAdmin,
       ownerUserId,
     });
@@ -735,10 +736,10 @@ export const getAllCampaigns = async (req, res) => {
       query = query.eq("status", sanitizeString(status, 50));
     }
 
-    // If consumer search is provided, we need to fetch all campaigns first
-    // to filter by consumer info (which is enriched after fetch)
+    // If consumer search or hasLeads filter is provided, we need to fetch all campaigns first
+    // to filter by consumer info or leads (which is enriched/checked after fetch)
     // Otherwise, apply pagination before fetching
-    const shouldFetchAllForSearch = consumerSearch && consumerSearch.trim();
+    const shouldFetchAllForSearch = (consumerSearch && consumerSearch.trim()) || (hasLeads !== undefined && hasLeads !== '');
     
     if (!shouldFetchAllForSearch) {
       query = query.range(offset, offset + limitNum - 1);
@@ -849,21 +850,103 @@ export const getAllCampaigns = async (req, res) => {
       );
     }
 
-    // Add progress percentage to each campaign
-    const campaignsWithProgress = filteredCampaigns.map((c) => ({
-      ...c,
-      progress_percent:
-        c.contacts_count > 0
-          ? Math.round((c.calls_completed / c.contacts_count) * 100)
-          : 0,
-    }));
+    // ========================================
+    // FILTER BY LEADS (after enrichment and search)
+    // ========================================
+    if (hasLeads !== undefined && hasLeads !== '') {
+      const shouldHaveLeads = hasLeads === 'true';
+      const campaignIds = filteredCampaigns.map(c => c.id);
+      
+      if (campaignIds.length > 0) {
+        // Get all campaigns that have leads
+        const { data: campaignsWithLeads, error: leadsError } = await executeWithTimeout(
+          supabase
+            .from("call_logs")
+            .select("scheduled_list_id")
+            .eq("is_lead", true)
+            .in("scheduled_list_id", campaignIds)
+        );
 
-    // Apply pagination if we fetched all campaigns for search
+        if (!leadsError && campaignsWithLeads) {
+          // Get unique campaign IDs that have leads
+          const campaignIdsWithLeads = new Set(
+            campaignsWithLeads
+              .map(call => call.scheduled_list_id)
+              .filter(Boolean)
+          );
+
+          const beforeCount = filteredCampaigns.length;
+          filteredCampaigns = filteredCampaigns.filter((campaign) => {
+            const hasLeadsForCampaign = campaignIdsWithLeads.has(campaign.id);
+            return shouldHaveLeads ? hasLeadsForCampaign : !hasLeadsForCampaign;
+          });
+
+          console.log(
+            `🎯 Lead filter (hasLeads=${shouldHaveLeads}): ${filteredCampaigns.length} of ${beforeCount} campaigns match`
+          );
+        } else if (leadsError) {
+          console.error("⚠️ Error fetching leads for campaigns:", leadsError.message);
+          // Continue without filtering - don't fail the request
+        }
+      }
+    }
+
+    // ========================================
+    // ADD LEAD COUNT TO CAMPAIGNS
+    // ========================================
+    // Get unique list_ids from campaigns (campaign.list_id = genie_contact_lists.id)
+    const listIds = Array.from(new Set(filteredCampaigns.map(c => c.genie_contact_lists?.id).filter(Boolean)));
+    let listLeadsMap = new Map(); // list_id -> {count, firstLeadId}
+    
+    if (listIds.length > 0) {
+      // Get lead counts for all campaign lists
+      // Leads are linked to campaigns via list_id (genie_contact_lists.id)
+      const { data: leads, error: leadsError } = await executeWithTimeout(
+        supabase
+          .from("genie_leads")
+          .select("id, list_id, created_at")
+          .in("list_id", listIds)
+          .order("created_at", { ascending: false })
+      );
+
+      if (!leadsError && leads) {
+        // Group leads by list_id and get first lead ID
+        leads.forEach(lead => {
+          const listId = lead.list_id;
+          if (listId) {
+            const existing = listLeadsMap.get(listId) || { count: 0, firstLeadId: null };
+            existing.count += 1;
+            if (!existing.firstLeadId) {
+              existing.firstLeadId = lead.id;
+            }
+            listLeadsMap.set(listId, existing);
+          }
+        });
+      }
+    }
+
+    // Add progress percentage and lead count to each campaign
+    const campaignsWithProgress = filteredCampaigns.map((c) => {
+      const listId = c.genie_contact_lists?.id;
+      const leadsInfo = listId ? listLeadsMap.get(listId) : null;
+      
+      return {
+        ...c,
+        progress_percent:
+          c.contacts_count > 0
+            ? Math.round((c.calls_completed / c.contacts_count) * 100)
+            : 0,
+        leads_count: leadsInfo?.count || 0,
+        first_lead_id: leadsInfo?.firstLeadId || null,
+      };
+    });
+
+    // Apply pagination if we fetched all campaigns for search or lead filter
     let paginatedCampaigns = campaignsWithProgress;
     let finalCount = count || 0;
     
     if (shouldFetchAllForSearch) {
-      // Apply pagination after filtering when consumer search is used
+      // Apply pagination after filtering when consumer search or lead filter is used
       finalCount = filteredCampaigns.length;
       const startIndex = offset;
       const endIndex = offset + limitNum;
@@ -872,7 +955,7 @@ export const getAllCampaigns = async (req, res) => {
         `📄 Paginated ${paginatedCampaigns.length} campaigns from ${finalCount} total (page ${pageNum}, limit ${limitNum})`
       );
     } else if (campaignSearch && campaignSearch.trim()) {
-      // For campaign search only (without consumer search), 
+      // For campaign search only (without consumer search or lead filter), 
       // filtering happens on already paginated results, so count stays the same
       // but we update it to reflect filtered results
       finalCount = filteredCampaigns.length;
@@ -1197,7 +1280,7 @@ export const cancelCampaign = async (req, res) => {
  */
 export const getAllLeads = async (req, res) => {
   try {
-    const { page, limit, botId, startDate, endDate, search, ownerUserId } =
+    const { page, limit, botId, startDate, endDate, search, ownerUserId, listId } =
       req.query;
     const { pageNum, limitNum } = validatePagination(page, limit);
     const offset = (pageNum - 1) * limitNum;
@@ -1276,6 +1359,9 @@ export const getAllLeads = async (req, res) => {
     if (botId && isValidUUID(botId)) {
       query = query.eq("bot_id", botId);
     }
+    if (listId && isValidUUID(listId)) {
+      query = query.eq("list_id", listId);
+    }
     if (startDate) {
       query = query.gte("created_at", startDate);
     }
@@ -1299,63 +1385,68 @@ export const getAllLeads = async (req, res) => {
     }
 
     // ========================================
-    // ENRICH LEADS WITH OWNER EMAIL WHEN EMAIL IS NULL
+    // ENRICH LEADS WITH OWNER EMAIL AND NAME
     // ========================================
     if (leads && leads.length > 0) {
-      // Find leads with null email that have owner_user_id
-      const leadsNeedingEmail = leads.filter(
-        (lead) => !lead.email && lead.genie_bots?.owner_user_id
+      // Collect all unique owner_user_ids from bots
+      const ownerUserIds = Array.from(
+        new Set(
+          leads
+            .map((lead) => lead.genie_bots?.owner_user_id)
+            .filter(Boolean)
+        )
       );
 
-      if (leadsNeedingEmail.length > 0) {
-        // Collect unique owner_user_ids
-        const ownerUserIds = Array.from(
-          new Set(
-            leadsNeedingEmail
-              .map((lead) => lead.genie_bots?.owner_user_id)
-              .filter(Boolean)
-          )
-        );
+      if (ownerUserIds.length > 0) {
+        // Fetch user profiles (email and full_name) from auth_role_with_profiles
+        const { data: userProfiles, error: userError } =
+          await executeWithTimeout(
+            supabaseAdmin
+              .from("auth_role_with_profiles")
+              .select("user_id, email, full_name")
+              .in("user_id", ownerUserIds),
+            3000
+          );
 
-        if (ownerUserIds.length > 0) {
-          // Fetch user emails from auth_role_with_profiles
-          const { data: userProfiles, error: userError } =
-            await executeWithTimeout(
-              supabaseAdmin
-                .from("auth_role_with_profiles")
-                .select("user_id, email")
-                .in("user_id", ownerUserIds),
-              3000
-            );
+        if (!userError && userProfiles) {
+          // Create maps of user_id -> email and user_id -> full_name
+          const userIdToEmail = new Map(
+            userProfiles.map((profile) => [profile.user_id, profile.email])
+          );
+          const userIdToName = new Map(
+            userProfiles.map((profile) => [profile.user_id, profile.full_name])
+          );
 
-          if (!userError && userProfiles) {
-            // Create a map of user_id -> email
-            const userIdToEmail = new Map(
-              userProfiles.map((profile) => [profile.user_id, profile.email])
-            );
-
-            // Update leads with owner email where email is null
-            leads.forEach((lead) => {
-              if (!lead.email && lead.genie_bots?.owner_user_id) {
-                const ownerEmail = userIdToEmail.get(
-                  lead.genie_bots.owner_user_id
-                );
+          // Update leads with owner email (where email is null) and owner name
+          leads.forEach((lead) => {
+            if (lead.genie_bots?.owner_user_id) {
+              const ownerId = lead.genie_bots.owner_user_id;
+              
+              // Add owner email if lead email is null
+              if (!lead.email) {
+                const ownerEmail = userIdToEmail.get(ownerId);
                 if (ownerEmail) {
                   lead.email = ownerEmail;
                 }
               }
-            });
+              
+              // Add owner name
+              const ownerName = userIdToName.get(ownerId);
+              if (ownerName) {
+                lead.owner_name = ownerName;
+              }
+            }
+          });
 
-            console.log(
-              `✅ Enriched ${leadsNeedingEmail.length} lead(s) with owner email`
-            );
-          } else if (userError) {
-            console.error(
-              "⚠️ Error fetching owner emails:",
-              userError.message
-            );
-            // Continue without enriching - don't fail the request
-          }
+          console.log(
+            `✅ Enriched ${leads.length} lead(s) with owner information`
+          );
+        } else if (userError) {
+          console.error(
+            "⚠️ Error fetching owner information:",
+            userError.message
+          );
+          // Continue without enriching - don't fail the request
         }
       }
     }

@@ -215,7 +215,7 @@ axiosInstance.interceptors.response.use(
       });
 
       // Redirect to login immediately (no toast will be shown)
-      window.location.href = '/login';
+      // window.location.href = '/login';
       
       // Return a rejected promise that never resolves (prevents error propagation)
       return Promise.reject(new Error('Authentication required - redirecting to login'));
@@ -1062,6 +1062,7 @@ const apiClient = {
       if (params.page) queryParams.append('page', params.page);
       if (params.limit) queryParams.append('limit', params.limit);
       if (params.status) queryParams.append('status', params.status);
+      if (params.hasLeads !== undefined && params.hasLeads !== '') queryParams.append('hasLeads', params.hasLeads);
       if (params.ownerUserId) queryParams.append('ownerUserId', params.ownerUserId);
       if (params.campaignSearch) queryParams.append('campaignSearch', params.campaignSearch);
       if (params.consumerSearch) queryParams.append('consumerSearch', params.consumerSearch);
@@ -1079,6 +1080,7 @@ const apiClient = {
       if (params.page) queryParams.append('page', params.page);
       if (params.limit) queryParams.append('limit', params.limit);
       if (params.botId) queryParams.append('botId', params.botId);
+      if (params.listId) queryParams.append('listId', params.listId);
       if (params.startDate) queryParams.append('startDate', params.startDate);
       if (params.endDate) queryParams.append('endDate', params.endDate);
       if (params.search) queryParams.append('search', params.search);
