@@ -22,6 +22,12 @@ export const AuthProvider = ({ children }) => {
   const history = useHistory()
   const location = useLocation()
   
+  // Impersonation state
+  const [isImpersonating, setIsImpersonating] = useState(false)
+  const [originalSession, setOriginalSession] = useState(null)
+  const [impersonationExpiresAt, setImpersonationExpiresAt] = useState(null)
+  const [impersonatedUser, setImpersonatedUser] = useState(null)
+  
   // Check if current path is the payment page (public route)
   const isPaymentPage = location.pathname === '/payment'
 
@@ -149,6 +155,113 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
+  // Check for impersonation session on mount
+  useEffect(() => {
+    const checkImpersonation = () => {
+      try {
+        const impersonationData = localStorage.getItem('impersonation_session')
+        if (impersonationData) {
+          const parsed = JSON.parse(impersonationData)
+          const expiresAt = new Date(parsed.expires_at)
+          
+          // Check if impersonation has expired
+          if (expiresAt < new Date()) {
+            // Impersonation expired, clear it
+            localStorage.removeItem('impersonation_session')
+            localStorage.removeItem('original_session')
+            return
+          }
+          
+          setIsImpersonating(true)
+          setImpersonationExpiresAt(expiresAt)
+          
+          // Load original session if available
+          const originalSessionData = localStorage.getItem('original_session')
+          if (originalSessionData) {
+            setOriginalSession(JSON.parse(originalSessionData))
+          }
+          
+          // Set impersonated user info if available
+          if (parsed.target_user_id) {
+            setImpersonatedUser({ id: parsed.target_user_id })
+          }
+        }
+      } catch (error) {
+        console.error('Error checking impersonation:', error)
+      }
+    }
+    
+    checkImpersonation()
+    
+    // Check expiration every minute
+    const expirationCheckInterval = setInterval(() => {
+      const impersonationData = localStorage.getItem('impersonation_session')
+      if (impersonationData) {
+        try {
+          const parsed = JSON.parse(impersonationData)
+          const expiresAt = new Date(parsed.expires_at)
+          if (expiresAt < new Date()) {
+            // Expired - clear impersonation data
+            localStorage.removeItem('impersonation_session')
+            localStorage.removeItem('original_session')
+            window.location.reload()
+          }
+        } catch (error) {
+          console.error('Error checking impersonation expiration:', error)
+        }
+      }
+    }, 60000) // Check every minute
+    
+    return () => clearInterval(expirationCheckInterval)
+  }, [])
+
+  // Exit impersonation and restore original session
+  const exitImpersonation = async () => {
+    try {
+      const originalSessionData = localStorage.getItem('original_session')
+      
+      // Clear impersonation data
+      localStorage.removeItem('impersonation_session')
+      localStorage.removeItem('original_session')
+      
+      setIsImpersonating(false)
+      setImpersonationExpiresAt(null)
+      setImpersonatedUser(null)
+      setOriginalSession(null)
+      
+      if (originalSessionData) {
+        // Restore original session
+        const original = JSON.parse(originalSessionData)
+        // Sign out current session first
+        await supabase.auth.signOut()
+        
+        // Sign in with original session
+        const { data, error } = await supabase.auth.setSession({
+          access_token: original.access_token,
+          refresh_token: original.refresh_token
+        })
+        
+        if (error) {
+          console.error('Error restoring original session:', error)
+          toast.error('Failed to restore original session. Please log in again.')
+          history.push('/login')
+          return
+        }
+        
+        toast.success('Exited impersonation. Original session restored.')
+        window.location.reload()
+      } else {
+        // No original session, redirect to login
+        toast.info('Impersonation ended. Please log in again.')
+        await supabase.auth.signOut()
+        history.push('/login')
+      }
+    } catch (error) {
+      console.error('Error exiting impersonation:', error)
+      toast.error('Failed to exit impersonation')
+    }
+  }
+
   useEffect(() => {
     // Check auth only once on mount
     const initAuth = async () => {
@@ -161,38 +274,146 @@ export const AuthProvider = ({ children }) => {
           return
         }
         
+        // Check for session in URL hash fragments (for impersonation and OAuth callbacks)
+        // Supabase client with detectSessionInUrl: true should handle this, but we'll also check manually
+        if (window.location.hash) {
+          try {
+            const hashParams = new URLSearchParams(window.location.hash.substring(1));
+            const accessToken = hashParams.get('access_token');
+            const refreshToken = hashParams.get('refresh_token');
+            
+            if (accessToken && refreshToken) {
+              console.log('🔍 AuthContext: Found session tokens in URL hash, setting session...');
+              const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken
+              });
+              
+              if (!sessionError && sessionData.session) {
+                console.log('✅ AuthContext: Session set from URL hash');
+                // Clear the hash from URL
+                window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+              } else {
+                console.error('❌ AuthContext: Error setting session from hash:', sessionError);
+              }
+            }
+          } catch (hashError) {
+            console.error('❌ AuthContext: Error processing URL hash:', hashError);
+          }
+        }
+        
+        // Check if we're in impersonation mode
+        let isImpersonatingActive = false
+        let targetUserId = null
+        const impersonationData = localStorage.getItem('impersonation_session')
+        if (impersonationData) {
+          try {
+            const parsed = JSON.parse(impersonationData)
+            const expiresAt = new Date(parsed.expires_at)
+            
+            if (expiresAt < new Date()) {
+              // Expired - clear impersonation session
+              localStorage.removeItem('impersonation_session')
+              localStorage.removeItem('original_session')
+              setIsImpersonating(false)
+            } else {
+              // Impersonation session is valid - set impersonation state
+              isImpersonatingActive = true
+              targetUserId = parsed.target_user_id
+              setIsImpersonating(true)
+              setImpersonationExpiresAt(expiresAt)
+              
+              // If we have impersonated user data, set it
+              if (parsed.user) {
+                setImpersonatedUser(parsed.user)
+              } else if (targetUserId) {
+                // Store basic user info for reference
+                setImpersonatedUser({
+                  id: targetUserId,
+                  email: parsed.target_user_email,
+                  full_name: parsed.target_user_full_name
+                })
+              }
+            }
+          } catch (error) {
+            console.error('Error processing impersonation session:', error)
+            // Clear invalid impersonation data
+            localStorage.removeItem('impersonation_session')
+            localStorage.removeItem('original_session')
+            setIsImpersonating(false)
+          }
+        }
+        
         const { data: { session } } = await supabase.auth.getSession()
 
         if (session?.user) {
+          // Determine which user ID to use for profile lookup
+          // If impersonating, use target user ID; otherwise use session user ID
+          const userIdToUse = isImpersonatingActive && targetUserId ? targetUserId : session.user.id
+          
           // Check if user has a valid role
-          const hasValidRole = await checkValidRole(session.user.id)
+          const hasValidRole = await checkValidRole(userIdToUse)
           if (!hasValidRole) {
             setLoading(false)
             return // User will be signed out and redirected to login
           }
 
+          // Set user - if impersonating, we'll use the target user's profile even if session hasn't switched yet
           setUser(session.user)
 
-          // Check if user is system admin - bypass profile check
-          const { data: systemAdminProfile } = await supabase
+          // Check if user is system admin - bypass profile check (but only if NOT impersonating)
+          if (!isImpersonatingActive) {
+            const { data: systemAdminProfile } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('user_id', userIdToUse)
+              .eq('is_systemadmin', true)
+              .single()
+            
+            if (systemAdminProfile) {
+              // User is system admin - use their actual profile
+              setProfile(systemAdminProfile)
+              setLoading(false)
+              return
+            }
+          }
+
+          // Fetch profile using the determined user ID
+          const { data: profileData, error: profileError } = await supabase
             .from('profiles')
             .select('*')
-            .eq('user_id', session.user.id)
-            .eq('is_systemadmin', true)
+            .eq('user_id', userIdToUse)
             .single()
-          
-          if (systemAdminProfile) {
-            // User is system admin - use their actual profile
-            setProfile(systemAdminProfile)
+
+          if (profileError || !profileData) {
+            console.error('❌ AuthContext: Failed to fetch profile:', profileError)
+            // If impersonating and profile fetch fails, clear impersonation and use session user
+            if (isImpersonatingActive) {
+              console.log('⚠️ AuthContext: Profile fetch failed during impersonation, clearing impersonation session')
+              localStorage.removeItem('impersonation_session')
+              localStorage.removeItem('original_session')
+              setIsImpersonating(false)
+              // Try to fetch profile using session user ID instead
+              const { data: sessionProfileData } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('user_id', session.user.id)
+                .single()
+              
+              if (sessionProfileData) {
+                setProfile(sessionProfileData)
+                setLoading(false)
+                return
+              }
+            }
+            // If still no profile, sign out and redirect
+            console.error('❌ AuthContext: No profile found, signing out')
+            await supabase.auth.signOut()
+            setUser(null)
+            setProfile(null)
             setLoading(false)
             return
           }
-
-          const { data: profileData } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('user_id', session.user.id)
-            .single()
 
           console.log('🔍 AuthContext: Profile loaded:', { role: profileData?.role, roleType: typeof profileData?.role, isArray: Array.isArray(profileData?.role) })
 
@@ -205,10 +426,10 @@ export const AuthProvider = ({ children }) => {
             return
           }
           
-          // If user is ONLY consumer (no reseller role), redirect to external site
+          // If user is ONLY consumer or user (no reseller/admin/support role), redirect to external site
           const userRoles = normalizeRole(profileData?.role)
-          console.log('🔍 AuthContext: Normalized roles:', userRoles, 'isOnlyConsumer:', userRoles.length === 1 && userRoles.includes('consumer'))
-          const isOnlyConsumer = userRoles.length === 1 && userRoles.includes('consumer')
+          console.log('🔍 AuthContext: Normalized roles:', userRoles, 'isOnlyConsumer:', userRoles.length === 1 && (userRoles.includes('consumer') || userRoles.includes('user')))
+          const isOnlyConsumer = userRoles.length === 1 && (userRoles.includes('consumer') || userRoles.includes('user'))
           if (isOnlyConsumer) {
             console.log('❌ AuthContext: Consumer-only role detected. Redirecting to external site.')
             await supabase.auth.signOut()
@@ -259,6 +480,16 @@ export const AuthProvider = ({ children }) => {
           }
 
           setProfile(profileData)
+        } else {
+          // No session - clear impersonation if active
+          if (isImpersonatingActive) {
+            console.log('⚠️ AuthContext: No session during impersonation, clearing impersonation session')
+            localStorage.removeItem('impersonation_session')
+            localStorage.removeItem('original_session')
+            setIsImpersonating(false)
+          }
+          setUser(null)
+          setProfile(null)
         }
       } catch (error) {
         console.error('❌ AuthContext: Auth error:', error)
@@ -341,6 +572,11 @@ export const AuthProvider = ({ children }) => {
     if (primaryRole === 'systemadmin' || primaryRole === 'admin') return '/admin/dashboard'
     if (primaryRole === 'reseller') return '/reseller/dashboard'
     if (primaryRole === 'support') return '/support/dashboard'
+    // 'user' and 'consumer' roles should redirect to external site (handled elsewhere)
+    if (primaryRole === 'user' || primaryRole === 'consumer') {
+      // This shouldn't happen if AuthContext is working correctly, but fallback to login
+      return '/login'
+    }
     
     return '/login'
   }
@@ -355,6 +591,12 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated: !!user,
     isAdmin: hasRole(profile?.role, 'admin'),
     isReseller: hasRole(profile?.role, 'reseller'),
+    // Impersonation
+    isImpersonating,
+    impersonationExpiresAt,
+    impersonatedUser,
+    originalSession,
+    exitImpersonation,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

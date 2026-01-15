@@ -22,6 +22,7 @@ import AdminNavbar from "components/Navbars/AdminNavbar";
 import Footer from "components/Footer/Footer";
 import Sidebar from "components/Sidebar/Sidebar";
 import FixedPlugin from "components/FixedPlugin/FixedPlugin.js";
+import ImpersonationBanner from "components/ui/ImpersonationBanner";
 
 import routes from "routes.js";
 
@@ -63,9 +64,10 @@ function Admin() {
   }, [location]);
   return (
     <>
-      <div className="wrapper">
+      <ImpersonationBanner />
+      <div className="wrapper" style={{ marginTop: '0' }}>
         <Sidebar color={color} image={hasImage ? image : ""} routes={routes} />
-        <div className="main-panel" ref={mainPanel}>
+        <div className="main-panel" ref={mainPanel} style={{ marginTop: '0' }}>
           <AdminNavbar />
           <div className="content">
             <Switch>{getRoutes(routes)}</Switch>

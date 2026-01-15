@@ -23,9 +23,9 @@ const Login = () => {
         return;
       }
       
-      // Check if user is ONLY consumer (no reseller role)
+      // Check if user is ONLY consumer or user (no reseller role)
       const userRoles = normalizeRole(profile.role);
-      const isOnlyConsumer = userRoles.length === 1 && userRoles.includes('consumer');
+      const isOnlyConsumer = userRoles.length === 1 && (userRoles.includes('consumer') || userRoles.includes('user'));
       if (isOnlyConsumer) {
         toast.error('You are not authorized to access this page. Redirecting to external site...');
         setTimeout(() => {
@@ -111,10 +111,10 @@ const Login = () => {
           return;
         }
 
-        // Check if consumer account is deactivated BEFORE completing login
-        // Only check this if user is ONLY consumer (not if they also have reseller role)
+        // Check if consumer/user account is deactivated BEFORE completing login
+        // Only check this if user is ONLY consumer or user (not if they also have reseller role)
         const userRoles = normalizeRole(profile.role);
-        const isOnlyConsumer = userRoles.length === 1 && userRoles.includes('consumer');
+        const isOnlyConsumer = userRoles.length === 1 && (userRoles.includes('consumer') || userRoles.includes('user'));
         if (isOnlyConsumer && profile.account_status === 'deactive') {
           console.error('❌ Login: Consumer account is deactivated');
           // Sign out immediately before clearing storage
@@ -215,18 +215,18 @@ const Login = () => {
             console.error('❌ Redirect failed:', redirectError);
           }
         } else {
-          // Check if user is ONLY consumer (no reseller, admin, or support role)
+          // Check if user is ONLY consumer or user (no reseller, admin, or support role)
           const normalizedUserRoles = normalizeRole(profile.role);
-          const isOnlyConsumer = normalizedUserRoles.length === 1 && normalizedUserRoles.includes('consumer');
+          const isOnlyConsumer = normalizedUserRoles.length === 1 && (normalizedUserRoles.includes('consumer') || normalizedUserRoles.includes('user'));
           
-          console.log('🔍 Login: Checking if only consumer:', { 
+          console.log('🔍 Login: Checking if only consumer/user:', { 
             normalizedRoles: normalizedUserRoles, 
             isOnlyConsumer 
           });
           
           if (isOnlyConsumer) {
-            // Consumers should be redirected to external site without saving token
-            console.log('❌ Login: Consumer-only role detected. Redirecting to external site without saving token.');
+            // Consumers/users should be redirected to external site without saving token
+            console.log('❌ Login: Consumer/User-only role detected. Redirecting to external site without saving token.');
             
             // Sign out immediately before clearing storage
             await supabase.auth.signOut();

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useHistory } from 'react-router-dom';
-import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, Search, Eye } from 'lucide-react';
+import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, Search, Eye, LogIn } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { createClient } from '../lib/supabase/Production/client';
 // ✅ Using backend API instead of direct Supabase calls
 import { 
   getAdminUsers, 
@@ -9,12 +10,14 @@ import {
   resetUserPassword, 
   createUser, 
   deleteUser,
-  updateUserAccountStatus
+  updateUserAccountStatus,
+  impersonateUser
 } from '../api/backend';
 import UpdateUserModal from '../components/ui/UpdateUserModel';
 import CreateUserModal from '../components/ui/createUserModel';
 import ForgetPasswordConfirmPopup from '../components/ui/forgetPasswordComformPopup';
 import DeleteModal from '../components/ui/deleteModel';
+import ImpersonateUserModal from '../components/ui/ImpersonateUserModal';
 import { hasRole, getRolesString } from '../utils/roleUtils';
 import { useAuth } from '../hooks/useAuth';
 import { usePermissions } from '../hooks/usePermissions';
@@ -43,6 +46,8 @@ const User = () => {
   const [searchInput, setSearchInput] = useState('');
   const [dropdownPosition, setDropdownPosition] = useState({}); // Store dropdown position for each user
   const actionButtonRefs = useRef({});
+  const [showImpersonateModal, setShowImpersonateModal] = useState(false);
+  const [impersonateUserData, setImpersonateUserData] = useState(null);
   const usersPerPage = 20;
 
   // Debounce search input
@@ -123,6 +128,25 @@ const User = () => {
         }
         setStatusUpdateData({ id: userId, name: userName, currentStatus: user.account_status || 'active', role: user.role });
         setShowStatusModal(true);
+      }
+    } else if (action === 'Login As') {
+      console.log('🔍 Login As clicked for user:', userId);
+      const user = users.find(u => (u.id || u.user_id) === userId);
+      if (user) {
+        console.log('✅ User found, opening impersonation modal:', user);
+        setImpersonateUserData({
+          id: userId,
+          user_id: userId,
+          email: user.email,
+          full_name: user.full_name || user.name,
+          name: user.name || user.full_name,
+          role: user.role
+        });
+        setShowImpersonateModal(true);
+        console.log('✅ Modal state set to true');
+      } else {
+        console.error('❌ User not found for ID:', userId);
+        toast.error('User not found');
       }
     } else {
       toast(`${action} action clicked for user: ${userName}`);
@@ -316,6 +340,91 @@ const User = () => {
       console.error('Error deleting user:', err);
       toast.error('Failed to delete user. Please try again.');
       setIsDeleting(false);
+    }
+  };
+
+  const handleImpersonate = async (user, durationMinutes) => {
+    try {
+      const supabase = createClient();
+      const result = await impersonateUser(user.id || user.user_id, durationMinutes);
+      
+      if (result.error) {
+        toast.error(result.error);
+        throw new Error(result.error);
+      }
+
+      // Store original session before impersonation
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      if (currentSession) {
+        localStorage.setItem('original_session', JSON.stringify({
+          access_token: currentSession.access_token,
+          refresh_token: currentSession.refresh_token,
+          user_id: currentSession.user.id
+        }));
+      }
+
+      // If we have session tokens directly, set the session immediately
+      if (result.access_token && result.refresh_token) {
+        // Store impersonation data
+        localStorage.setItem('impersonation_session', JSON.stringify({
+          impersonation_token: result.impersonation_token,
+          magic_link: result.magic_link,
+          expires_at: result.expires_at,
+          target_user_id: result.target_user.id,
+          target_user_email: result.target_user.email,
+          target_user_full_name: result.target_user.full_name,
+          duration_minutes: durationMinutes
+        }));
+
+        // Set the session directly using the tokens
+        const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+          access_token: result.access_token,
+          refresh_token: result.refresh_token
+        });
+
+        if (sessionError) {
+          console.error('❌ Error setting impersonation session:', sessionError);
+          toast.error('Failed to set session. Redirecting to magic link...');
+          // Fallback to magic link
+          if (result.magic_link) {
+            window.location.href = result.magic_link;
+          } else {
+            window.location.reload();
+          }
+          return;
+        }
+
+        if (sessionData.session) {
+          toast.success(`Impersonating ${result.target_user.full_name || result.target_user.email}...`);
+          // Reload to let AuthContext pick up the new session
+          window.location.reload();
+          return;
+        }
+      }
+
+      // Fallback: Store impersonation data and use magic link
+      localStorage.setItem('impersonation_session', JSON.stringify({
+        impersonation_token: result.impersonation_token,
+        magic_link: result.magic_link,
+        expires_at: result.expires_at,
+        target_user_id: result.target_user.id,
+        target_user_email: result.target_user.email,
+        target_user_full_name: result.target_user.full_name,
+        duration_minutes: durationMinutes
+      }));
+
+      toast.success(`Starting impersonation of ${result.target_user.full_name || result.target_user.email}...`);
+      
+      // Navigate to the magic link to create the session
+      if (result.magic_link) {
+        window.location.href = result.magic_link;
+      } else {
+        // Fallback: reload and let AuthContext handle it
+        window.location.reload();
+      }
+    } catch (error) {
+      console.error('Impersonation error:', error);
+      throw error;
     }
   };
 
@@ -859,6 +968,42 @@ const User = () => {
                             <Key size={16} />
                             Reset Password
                           </button>
+                          {/* Login As - Only visible for system admins */}
+                          {profile?.is_systemadmin ? (
+                            <>
+                              <div style={{ 
+                                height: '1px', 
+                                backgroundColor: '#e0e0e0', 
+                                margin: '4px 0' 
+                              }} />
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  console.log('🔍 Login As button clicked');
+                                  handleAction('Login As', userId, user.nickname || user.name || user.full_name);
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px 16px',
+                                  border: 'none',
+                                  backgroundColor: 'transparent',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  color: '#007bff',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  transition: 'background-color 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e7f3ff'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                              >
+                                <LogIn size={16} />
+                                Login As
+                              </button>
+                            </>
+                          ) : null}
                           <button
                             onClick={() => handleAction('Deactivate Account', userId, user.nickname || user.name || user.full_name)}
                             disabled={hasRole(user.role, 'admin')}
@@ -1250,6 +1395,17 @@ const User = () => {
           </div>
         </>
       )}
+
+      {/* Impersonate User Modal */}
+      <ImpersonateUserModal
+        isOpen={showImpersonateModal}
+        onClose={() => {
+          setShowImpersonateModal(false);
+          setImpersonateUserData(null);
+        }}
+        user={impersonateUserData}
+        onImpersonate={handleImpersonate}
+      />
     </div>
     </>
   );

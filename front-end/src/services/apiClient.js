@@ -322,6 +322,16 @@ const apiClient = {
      * Logout
      */
     logout: () => axiosInstance.post('/auth/logout'),
+
+    /**
+     * Impersonate a user (System Admin only)
+     */
+    impersonate: (data) => axiosInstance.post('/auth/impersonate', data),
+
+    /**
+     * Generate magic link for consumer to login to external site (Admin only)
+     */
+    generateConsumerLink: (data) => axiosInstance.post('/auth/generate-consumer-link', data),
   },
 
   // ==================== USERS ====================

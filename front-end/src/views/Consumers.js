@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useHistory } from 'react-router-dom';
-import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, CheckCircle, Search, Filter, FileText, Eye, Calendar, XCircle, UserCog } from 'lucide-react';
+import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, CheckCircle, Search, Filter, FileText, Eye, Calendar, XCircle, UserCog, LogIn, Copy, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 // ✅ Using backend API instead of direct Supabase calls
 import { 
@@ -14,6 +14,7 @@ import {
   revokeLifetimeAccess,
   reassignConsumerToReseller
 } from '../api/backend';
+import { generateConsumerLink } from '../api/backend/auth';
 import { getResellers } from '../api/backend';
 import { checkUserPermissionsBulk } from '../api/backend/permissions';
 import { useAuth } from '../hooks/useAuth';
@@ -77,6 +78,8 @@ const Consumers = () => {
   const [manualPassword, setManualPassword] = useState('');
   const [newGeneratedPassword, setNewGeneratedPassword] = useState('');
   const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [showExternalSiteLoginModal, setShowExternalSiteLoginModal] = useState(false);
+  const [externalSiteLoginData, setExternalSiteLoginData] = useState(null);
   const [permissions, setPermissions] = useState({
     create: false, // Start as false, update after checking
     delete: false,
@@ -453,6 +456,12 @@ const Consumers = () => {
         setResellers([]);
         setShowResellerSuggestions(false);
         setShowReassignModal(true);
+      }
+    } else if (action === 'Login to External Site') {
+      // Generate magic link and redirect to external site
+      const consumer = users.find(u => u.user_id === userId);
+      if (consumer) {
+        handleLoginToExternalSite(userId, consumer);
       }
     } else {
       toast(`${action} action clicked for consumer: ${userName}`);
@@ -1133,6 +1142,107 @@ const Consumers = () => {
     } finally {
       setIsReassigning(false);
     }
+  };
+
+  const handleLoginToExternalSite = async (userId, consumer) => {
+    try {
+      const loadingToast = toast.loading(`Generating login link for ${consumer.full_name || consumer.email}...`);
+      
+      const result = await generateConsumerLink(userId);
+      
+      if (result.error) {
+        toast.error(`Error: ${result.error}`, { id: loadingToast });
+        return;
+      }
+
+      if (result.magic_link) {
+        toast.dismiss(loadingToast);
+        
+        // Store session info in localStorage for reference (though external site can't access it cross-domain)
+        if (result.access_token && result.refresh_token) {
+          // Session tokens are available - store them for reference
+          localStorage.setItem('external_site_session', JSON.stringify({
+            user_id: result.user_id || result.target_user?.id || userId,
+            email: result.target_user?.email || consumer.email,
+            access_token: result.access_token,
+            refresh_token: result.refresh_token,
+            expires_at: result.expires_at,
+            expires_in: result.expires_in,
+            timestamp: new Date().toISOString()
+          }));
+        } else {
+          // Token-based approach
+          localStorage.setItem('external_site_session', JSON.stringify({
+            user_id: result.target_user?.id || userId,
+            email: result.target_user?.email || consumer.email,
+            magic_link: result.magic_link,
+            token: result.token,
+            timestamp: new Date().toISOString()
+          }));
+        }
+        
+        // Show modal with URL and expiry info
+        setExternalSiteLoginData({
+          url: result.magic_link,
+          email: result.target_user?.email || consumer.email,
+          expires_at: result.expires_at,
+          expires_in: result.expires_in,
+          access_token: result.access_token,
+          refresh_token: result.refresh_token
+        });
+        setShowExternalSiteLoginModal(true);
+      } else {
+        toast.error('Failed to generate login link', { id: loadingToast });
+      }
+    } catch (error) {
+      console.error('Error generating consumer login link:', error);
+      toast.error('Failed to generate login link. Please try again.');
+    }
+  };
+
+  const handleCopyUrl = () => {
+    if (externalSiteLoginData?.url) {
+      navigator.clipboard.writeText(externalSiteLoginData.url).then(() => {
+        toast.success('URL copied to clipboard!');
+      }).catch(() => {
+        toast.error('Failed to copy URL');
+      });
+    }
+  };
+
+  const handleOpenExternalSite = () => {
+    if (externalSiteLoginData?.url) {
+      window.open(externalSiteLoginData.url, '_blank');
+    }
+  };
+
+  const formatExpiryTime = (expiresAt, expiresIn) => {
+    if (expiresAt) {
+      const expiryDate = new Date(expiresAt * 1000); // expires_at is in seconds
+      const now = new Date();
+      const diffMs = expiryDate - now;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMins / 60);
+      
+      if (diffMins < 0) {
+        return 'Expired';
+      } else if (diffMins < 60) {
+        return `Expires in ${diffMins} minute${diffMins !== 1 ? 's' : ''}`;
+      } else {
+        return `Expires in ${diffHours} hour${diffHours !== 1 ? 's' : ''} (${expiryDate.toLocaleString()})`;
+      }
+    } else if (expiresIn) {
+      const expiryDate = new Date(Date.now() + expiresIn * 1000);
+      const diffMins = Math.floor(expiresIn / 60);
+      const diffHours = Math.floor(diffMins / 60);
+      
+      if (diffMins < 60) {
+        return `Expires in ${diffMins} minute${diffMins !== 1 ? 's' : ''}`;
+      } else {
+        return `Expires in ${diffHours} hour${diffHours !== 1 ? 's' : ''} (${expiryDate.toLocaleString()})`;
+      }
+    }
+    return 'No expiry information';
   };
 
   // Calculate trial status
@@ -1914,6 +2024,33 @@ const Consumers = () => {
                               >
                                 <Key size={16} />
                                 Reset Password
+                              </button>
+                              <div style={{ 
+                                height: '1px', 
+                                backgroundColor: '#e0e0e0', 
+                                margin: '4px 0' 
+                              }} />
+                              <button
+                                onClick={() => handleAction('Login to External Site', userId, user.full_name)}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px 16px',
+                                  border: 'none',
+                                  backgroundColor: 'transparent',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  color: '#007bff',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  transition: 'background-color 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e7f3ff'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                              >
+                                <LogIn size={16} />
+                                Login to External Site
                               </button>
                             </>
                           )}
@@ -3557,6 +3694,205 @@ const Consumers = () => {
                     Reassign
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* External Site Login Modal */}
+      {showExternalSiteLoginModal && externalSiteLoginData && (
+        <>
+          <div
+            onClick={() => {
+              setShowExternalSiteLoginModal(false);
+              setExternalSiteLoginData(null);
+            }}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 9998,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}
+          />
+          <div style={{
+            position: 'fixed',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+            zIndex: 9999,
+            minWidth: '500px',
+            maxWidth: '600px',
+            maxHeight: '90vh',
+            overflow: 'auto'
+          }}>
+            <div style={{
+              padding: '24px',
+              borderBottom: '1px solid #e0e0e0'
+            }}>
+              <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '600', color: '#333' }}>
+                Login to External Site
+              </h3>
+              <p style={{ margin: '8px 0 0 0', fontSize: '14px', color: '#666' }}>
+                Login link generated for <strong>{externalSiteLoginData.email}</strong>
+              </p>
+            </div>
+            <div style={{ padding: '24px' }}>
+              {/* Token Expiry Information */}
+              <div style={{
+                backgroundColor: '#f0f9ff',
+                border: '1px solid #bae6fd',
+                borderRadius: '8px',
+                padding: '16px',
+                marginBottom: '20px'
+              }}>
+                <div style={{
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  color: '#0369a1',
+                  marginBottom: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  <Calendar size={16} />
+                  Token Expiry
+                </div>
+                <div style={{
+                  fontSize: '15px',
+                  fontWeight: '600',
+                  color: '#0c4a6e'
+                }}>
+                  {formatExpiryTime(externalSiteLoginData.expires_at, externalSiteLoginData.expires_in)}
+                </div>
+              </div>
+
+              {/* URL Display */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  color: '#666',
+                  marginBottom: '8px'
+                }}>
+                  Login URL:
+                </label>
+                <div style={{
+                  position: 'relative',
+                  backgroundColor: '#f9fafb',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  paddingRight: '100px',
+                  wordBreak: 'break-all',
+                  fontSize: '13px',
+                  color: '#374151',
+                  fontFamily: 'monospace',
+                  maxHeight: '150px',
+                  overflowY: 'auto'
+                }}>
+                  {externalSiteLoginData.url}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{
+                display: 'flex',
+                gap: '12px'
+              }}>
+                <button
+                  onClick={handleCopyUrl}
+                  style={{
+                    flex: 1,
+                    padding: '12px 16px',
+                    border: '1px solid #007bff',
+                    borderRadius: '8px',
+                    backgroundColor: 'white',
+                    color: '#007bff',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#007bff';
+                    e.currentTarget.style.color = 'white';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'white';
+                    e.currentTarget.style.color = '#007bff';
+                  }}
+                >
+                  <Copy size={16} />
+                  Copy URL
+                </button>
+                <button
+                  onClick={handleOpenExternalSite}
+                  style={{
+                    flex: 1,
+                    padding: '12px 16px',
+                    border: 'none',
+                    borderRadius: '8px',
+                    backgroundColor: '#007bff',
+                    color: 'white',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#0056b3';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#007bff';
+                  }}
+                >
+                  <ExternalLink size={16} />
+                  Open in New Tab
+                </button>
+              </div>
+            </div>
+            <div style={{
+              padding: '16px 24px',
+              borderTop: '1px solid #e0e0e0',
+              display: 'flex',
+              justifyContent: 'flex-end'
+            }}>
+              <button
+                onClick={() => {
+                  setShowExternalSiteLoginModal(false);
+                  setExternalSiteLoginData(null);
+                }}
+                style={{
+                  padding: '10px 24px',
+                  border: '1px solid #e0e0e0',
+                  borderRadius: '6px',
+                  backgroundColor: 'white',
+                  color: '#666',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: 'pointer'
+                }}
+              >
+                Close
               </button>
             </div>
           </div>

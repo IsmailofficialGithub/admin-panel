@@ -55,7 +55,7 @@ root.render(
         <Route path="/login" component={Login} />
         <Route exact path="/payment" component={Payment} />
         <Route exact path="/calls" component={Calls} />
-        <ProtectedRoute path="/admin" component={AdminLayout} allowedRoles={['admin']} />
+        <ProtectedRoute path="/admin" component={AdminLayout} allowedRoles={['admin', 'support']} />
         <ProtectedRoute path="/reseller" component={ResellerLayout} allowedRoles={['reseller']} />
         <ProtectedRoute path="/support" component={SupportLayout} allowedRoles={['support']} />
         {/* Consumer routes - redirect resellers to /reseller, consumer-only to external site */}

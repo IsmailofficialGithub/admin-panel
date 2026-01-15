@@ -112,6 +112,10 @@ export {
   setSystemAdmin
 } from './permissions';
 
+export {
+  impersonateUser
+} from './auth';
+
 // Re-export API client for direct access if needed
 export { default as apiClient } from '../../services/apiClient';
 

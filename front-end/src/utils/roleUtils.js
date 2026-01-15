@@ -86,9 +86,11 @@ export const getPrimaryRole = (role, isSystemAdmin = false) => {
   
   // Define priority order (higher number = higher priority)
   const rolePriority = {
-    'admin': 3,
+    'admin': 4,
+    'support': 3,
     'reseller': 2,
-    'consumer': 1
+    'consumer': 1,
+    'user': 1  // 'user' is treated same as 'consumer' (legacy role)
   };
   
   // Find the role with highest priority

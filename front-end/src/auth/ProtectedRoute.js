@@ -105,11 +105,11 @@ const ProtectedRoute = ({ component: Component, allowedRoles = [], ...rest }) =>
           console.log('✅ ProtectedRoute: Support on support route, allowing access.');
         }
         
-        // If user is ONLY consumer (has consumer but no reseller, admin, or support), redirect to external site
+        // If user is ONLY consumer or user (has consumer/user but no reseller, admin, or support), redirect to external site
         const userRoles = normalizeRole(profile.role);
-        const isOnlyConsumer = userRoles.length === 1 && userRoles.includes('consumer');
+        const isOnlyConsumer = userRoles.length === 1 && (userRoles.includes('consumer') || userRoles.includes('user'));
         if (isOnlyConsumer) {
-          console.log('❌ ProtectedRoute: Consumer-only role detected. Redirecting to external site.');
+          console.log('❌ ProtectedRoute: Consumer/User-only role detected. Redirecting to external site.');
           signOut();
           // Redirect to external site after a brief delay
           setTimeout(() => {

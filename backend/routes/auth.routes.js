@@ -1,12 +1,14 @@
 import express from 'express';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { 
   login, 
   logout, 
   getCurrentUser, 
   getSystemToken,
   requestPasswordReset,
-  passwordResetRateLimit
+  passwordResetRateLimit,
+  impersonateUser,
+  generateConsumerLink
 } from './controllers/auth.controller.js';
 import {
   createRateLimitMiddleware,
@@ -46,6 +48,30 @@ router.post(
   passwordResetRateLimit,
   sanitizeInputMiddleware,
   requestPasswordReset
+);
+
+// @route POST /api/auth/impersonate
+// @desc  Impersonate a user (System Admin only)
+// @access Private (System Admin only)
+router.post(
+  '/impersonate',
+  authenticate,
+  requireAdmin,
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
+  impersonateUser
+);
+
+// @route POST /api/auth/generate-consumer-link
+// @desc  Generate magic link for consumer to login to external site (Admin only)
+// @access Private (Admin only)
+router.post(
+  '/generate-consumer-link',
+  authenticate,
+  requireAdmin,
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
+  generateConsumerLink
 );
 
 export default router;
