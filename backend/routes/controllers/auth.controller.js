@@ -584,20 +584,23 @@ export const impersonateUser = async (req, res) => {
     // ========================================
     // 4. GENERATE SESSION TOKEN VIA SUPABASE ADMIN API
     // ========================================
-    // Use Supabase Admin API to generate a session token for the target user
-    // This creates a valid session without requiring password
-    const { data: sessionData, error: sessionError } = await executeWithTimeout(
+    // Use Supabase Admin API to generate a magic link for the target user
+    // The magic link contains a token that can be used to create a session
+    // Set redirectTo to the frontend URL so the session is created there
+    const adminPanelUrl = process.env.CLIENT_URL || process.env.SOCIAL_URL || 'http://localhost:3000';
+    
+    const { data: linkData, error: linkError } = await executeWithTimeout(
       supabaseAdmin.auth.admin.generateLink({
         type: 'magiclink',
         email: targetUser.user.email,
         options: {
-          redirectTo: process.env.SOCIAL_URL || 'http://localhost:3000'
+          redirectTo: adminPanelUrl  // Redirect to the frontend root - Supabase will append session tokens in hash
         }
       })
     );
 
-    if (sessionError || !sessionData) {
-      console.error('❌ Error generating impersonation session:', sessionError);
+    if (linkError || !linkData) {
+      console.error('❌ Error generating impersonation link:', linkError);
       return res.status(500).json({
         success: false,
         error: 'Internal Server Error',
@@ -605,46 +608,44 @@ export const impersonateUser = async (req, res) => {
       });
     }
 
-    // Extract tokens from the generated link
-    // Supabase generateLink returns properties with action_link containing tokens
-    // We need to create a proper session token
-    // Alternative: Use createUser or signInAsUser if available
-    // For now, we'll use the admin API to create a session directly
-    
-    // Create a session using admin API
-    const expiresAt = Math.floor(Date.now() / 1000) + (duration * 60); // Convert minutes to seconds
-    
-    // Generate access token for the target user
-    // Note: Supabase Admin API doesn't have a direct "impersonate" method
-    // We'll use the service role to create a session token
-    const { data: tokenData, error: tokenError } = await supabaseAdmin.auth.admin.createUser({
-      email: targetUser.user.email,
-      email_confirm: true,
-      user_metadata: targetUser.user.user_metadata || {}
-    });
+    // Extract the magic link URL from the generated data
+    const magicLink = linkData.properties?.action_link;
+    if (!magicLink) {
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Failed to extract impersonation token from magic link'
+      });
+    }
 
-    // Actually, we should use a different approach - get the existing user and create a session
-    // Let's use the admin API to sign in as the user
-    // We'll create a custom JWT token for impersonation
-    
-    // Better approach: Use Supabase's admin API to generate a session
-    // We can use the admin client to sign in as the user
-    const { data: { session }, error: signInError } = await supabaseAdmin.auth.signInWithPassword({
-      email: targetUser.user.email,
-      password: '' // This won't work - we need a different approach
-    });
+    // Parse the token from the magic link URL
+    let token = null;
+    try {
+      const url = new URL(magicLink);
+      token = url.searchParams.get('token');
+      // If not in query params, check hash
+      if (!token && url.hash) {
+        const hashParams = new URLSearchParams(url.hash.substring(1));
+        token = hashParams.get('token');
+      }
+    } catch (urlError) {
+      console.error('❌ Error parsing magic link URL:', urlError);
+      // Try to extract token using regex as fallback
+      const tokenMatch = magicLink.match(/[?&#]token=([^&?#]+)/);
+      if (tokenMatch) {
+        token = decodeURIComponent(tokenMatch[1]);
+      }
+    }
 
-    // The correct approach: Use Supabase Admin API's ability to generate tokens
-    // We'll create a session by using the admin API to get user and then generate a token
-    const impersonationToken = await supabaseAdmin.auth.admin.generateLink({
-      type: 'magiclink',
-      email: targetUser.user.email
-    });
+    if (!token) {
+      console.error('❌ Could not extract token from magic link');
+      return res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Failed to extract token from magic link'
+      });
+    }
 
-    // Actually, the best way is to use Supabase's admin API to create a session
-    // We can use the service role key to create a JWT token directly
-    // For now, let's use a simpler approach: return the user info and let frontend handle session
-    
     // Calculate expiration timestamp
     const expiresAtTimestamp = new Date(Date.now() + duration * 60 * 1000).toISOString();
 
@@ -674,134 +675,24 @@ export const impersonateUser = async (req, res) => {
     // ========================================
     // 6. RETURN SESSION INFORMATION
     // ========================================
-    // Note: We'll return the target user info and let the frontend create the session
-    // using Supabase client with the admin-generated token
-    // For security, we'll return a token that can be used to create a session
+    console.log(`✅ Impersonation session created: Admin ${req.user.id} impersonating ${target_user_id} for ${duration} minutes`);
     
-    // Generate a secure token for impersonation
-    // We'll use Supabase's admin API to create a session token
-    // For admin panel impersonation, redirect to CLIENT_URL (admin panel), not SOCIAL_URL (external site)
-    const adminPanelUrl = process.env.CLIENT_URL || process.env.SOCIAL_URL || 'http://localhost:3000';
-    const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
-      type: 'magiclink',
-      email: targetUser.user.email,
-      options: {
-        redirectTo: `${adminPanelUrl}/auth/callback`
+    res.json({
+      success: true,
+      message: 'Impersonation session created successfully',
+      data: {
+        target_user: {
+          id: target_user_id,
+          email: targetUser.user.email,
+          full_name: targetProfile.full_name || targetUser.user.email,
+          role: targetProfile.role
+        },
+        impersonation_token: token,
+        magic_link: magicLink,
+        expires_at: expiresAtTimestamp,
+        duration_minutes: duration
       }
     });
-
-    if (linkError || !linkData) {
-      console.error('❌ Error generating impersonation link:', linkError);
-      return res.status(500).json({
-        success: false,
-        error: 'Internal Server Error',
-        message: 'Failed to generate impersonation session'
-      });
-    }
-
-    // Extract the token from the magic link
-    // The link contains a token that can be used to create a session
-    const magicLink = linkData.properties?.action_link;
-    if (!magicLink) {
-      return res.status(500).json({
-        success: false,
-        error: 'Internal Server Error',
-        message: 'Failed to generate impersonation token'
-      });
-    }
-
-    // Parse the token from the URL
-    const url = new URL(magicLink);
-    const token = url.searchParams.get('token') || url.hash.split('token=')[1]?.split('&')[0];
-
-    // Verify the token and create a session for the admin panel
-    try {
-      // Use admin API to verify the token and get session
-      const { data: verifyData, error: verifyError } = await supabaseAdmin.auth.admin.verifyOtp({
-        type: 'magiclink',
-        token: token,
-        email: targetUser.user.email
-      });
-
-      if (verifyError || !verifyData || !verifyData.session) {
-        console.error('❌ Error verifying impersonation token:', verifyError);
-        // Fallback to token-based approach
-        const adminPanelUrl = process.env.CLIENT_URL || process.env.SOCIAL_URL || 'http://localhost:3000';
-        const adminPanelLink = `${adminPanelUrl}/#token=${encodeURIComponent(token)}&type=magiclink&email=${encodeURIComponent(targetUser.user.email)}`;
-        
-        console.log(`✅ Impersonation session created (fallback): Admin ${req.user.id} impersonating ${target_user_id} for ${duration} minutes`);
-        
-        return res.json({
-          success: true,
-          message: 'Impersonation session created successfully',
-          data: {
-            target_user: {
-              id: target_user_id,
-              email: targetUser.user.email,
-              full_name: targetProfile.full_name || targetUser.user.email,
-              role: targetProfile.role
-            },
-            impersonation_token: token,
-            magic_link: adminPanelLink,
-            expires_at: expiresAtTimestamp,
-            duration_minutes: duration
-          }
-        });
-      }
-
-      // If verification succeeds, we have a session
-      const session = verifyData.session;
-      const adminPanelUrl = process.env.CLIENT_URL || process.env.SOCIAL_URL || 'http://localhost:3000';
-      
-      // Create URL with session tokens in hash fragment format for admin panel
-      // Format: #access_token=...&refresh_token=...&type=magiclink&expires_in=...
-      const adminPanelLink = `${adminPanelUrl}/#access_token=${encodeURIComponent(session.access_token)}&refresh_token=${encodeURIComponent(session.refresh_token)}&expires_in=${session.expires_in || 3600}&token_type=bearer&type=magiclink`;
-
-      console.log(`✅ Impersonation session created: Admin ${req.user.id} impersonating ${target_user_id} for ${duration} minutes`);
-
-      res.json({
-        success: true,
-        message: 'Impersonation session created successfully',
-        data: {
-          target_user: {
-            id: target_user_id,
-            email: targetUser.user.email,
-            full_name: targetProfile.full_name || targetUser.user.email,
-            role: targetProfile.role
-          },
-          impersonation_token: token,
-          magic_link: adminPanelLink,
-          access_token: session.access_token,
-          refresh_token: session.refresh_token,
-          expires_at: session.expires_at || expiresAtTimestamp,
-          expires_in: session.expires_in,
-          duration_minutes: duration
-        }
-      });
-
-    } catch (verifyException) {
-      console.error('❌ Exception during impersonation token verification:', verifyException);
-      // Fallback to token-based approach
-      const adminPanelUrl = process.env.CLIENT_URL || process.env.SOCIAL_URL || 'http://localhost:3000';
-      const adminPanelLink = `${adminPanelUrl}/#token=${encodeURIComponent(token)}&type=magiclink&email=${encodeURIComponent(targetUser.user.email)}`;
-      
-      return res.json({
-        success: true,
-        message: 'Impersonation session created successfully',
-        data: {
-          target_user: {
-            id: target_user_id,
-            email: targetUser.user.email,
-            full_name: targetProfile.full_name || targetUser.user.email,
-            role: targetProfile.role
-          },
-          impersonation_token: token,
-          magic_link: adminPanelLink,
-          expires_at: expiresAtTimestamp,
-          duration_minutes: duration
-        }
-      });
-    }
 
   } catch (error) {
     console.error('❌ Impersonation error:', error);
@@ -835,13 +726,32 @@ export const generateConsumerLink = async (req, res) => {
       });
     }
 
-    // Get target user ID
-    const { target_user_id } = req.body;
+    // Get target user ID and optional target URL
+    const { target_user_id, target_url } = req.body;
     if (!target_user_id) {
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
         message: 'target_user_id is required'
+      });
+    }
+
+    // Validate target_url if provided
+    const allowedUrls = [
+      'http://localhost:5173',
+      'https://social.duhanashrah.ai',
+      'https://staging.duhanashrah.ai'
+    ];
+    
+    // Use provided target_url or fallback to environment variable or default
+    let consumerPageUrl = target_url || process.env.CLIENT_URL || process.env.SOCIAL_URL || 'http://localhost:5173';
+    
+    // If target_url is provided, validate it's in the allowed list
+    if (target_url && !allowedUrls.includes(target_url)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: `Invalid target_url. Allowed URLs: ${allowedUrls.join(', ')}`
       });
     }
 
@@ -865,11 +775,12 @@ export const generateConsumerLink = async (req, res) => {
     }
 
     // Generate magic link to get the token
+    // Use the provided target_url or fallback to environment variable
     const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
       type: 'magiclink',
       email: targetUser.user.email,
       options: {
-        redirectTo: 'https://social.duhanashrah.ai/'
+        redirectTo: `${consumerPageUrl}/auth`  // Redirect to /auth route
       }
     });
 
@@ -896,13 +807,18 @@ export const generateConsumerLink = async (req, res) => {
     try {
       const url = new URL(magicLink);
       token = url.searchParams.get('token');
+      // If not in query params, check hash
+      if (!token && url.hash) {
+        const hashParams = new URLSearchParams(url.hash.substring(1));
+        token = hashParams.get('token');
+      }
     } catch (error) {
       console.error('❌ Error parsing magic link URL:', error);
-      return res.status(500).json({
-        success: false,
-        error: 'Internal Server Error',
-        message: 'Failed to extract token from magic link'
-      });
+      // Try to extract token using regex as fallback
+      const tokenMatch = magicLink.match(/[?&#]token=([^&?#]+)/);
+      if (tokenMatch) {
+        token = decodeURIComponent(tokenMatch[1]);
+      }
     }
 
     if (!token) {
@@ -913,107 +829,26 @@ export const generateConsumerLink = async (req, res) => {
       });
     }
 
-    // Verify the token and create a session using Supabase Admin API
-    // We'll use the admin API to verify the OTP token and create a session
-    try {
-      // Use admin API to verify the token and get session
-      // Note: We need to use the admin client to verify the token
-      const { data: verifyData, error: verifyError } = await supabaseAdmin.auth.admin.verifyOtp({
-        type: 'magiclink',
+    // Return the magic link with token in hash fragment matching the format:
+    // http://localhost:4173/auth#token=...&type=magiclink&email=...
+    // The frontend Supabase client will automatically process the token and create a session
+    const consumerLink = `${consumerPageUrl}/auth#token=${encodeURIComponent(token)}&type=magiclink&email=${encodeURIComponent(targetUser.user.email)}`;
+    
+    console.log(`✅ Consumer login link generated: Admin ${req.user.id} for consumer ${target_user_id}`);
+    
+    res.json({
+      success: true,
+      message: 'Login link generated successfully',
+      data: {
+        magic_link: consumerLink,
         token: token,
-        email: targetUser.user.email
-      });
-
-      if (verifyError || !verifyData) {
-        console.error('❌ Error verifying token:', verifyError);
-        // If verification fails, fallback to passing token in hash fragment
-        // Supabase will automatically process this
-        const externalSiteUrl = `https://social.duhanashrah.ai/#token=${encodeURIComponent(token)}&type=magiclink&email=${encodeURIComponent(targetUser.user.email)}`;
-        
-        console.log(`✅ Consumer login link generated (fallback): Admin ${req.user.id} for consumer ${target_user_id}`);
-        
-        return res.json({
-          success: true,
-          message: 'Login link generated successfully',
-          data: {
-            magic_link: externalSiteUrl,
-            token: token,
-            email: targetUser.user.email,
-            target_user: {
-              id: target_user_id,
-              email: targetUser.user.email
-            }
-          }
-        });
-      }
-
-      // If verification succeeds, we have a session
-      // Extract session tokens
-      const session = verifyData.session;
-      if (!session || !session.access_token || !session.refresh_token) {
-        console.error('❌ Session data incomplete after verification');
-        // Fallback to token-based approach in hash fragment
-        const externalSiteUrl = `https://social.duhanashrah.ai/#token=${encodeURIComponent(token)}&type=magiclink&email=${encodeURIComponent(targetUser.user.email)}`;
-        
-        return res.json({
-          success: true,
-          message: 'Login link generated successfully',
-          data: {
-            magic_link: externalSiteUrl,
-            token: token,
-            email: targetUser.user.email,
-            target_user: {
-              id: target_user_id,
-              email: targetUser.user.email
-            }
-          }
-        });
-      }
-
-      // Create URL with session tokens in hash fragment format
-      // Supabase client SDK automatically detects and stores sessions from hash fragments
-      // Format: #access_token=...&refresh_token=...&type=magiclink&expires_in=...
-      // This will be automatically processed by Supabase's getSessionFromUrl() method
-      const externalSiteUrl = `https://social.duhanashrah.ai/#access_token=${encodeURIComponent(session.access_token)}&refresh_token=${encodeURIComponent(session.refresh_token)}&expires_in=${session.expires_in || 3600}&token_type=bearer&type=magiclink`;
-
-      console.log(`✅ Consumer session created: Admin ${req.user.id} for consumer ${target_user_id}`);
-
-      res.json({
-        success: true,
-        message: 'Session created successfully',
-        data: {
-          magic_link: externalSiteUrl,
-          access_token: session.access_token,
-          refresh_token: session.refresh_token,
-          expires_at: session.expires_at,
-          expires_in: session.expires_in,
-          user_id: session.user.id,
-          target_user: {
-            id: target_user_id,
-            email: targetUser.user.email
-          }
+        email: targetUser.user.email,
+        target_user: {
+          id: target_user_id,
+          email: targetUser.user.email
         }
-      });
-
-    } catch (verifyException) {
-      console.error('❌ Exception during token verification:', verifyException);
-      // Fallback to token-based approach in hash fragment
-      const externalSiteUrl = `https://social.duhanashrah.ai/#token=${encodeURIComponent(token)}&type=magiclink&email=${encodeURIComponent(targetUser.user.email)}`;
-      
-      return res.json({
-        success: true,
-        message: 'Login link generated successfully',
-        data: {
-          magic_link: externalSiteUrl,
-          token: token,
-          email: targetUser.user.email,
-          target_user: {
-            id: target_user_id,
-            email: targetUser.user.email
-          }
-        }
-      });
-    }
+      }
+    });
 
   } catch (error) {
     console.error('❌ Generate consumer link error:', error);

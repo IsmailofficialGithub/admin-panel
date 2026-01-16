@@ -79,6 +79,9 @@ const Consumers = () => {
   const [newGeneratedPassword, setNewGeneratedPassword] = useState('');
   const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [showExternalSiteLoginModal, setShowExternalSiteLoginModal] = useState(false);
+  const [showExternalSiteUrlSelector, setShowExternalSiteUrlSelector] = useState(false);
+  const [selectedExternalSiteUrl, setSelectedExternalSiteUrl] = useState('http://localhost:5173');
+  const [pendingExternalSiteAction, setPendingExternalSiteAction] = useState(null); // { userId, consumer }
   const [externalSiteLoginData, setExternalSiteLoginData] = useState(null);
   const [permissions, setPermissions] = useState({
     create: false, // Start as false, update after checking
@@ -458,10 +461,11 @@ const Consumers = () => {
         setShowReassignModal(true);
       }
     } else if (action === 'Login to External Site') {
-      // Generate magic link and redirect to external site
+      // Show URL selector first, then generate magic link
       const consumer = users.find(u => u.user_id === userId);
       if (consumer) {
-        handleLoginToExternalSite(userId, consumer);
+        setPendingExternalSiteAction({ userId, consumer });
+        setShowExternalSiteUrlSelector(true);
       }
     } else {
       toast(`${action} action clicked for consumer: ${userName}`);
@@ -1144,11 +1148,23 @@ const Consumers = () => {
     }
   };
 
-  const handleLoginToExternalSite = async (userId, consumer) => {
+  const handleConfirmExternalSiteUrl = () => {
+    if (pendingExternalSiteAction) {
+      setShowExternalSiteUrlSelector(false);
+      handleLoginToExternalSite(
+        pendingExternalSiteAction.userId,
+        pendingExternalSiteAction.consumer,
+        selectedExternalSiteUrl
+      );
+      setPendingExternalSiteAction(null);
+    }
+  };
+
+  const handleLoginToExternalSite = async (userId, consumer, targetUrl) => {
     try {
       const loadingToast = toast.loading(`Generating login link for ${consumer.full_name || consumer.email}...`);
       
-      const result = await generateConsumerLink(userId);
+      const result = await generateConsumerLink(userId, targetUrl);
       
       if (result.error) {
         toast.error(`Error: ${result.error}`, { id: loadingToast });
@@ -3694,6 +3710,136 @@ const Consumers = () => {
                     Reassign
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* External Site URL Selector Modal */}
+      {showExternalSiteUrlSelector && pendingExternalSiteAction && (
+        <>
+          <div
+            onClick={() => {
+              setShowExternalSiteUrlSelector(false);
+              setPendingExternalSiteAction(null);
+            }}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 9998,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}
+          />
+          <div style={{
+            position: 'fixed',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+            zIndex: 9999,
+            minWidth: '500px',
+            maxWidth: '600px',
+            maxHeight: '90vh',
+            overflow: 'auto'
+          }}>
+            <div style={{
+              padding: '24px',
+              borderBottom: '1px solid #e0e0e0'
+            }}>
+              <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '600', color: '#333' }}>
+                Select External Site URL
+              </h3>
+              <p style={{ margin: '8px 0 0 0', fontSize: '14px', color: '#666' }}>
+                Choose the URL for generating login link for <strong>{pendingExternalSiteAction.consumer.full_name || pendingExternalSiteAction.consumer.email}</strong>
+              </p>
+            </div>
+            <div style={{ padding: '24px' }}>
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  color: '#666',
+                  marginBottom: '12px'
+                }}>
+                  External Site URL:
+                </label>
+                <select
+                  value={selectedExternalSiteUrl}
+                  onChange={(e) => setSelectedExternalSiteUrl(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    color: '#374151',
+                    backgroundColor: 'white',
+                    cursor: 'pointer',
+                    outline: 'none'
+                  }}
+                >
+                  <option value="http://localhost:5173">http://localhost:5173 (Development)</option>
+                  <option value="https://social.duhanashrah.ai">https://social.duhanashrah.ai (Production)</option>
+                  <option value="https://staging.duhanashrah.ai">https://staging.duhanashrah.ai (Staging)</option>
+                </select>
+              </div>
+            </div>
+            <div style={{
+              padding: '16px 24px',
+              borderTop: '1px solid #e0e0e0',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '12px'
+            }}>
+              <button
+                onClick={() => {
+                  setShowExternalSiteUrlSelector(false);
+                  setPendingExternalSiteAction(null);
+                }}
+                style={{
+                  padding: '10px 24px',
+                  border: '1px solid #e0e0e0',
+                  borderRadius: '6px',
+                  backgroundColor: 'white',
+                  color: '#666',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmExternalSiteUrl}
+                style={{
+                  padding: '10px 24px',
+                  border: 'none',
+                  borderRadius: '6px',
+                  backgroundColor: '#007bff',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  transition: 'background-color 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#0056b3';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#007bff';
+                }}
+              >
+                Generate Link
               </button>
             </div>
           </div>

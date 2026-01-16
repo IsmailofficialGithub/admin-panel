@@ -39,16 +39,18 @@ export const impersonateUser = async (targetUserId, durationMinutes = 60) => {
 /**
  * Generate magic link for consumer to login to external site (Admin only)
  * @param {string} targetUserId - UUID of the consumer to generate link for
+ * @param {string} targetUrl - URL of the external site (default: 'http://localhost:5173')
  * @returns {Promise<Object>} Response with magic link
  */
-export const generateConsumerLink = async (targetUserId) => {
+export const generateConsumerLink = async (targetUserId, targetUrl = 'http://localhost:5173') => {
   try {
     if (!targetUserId) {
       return { error: 'target_user_id is required' };
     }
 
     const response = await apiClient.auth.generateConsumerLink({
-      target_user_id: targetUserId
+      target_user_id: targetUserId,
+      target_url: targetUrl
     });
 
     if (response && response.success) {

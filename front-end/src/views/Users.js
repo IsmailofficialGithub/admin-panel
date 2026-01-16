@@ -384,9 +384,12 @@ const User = () => {
 
         if (sessionError) {
           console.error('❌ Error setting impersonation session:', sessionError);
-          toast.error('Failed to set session. Redirecting to magic link...');
-          // Fallback to magic link
-          if (result.magic_link) {
+          toast.error('Failed to set session. Trying magic link verification...');
+          // Fallback to verifyOtp
+          if (result.impersonation_token && result.target_user?.email) {
+            await verifyMagicLinkToken(supabase, result.impersonation_token, result.target_user.email, result, durationMinutes);
+          } else if (result.magic_link) {
+            // Last resort: navigate to magic link
             window.location.href = result.magic_link;
           } else {
             window.location.reload();
@@ -402,7 +405,7 @@ const User = () => {
         }
       }
 
-      // Fallback: Store impersonation data and use magic link
+      // Store impersonation data before navigating
       localStorage.setItem('impersonation_session', JSON.stringify({
         impersonation_token: result.impersonation_token,
         magic_link: result.magic_link,
@@ -413,20 +416,25 @@ const User = () => {
         duration_minutes: durationMinutes
       }));
 
-      toast.success(`Starting impersonation of ${result.target_user.full_name || result.target_user.email}...`);
-      
-      // Navigate to the magic link to create the session
+      // Navigate to magic link directly - Supabase will handle verification and redirect back
+      // The magic link contains the token in query params, Supabase will process it and redirect
+      // to redirectTo with session tokens in the hash fragment
       if (result.magic_link) {
+        console.log('🔗 Navigating to magic link for impersonation:', result.magic_link);
+        toast.success(`Starting impersonation of ${result.target_user.full_name || result.target_user.email}...`);
+        // Navigate to the magic link - it will redirect to redirectTo with session tokens
         window.location.href = result.magic_link;
       } else {
-        // Fallback: reload and let AuthContext handle it
+        toast.error('No magic link available');
         window.location.reload();
       }
     } catch (error) {
       console.error('Impersonation error:', error);
+      toast.error(error.message || 'Failed to start impersonation');
       throw error;
     }
   };
+
 
   const getRoleBadgeColor = (role) => {
     const colors = {
