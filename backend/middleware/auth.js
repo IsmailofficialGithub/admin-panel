@@ -85,6 +85,10 @@ export const authenticate = async (req, res, next) => {
     // NOTE: We don't cache the user object to ensure fresh data
     // This prevents role caching issues when switching between users
     // Attach user to request object
+    console.log(`🔐 [authenticate] User authenticated:`, {
+      user_id: user.id,
+      email: user.email
+    });
     req.user = user;
     next();
   } catch (err) {
@@ -306,6 +310,8 @@ export const requireRole = (allowedRoles = []) => {
       // Use auth_role_with_profiles view which properly exposes role as TEXT[]
       // This ensures role changes are immediately reflected even when Redis is enabled
       try {
+        console.log(`🔍 [requireRole] Checking role for user ${req.user.id}, required roles: ${JSON.stringify(allowedRoles)}`);
+        
         const profilePromise = supabase
           .from('auth_role_with_profiles')
           .select('role, account_status, is_systemadmin')
@@ -323,19 +329,32 @@ export const requireRole = (allowedRoles = []) => {
 
         if (error || !profile) {
           console.error('❌ Error fetching profile for role check:', error);
+          console.error('❌ User ID:', req.user.id);
+          console.error('❌ Profile data:', profile);
           return res.status(403).json({
             error: 'Forbidden',
             message: 'User profile not found'
           });
         }
 
+        console.log(`🔍 [requireRole] Profile fetched:`, {
+          user_id: req.user.id,
+          role: profile.role,
+          roleType: typeof profile.role,
+          isArray: Array.isArray(profile.role),
+          account_status: profile.account_status,
+          is_systemadmin: profile.is_systemadmin
+        });
+
         // Update req.userProfile with fresh data (but we'll use local profile for role check)
         req.userProfile = profile;
 
         // Handle role as array or string (for backward compatibility during migration)
-        const userRoles = Array.isArray(profile.role) 
-          ? profile.role 
+        const userRoles = Array.isArray(profile.role)
+          ? profile.role
           : (profile.role ? [profile.role] : []);
+        
+        console.log(`🔍 [requireRole] Normalized user roles: ${JSON.stringify(userRoles)}`);
         
         // Check if account is deactivated (for reseller, consumer, and support roles)
         if ((userRoles.includes('reseller') || userRoles.includes('consumer') || userRoles.includes('support')) && profile.account_status === 'deactive') {

@@ -587,14 +587,31 @@ export const impersonateUser = async (req, res) => {
     // Use Supabase Admin API to generate a magic link for the target user
     // The magic link contains a token that can be used to create a session
     // Set redirectTo to the frontend URL so the session is created there
-    const adminPanelUrl = process.env.CLIENT_URL || process.env.SOCIAL_URL || 'http://localhost:3000';
+    // Accept target_url from request body to redirect back to the same domain
+    const { target_url } = req.body;
+    
+    // Use provided target_url or fallback to environment variable or default
+    // This ensures cookies are set for the correct domain
+    let adminPanelUrl = target_url || process.env.CLIENT_URL || process.env.SOCIAL_URL || 'http://localhost:3000';
+    
+    // Validate and normalize the URL
+    try {
+      const urlObj = new URL(adminPanelUrl);
+      adminPanelUrl = `${urlObj.protocol}//${urlObj.host}`; // Ensure we only use origin (protocol + host)
+    } catch (urlError) {
+      console.error('❌ Error parsing target_url:', urlError);
+      // Fallback to default if URL is invalid
+      adminPanelUrl = process.env.CLIENT_URL || process.env.SOCIAL_URL || 'http://localhost:3000';
+    }
+    
+    console.log(`🔗 Impersonation redirect URL: ${adminPanelUrl}`);
     
     const { data: linkData, error: linkError } = await executeWithTimeout(
       supabaseAdmin.auth.admin.generateLink({
         type: 'magiclink',
         email: targetUser.user.email,
         options: {
-          redirectTo: adminPanelUrl  // Redirect to the frontend root - Supabase will append session tokens in hash
+          redirectTo: adminPanelUrl  // Redirect to the same domain - Supabase will append session tokens in hash
         }
       })
     );
@@ -673,9 +690,67 @@ export const impersonateUser = async (req, res) => {
     });
 
     // ========================================
-    // 6. RETURN SESSION INFORMATION
+    // 6. DETERMINE REDIRECT PATH BASED ON ROLE
     // ========================================
-    console.log(`✅ Impersonation session created: Admin ${req.user.id} impersonating ${target_user_id} for ${duration} minutes`);
+    // Priority: admin > support > reseller
+    // This determines where the user should be redirected after impersonation
+    let redirectPath = '/admin/dashboard'; // Default to admin dashboard
+    
+    const targetRole = targetProfile.role;
+    let rolesArray = [];
+    
+    // Normalize role to array
+    if (Array.isArray(targetRole)) {
+      rolesArray = targetRole;
+    } else if (typeof targetRole === 'string') {
+      // Handle comma-separated roles
+      rolesArray = targetRole.split(',').map(r => r.trim().toLowerCase());
+    } else {
+      rolesArray = [];
+    }
+    
+    // Check role priority: admin first, then support, then reseller
+    if (rolesArray.includes('admin') || rolesArray.includes('systemadmin')) {
+      redirectPath = '/admin/dashboard';
+    } else if (rolesArray.includes('support')) {
+      redirectPath = '/support/dashboard';
+    } else if (rolesArray.includes('reseller')) {
+      redirectPath = '/reseller/dashboard';
+    }
+    // Default to /admin/dashboard if no recognized role
+    
+    // Construct full redirect URL with path
+    const fullRedirectUrl = `${adminPanelUrl}${redirectPath}`;
+    
+    // Update redirectTo in magic link to include the path
+    // Note: We already generated the link, but we can construct the final URL with the path
+    // The magic link from Supabase will redirect to adminPanelUrl, then frontend will handle the path redirect
+    
+    // ========================================
+    // 7. RETURN SESSION INFORMATION
+    // ========================================
+    // Extract domain from adminPanelUrl for cookie settings
+    let domain = null;
+    try {
+      const urlObj = new URL(adminPanelUrl);
+      const hostname = urlObj.hostname;
+      
+      // Only set domain for production/staging (not localhost or IP addresses)
+      if (hostname !== 'localhost' && !hostname.startsWith('127.0.0.1') && !hostname.match(/^\d+\.\d+\.\d+\.\d+$/)) {
+        // Extract base domain (e.g., 'duhanashrah.ai' from 'admin.duhanashrah.ai')
+        const hostnameParts = hostname.split('.');
+        if (hostnameParts.length >= 2) {
+          domain = hostnameParts.slice(-2).join('.'); // Get last two parts (e.g., 'duhanashrah.ai')
+        } else {
+          domain = hostname;
+        }
+      }
+      // For localhost, domain is null (cookies work without domain setting)
+    } catch (urlError) {
+      console.error('❌ Error extracting domain from adminPanelUrl:', urlError);
+    }
+    
+    console.log(`✅ Impersonation session created: Admin ${req.user.id} impersonating ${target_user_id} for ${duration} minutes | Domain: ${domain || 'localhost (no domain)'} | Redirect: ${fullRedirectUrl} | Role: ${JSON.stringify(rolesArray)}`);
     
     res.json({
       success: true,
@@ -690,7 +765,11 @@ export const impersonateUser = async (req, res) => {
         impersonation_token: token,
         magic_link: magicLink,
         expires_at: expiresAtTimestamp,
-        duration_minutes: duration
+        duration_minutes: duration,
+        redirect_url: adminPanelUrl,
+        redirect_path: redirectPath, // Path to redirect to based on role
+        full_redirect_url: fullRedirectUrl, // Full URL with path for convenience
+        domain: domain // Return domain for cookie settings on frontend
       }
     });
 

@@ -346,7 +346,12 @@ const User = () => {
   const handleImpersonate = async (user, durationMinutes) => {
     try {
       const supabase = createClient();
-      const result = await impersonateUser(user.id || user.user_id, durationMinutes);
+      
+      // Get current domain to redirect back to the same domain
+      const currentDomain = window.location.origin; // e.g., http://localhost:4173 or https://admin.duhanashrah.ai
+      console.log('🔍 Current domain for impersonation:', currentDomain);
+      
+      const result = await impersonateUser(user.id || user.user_id, durationMinutes, currentDomain);
       
       if (result.error) {
         toast.error(result.error);
@@ -399,8 +404,13 @@ const User = () => {
 
         if (sessionData.session) {
           toast.success(`Impersonating ${result.target_user.full_name || result.target_user.email}...`);
-          // Reload to let AuthContext pick up the new session
-          window.location.reload();
+          
+          // Redirect to role-based dashboard path
+          const redirectPath = result.redirect_path || '/admin/dashboard';
+          console.log(`🔄 Redirecting to role-based dashboard: ${redirectPath}`);
+          setTimeout(() => {
+            window.location.href = redirectPath;
+          }, 300);
           return;
         }
       }
@@ -413,16 +423,26 @@ const User = () => {
         target_user_id: result.target_user.id,
         target_user_email: result.target_user.email,
         target_user_full_name: result.target_user.full_name,
-        duration_minutes: durationMinutes
+        duration_minutes: durationMinutes,
+        redirect_url: result.redirect_url || currentDomain,
+        redirect_path: result.redirect_path || '/admin/dashboard', // Path based on role priority
+        full_redirect_url: result.full_redirect_url || `${currentDomain}/admin/dashboard`,
+        domain: result.domain // Domain for cookie settings
       }));
 
       // Navigate to magic link directly - Supabase will handle verification and redirect back
       // The magic link contains the token in query params, Supabase will process it and redirect
-      // to redirectTo with session tokens in the hash fragment
+      // to redirectTo (which is the current domain) with session tokens in the hash fragment
+      // Cookies will be automatically set for the domain specified in redirectTo
       if (result.magic_link) {
-        console.log('🔗 Navigating to magic link for impersonation:', result.magic_link);
+        console.log('🔗 Navigating to magic link for impersonation:', {
+          magic_link: result.magic_link,
+          redirect_url: result.redirect_url || currentDomain,
+          domain: result.domain || 'localhost (no domain)'
+        });
         toast.success(`Starting impersonation of ${result.target_user.full_name || result.target_user.email}...`);
         // Navigate to the magic link - it will redirect to redirectTo with session tokens
+        // The redirect URL matches the current domain, so cookies will be set correctly
         window.location.href = result.magic_link;
       } else {
         toast.error('No magic link available');
@@ -977,7 +997,7 @@ const User = () => {
                             Reset Password
                           </button>
                           {/* Login As - Only visible for system admins */}
-                          {profile?.is_systemadmin ? (
+                          {/* {profile?.is_systemadmin ? (
                             <>
                               <div style={{ 
                                 height: '1px', 
@@ -1011,7 +1031,7 @@ const User = () => {
                                 Login As
                               </button>
                             </>
-                          ) : null}
+                          ) : null} */}
                           <button
                             onClick={() => handleAction('Deactivate Account', userId, user.nickname || user.name || user.full_name)}
                             disabled={hasRole(user.role, 'admin')}

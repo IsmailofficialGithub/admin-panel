@@ -132,31 +132,40 @@ axiosInstance.interceptors.request.use(
       delete config.headers['Content-Type'];
     }
 
-    // Try to get fresh token
+    // Try to get fresh token - ALWAYS get from session to ensure we have the latest token
+    // This is especially important during impersonation when the session changes
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.access_token) {
         cachedToken = session.access_token;
         config.headers.Authorization = `Bearer ${cachedToken}`;
-        // if (process.env.NODE_ENV === 'development') {
-        //   console.log('✅ Auth token added from session');
-        // }
+        // Log in development or when impersonating to debug token issues
+        const impersonationData = localStorage.getItem('impersonation_session');
+        if (impersonationData || process.env.NODE_ENV === 'development') {
+          console.log('🔐 apiClient: Token from session:', {
+            user_id: session.user?.id,
+            email: session.user?.email,
+            has_token: !!cachedToken
+          });
+        }
       } else if (cachedToken) {
+        // Fallback to cached token if session doesn't have one (shouldn't happen normally)
         config.headers.Authorization = `Bearer ${cachedToken}`;
-        // if (process.env.NODE_ENV === 'development') {
-        //   console.log('✅ Auth token added from cache');
-        // }
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('⚠️ apiClient: No session token, using cached token');
+        }
       } else {
         if (process.env.NODE_ENV === 'development') {
-          console.warn('⚠️ No cached token available');
+          console.warn('⚠️ apiClient: No token available');
         }
       }
     } catch (error) {
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('⚠️ apiClient: Error getting token:', error);
-      }
+      console.error('❌ apiClient: Error getting token:', error);
       if (cachedToken) {
         config.headers.Authorization = `Bearer ${cachedToken}`;
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('⚠️ apiClient: Using cached token after error');
+        }
       }
     }
     return config;

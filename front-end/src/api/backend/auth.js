@@ -9,17 +9,22 @@ import apiClient from '../../services/apiClient';
  * Impersonate a user (System Admin only)
  * @param {string} targetUserId - UUID of the user to impersonate
  * @param {number} durationMinutes - Duration of impersonation in minutes (default: 60, max: 1440)
+ * @param {string} targetUrl - URL of the admin panel (default: current origin)
  * @returns {Promise<Object>} Response with impersonation session data
  */
-export const impersonateUser = async (targetUserId, durationMinutes = 60) => {
+export const impersonateUser = async (targetUserId, durationMinutes = 60, targetUrl = null) => {
   try {
     if (!targetUserId) {
       return { error: 'target_user_id is required' };
     }
 
+    // Use provided targetUrl or fallback to current origin
+    const redirectUrl = targetUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
+
     const response = await apiClient.auth.impersonate({
       target_user_id: targetUserId,
-      duration_minutes: durationMinutes
+      duration_minutes: durationMinutes,
+      target_url: redirectUrl
     });
 
     if (response && response.success) {

@@ -39,17 +39,20 @@ export const AuthProvider = ({ children }) => {
     }
     
     try {
-      // Get user to check if they are system admin
-      const { data: { session } } = await supabase.auth.getSession()
-      const userId = session?.user?.id
+      // Use provided userId parameter, or fallback to session user ID
+      let userIdToCheck = userId;
+      if (!userIdToCheck) {
+        const { data: { session } } = await supabase.auth.getSession()
+        userIdToCheck = session?.user?.id
+      }
       
-      if (!userId) return false
+      if (!userIdToCheck) return false
       
       // Check if user has is_systemadmin flag in profiles
       const { data: userProfile } = await supabase
         .from('profiles')
         .select('is_systemadmin')
-        .eq('user_id', userId)
+        .eq('user_id', userIdToCheck)
         .single()
       
       // Bypass profile check for system admin users
@@ -60,7 +63,7 @@ export const AuthProvider = ({ children }) => {
       const { data: profileData } = await supabase
         .from('profiles')
         .select('role, account_status')
-        .eq('user_id', userId)
+        .eq('user_id', userIdToCheck)
         .single()
 
       const role = profileData?.role
@@ -87,8 +90,8 @@ export const AuthProvider = ({ children }) => {
           })
           setUser(null)
           setProfile(null)
-          toast.error('Your account has been deactivated. Please contact the administrator.')
-          // Force redirect and reload to ensure clean state
+          t
+          // Forcoast.error('Your account has been deactivated. Please contact the administrator.')e redirect and reload to ensure clean state
           setTimeout(() => {
             window.location.href = '/login'
           }, 500)
@@ -284,15 +287,52 @@ export const AuthProvider = ({ children }) => {
             
             if (accessToken && refreshToken) {
               console.log('🔍 AuthContext: Found session tokens in URL hash, setting session...');
+              
+              // CRITICAL: Sign out the current session FIRST to ensure clean state
+              // This is especially important during impersonation when switching from admin to another user
+              const { data: { session: currentSession } } = await supabase.auth.getSession();
+              if (currentSession) {
+                console.log('🔍 AuthContext: Signing out current session before setting new one', {
+                  current_user_id: currentSession.user.id,
+                  current_email: currentSession.user.email
+                });
+                // Sign out to clear the old session completely
+                await supabase.auth.signOut();
+                // Small delay to ensure sign out completes
+                await new Promise(resolve => setTimeout(resolve, 100));
+              }
+              
+              // Now set the new session from the hash tokens
               const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
                 access_token: accessToken,
                 refresh_token: refreshToken
               });
               
               if (!sessionError && sessionData.session) {
-                console.log('✅ AuthContext: Session set from URL hash');
-                // Clear the hash from URL
+                console.log('✅ AuthContext: Session set from URL hash', {
+                  user_id: sessionData.session.user.id,
+                  email: sessionData.session.user.email,
+                  access_token_present: !!sessionData.session.access_token,
+                  refresh_token_present: !!sessionData.session.refresh_token
+                });
+                
+                // Verify the session is actually set by getting it again
+                const { data: { session: verifySession } } = await supabase.auth.getSession();
+                console.log('🔍 AuthContext: Verifying session after setSession:', {
+                  user_id: verifySession?.user?.id,
+                  email: verifySession?.user?.email,
+                  matches: verifySession?.user?.id === sessionData.session.user.id
+                });
+                
+                if (verifySession?.user?.id !== sessionData.session.user.id) {
+                  console.error('❌ AuthContext: Session verification failed! Session user ID does not match');
+                }
+                
+                // Clear the hash from URL immediately after setting session
                 window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+                
+                // Note: Don't redirect here - let the profile load first, then redirect if needed
+                // This ensures the session and profile are both set before navigation
               } else {
                 console.error('❌ AuthContext: Error setting session from hash:', sessionError);
               }
@@ -347,9 +387,27 @@ export const AuthProvider = ({ children }) => {
         const { data: { session } } = await supabase.auth.getSession()
 
         if (session?.user) {
+          console.log('🔍 AuthContext: Current session user:', {
+            user_id: session.user.id,
+            email: session.user.email,
+            isImpersonatingActive,
+            targetUserId
+          });
+          
+          // During impersonation, verify that session.user.id matches targetUserId
+          // If not, the session might not have been properly set
+          if (isImpersonatingActive && targetUserId && session.user.id !== targetUserId) {
+            console.warn('⚠️ AuthContext: Session user ID does not match impersonation target user ID!', {
+              session_user_id: session.user.id,
+              target_user_id: targetUserId
+            });
+          }
+          
           // Determine which user ID to use for profile lookup
           // If impersonating, use target user ID; otherwise use session user ID
           const userIdToUse = isImpersonatingActive && targetUserId ? targetUserId : session.user.id
+          
+          console.log('🔍 AuthContext: Using user ID for profile lookup:', userIdToUse);
           
           // Check if user has a valid role
           const hasValidRole = await checkValidRole(userIdToUse)
@@ -422,6 +480,99 @@ export const AuthProvider = ({ children }) => {
             console.log('✅ AuthContext: User has reseller role, setting profile and allowing access')
             // User has reseller role, set profile and continue (will redirect to reseller dashboard)
             setProfile(profileData)
+            
+            // Check if we're returning from impersonation magic link and need to redirect
+            if (isImpersonatingActive) {
+              const impersonationData = localStorage.getItem('impersonation_session');
+              if (impersonationData) {
+                try {
+                  const parsed = JSON.parse(impersonationData);
+                  if (parsed.redirect_path) {
+                    const currentPath = window.location.pathname;
+                    // Only redirect if we're not already on the target path
+                    if (!currentPath.startsWith(parsed.redirect_path)) {
+                      console.log(`🔄 AuthContext: Redirecting to impersonation path: ${parsed.redirect_path} (current: ${currentPath})`);
+                      setTimeout(() => {
+                        window.location.href = parsed.redirect_path;
+                      }, 300);
+                      setLoading(false);
+                      return;
+                    }
+                  }
+                } catch (error) {
+                  console.error('Error parsing impersonation data for redirect:', error);
+                }
+              }
+            }
+            
+            setLoading(false)
+            return
+          }
+
+          // Check if user has support role - if yes, allow access
+          if (hasRole(profileData?.role, 'support')) {
+            console.log('✅ AuthContext: User has support role, setting profile and allowing access')
+            // User has support role, set profile and continue (will redirect to support dashboard)
+            setProfile(profileData)
+            
+            // Check if we're returning from impersonation magic link and need to redirect
+            if (isImpersonatingActive) {
+              const impersonationData = localStorage.getItem('impersonation_session');
+              if (impersonationData) {
+                try {
+                  const parsed = JSON.parse(impersonationData);
+                  if (parsed.redirect_path) {
+                    const currentPath = window.location.pathname;
+                    // Only redirect if we're not already on the target path
+                    if (!currentPath.startsWith(parsed.redirect_path)) {
+                      console.log(`🔄 AuthContext: Redirecting to impersonation path: ${parsed.redirect_path} (current: ${currentPath})`);
+                      setTimeout(() => {
+                        window.location.href = parsed.redirect_path;
+                      }, 300);
+                      setLoading(false);
+                      return;
+                    }
+                  }
+                } catch (error) {
+                  console.error('Error parsing impersonation data for redirect:', error);
+                }
+              }
+            }
+            
+            setLoading(false)
+            return
+          }
+
+          // Check if user has admin role - if yes, allow access
+          if (hasRole(profileData?.role, 'admin') || hasRole(profileData?.role, 'systemadmin')) {
+            console.log('✅ AuthContext: User has admin role, setting profile and allowing access')
+            // User has admin role, set profile and continue (will redirect to admin dashboard)
+            setProfile(profileData)
+            
+            // Check if we're returning from impersonation magic link and need to redirect
+            if (isImpersonatingActive) {
+              const impersonationData = localStorage.getItem('impersonation_session');
+              if (impersonationData) {
+                try {
+                  const parsed = JSON.parse(impersonationData);
+                  if (parsed.redirect_path) {
+                    const currentPath = window.location.pathname;
+                    // Only redirect if we're not already on the target path
+                    if (!currentPath.startsWith(parsed.redirect_path)) {
+                      console.log(`🔄 AuthContext: Redirecting to impersonation path: ${parsed.redirect_path} (current: ${currentPath})`);
+                      setTimeout(() => {
+                        window.location.href = parsed.redirect_path;
+                      }, 300);
+                      setLoading(false);
+                      return;
+                    }
+                  }
+                } catch (error) {
+                  console.error('Error parsing impersonation data for redirect:', error);
+                }
+              }
+            }
+            
             setLoading(false)
             return
           }

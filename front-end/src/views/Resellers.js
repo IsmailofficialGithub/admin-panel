@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useHistory } from 'react-router-dom';
-import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, Search, Eye } from 'lucide-react';
+import { MoreVertical, Edit, Trash2, Key, ChevronLeft, ChevronRight, UserPlus, Search, Eye, LogIn } from 'lucide-react';
 import toast from 'react-hot-toast';
 // ✅ Using backend API instead of direct Supabase calls
 import { 
@@ -15,10 +15,13 @@ import { checkUserPermissionsBulk } from '../api/backend/permissions';
 import { useAuth } from '../hooks/useAuth';
 import { usePermissions } from '../hooks/usePermissions';
 import apiClient from '../services/apiClient';
+import { createClient } from '../lib/supabase/Production/client';
 import CreateResellerModal from '../components/ui/createResellerModel';
 import UpdateResellerModal from '../components/ui/updateResellerModel';
 import DeleteModal from '../components/ui/deleteModel';
+import ImpersonateUserModal from '../components/ui/ImpersonateUserModal';
 import { getRolesString } from '../utils/roleUtils';
+import { impersonateUser } from '../api/backend/auth';
 
 const Resellers = () => {
   const history = useHistory();
@@ -56,6 +59,8 @@ const Resellers = () => {
   const [checkingPermissions, setCheckingPermissions] = useState(true); // Track permission checking state
   const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
   const [resetPasswordData, setResetPasswordData] = useState(null);
+  const [showImpersonateModal, setShowImpersonateModal] = useState(false);
+  const [impersonateUserData, setImpersonateUserData] = useState(null);
   const [typedEmail, setTypedEmail] = useState('');
   const [manualPassword, setManualPassword] = useState('');
   const [newGeneratedPassword, setNewGeneratedPassword] = useState('');
@@ -225,8 +230,125 @@ const Resellers = () => {
       setManualPassword('');
       setNewGeneratedPassword('');
       setShowResetPasswordModal(true);
+    } else if (action === 'Login As') {
+      // Handle impersonation - show modal
+      const reseller = users.find(u => u.user_id === userId);
+      if (reseller) {
+        setImpersonateUserData({
+          id: userId,
+          user_id: userId,
+          full_name: reseller.full_name,
+          email: reseller.email,
+          role: reseller.role
+        });
+        setShowImpersonateModal(true);
+      }
     } else {
       toast(`${action} action clicked for Reseller: ${userName}`);
+    }
+  };
+
+  const handleImpersonate = async (user, durationMinutes) => {
+    try {
+      const supabase = createClient();
+      
+      // Get current domain to redirect back to the same domain
+      const currentDomain = window.location.origin; // e.g., http://localhost:4173 or https://admin.duhanashrah.ai
+      console.log('🔍 Current domain for impersonation:', currentDomain);
+      
+      const result = await impersonateUser(user.id || user.user_id, durationMinutes, currentDomain);
+      
+      if (result.error) {
+        toast.error(result.error);
+        throw new Error(result.error);
+      }
+
+      // Store original session before impersonation
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      if (currentSession) {
+        localStorage.setItem('original_session', JSON.stringify({
+          access_token: currentSession.access_token,
+          refresh_token: currentSession.refresh_token,
+          user_id: currentSession.user.id
+        }));
+      }
+
+      // If we have session tokens directly, set the session immediately
+      if (result.access_token && result.refresh_token) {
+        // Store impersonation data
+        localStorage.setItem('impersonation_session', JSON.stringify({
+          impersonation_token: result.impersonation_token,
+          magic_link: result.magic_link,
+          expires_at: result.expires_at,
+          target_user_id: result.target_user.id,
+          target_user_email: result.target_user.email,
+          target_user_full_name: result.target_user.full_name,
+          duration_minutes: durationMinutes
+        }));
+
+        // Set the session directly using the tokens
+        const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+          access_token: result.access_token,
+          refresh_token: result.refresh_token
+        });
+
+        if (sessionError) {
+          console.error('❌ Error setting impersonation session:', sessionError);
+          toast.error('Failed to set session. Trying magic link verification...');
+          // Fallback to magic link
+          if (result.magic_link) {
+            window.location.href = result.magic_link;
+          } else {
+            window.location.reload();
+          }
+          return;
+        }
+
+        if (sessionData.session) {
+          toast.success(`Impersonating ${result.target_user.full_name || result.target_user.email}...`);
+          
+          // Redirect to role-based dashboard path
+          const redirectPath = result.redirect_path || '/reseller/dashboard';
+          console.log(`🔄 Redirecting to role-based dashboard: ${redirectPath}`);
+          setTimeout(() => {
+            window.location.href = redirectPath;
+          }, 300);
+          return;
+        }
+      }
+
+      // Store impersonation data before navigating
+      localStorage.setItem('impersonation_session', JSON.stringify({
+        impersonation_token: result.impersonation_token,
+        magic_link: result.magic_link,
+        expires_at: result.expires_at,
+        target_user_id: result.target_user.id,
+        target_user_email: result.target_user.email,
+        target_user_full_name: result.target_user.full_name,
+        duration_minutes: durationMinutes,
+        redirect_url: result.redirect_url || currentDomain,
+        redirect_path: result.redirect_path || '/reseller/dashboard', // Path based on role priority
+        full_redirect_url: result.full_redirect_url || `${currentDomain}/reseller/dashboard`,
+        domain: result.domain // Domain for cookie settings
+      }));
+
+      // Navigate to magic link directly - Supabase will handle verification and redirect back
+      if (result.magic_link) {
+        console.log('🔗 Navigating to magic link for impersonation:', {
+          magic_link: result.magic_link,
+          redirect_url: result.redirect_url || currentDomain,
+          domain: result.domain || 'localhost (no domain)'
+        });
+        toast.success(`Starting impersonation of ${result.target_user.full_name || result.target_user.email}...`);
+        window.location.href = result.magic_link;
+      } else {
+        toast.error('No magic link available');
+        window.location.reload();
+      }
+    } catch (error) {
+      console.error('Impersonation error:', error);
+      toast.error(error.message || 'Failed to start impersonation');
+      throw error;
     }
   };
 
@@ -1378,6 +1500,40 @@ const Resellers = () => {
                           </button>
                               </>
                             )}
+                            {/* Login As - Visible to all users (backend will check authorization) */}
+                            <>
+                          {/* <div style={{ 
+                            height: '1px', 
+                            backgroundColor: '#e0e0e0', 
+                            margin: '4px 0' 
+                          }} /> */}
+                          {/* <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              console.log('🔍 Login As button clicked for reseller');
+                              handleAction('Login As', userId, user.full_name);
+                            }}
+                            style={{
+                              width: '100%',
+                              padding: '10px 16px',
+                              border: 'none',
+                              backgroundColor: 'transparent',
+                              textAlign: 'left',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              color: '#007bff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              transition: 'background-color 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f8ff'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                          >
+                            <LogIn size={16} />
+                            Login As
+                          </button> */}
+                            </>
                             {permissions.delete && (
                               <>
                           <div style={{ 
@@ -1753,6 +1909,17 @@ const Resellers = () => {
           newPassword={newGeneratedPassword}
         />
       )}
+
+      {/* Impersonate User Modal */}
+      <ImpersonateUserModal
+        isOpen={showImpersonateModal}
+        onClose={() => {
+          setShowImpersonateModal(false);
+          setImpersonateUserData(null);
+        }}
+        user={impersonateUserData}
+        onImpersonate={handleImpersonate}
+      />
     </div>
     )}
     </>
