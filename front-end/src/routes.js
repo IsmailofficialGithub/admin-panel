@@ -212,7 +212,7 @@ const dashboardRoutes = [
   {
     path: "/error-logs",
     name: "Error Logs",
-    icon: "nc-icon nc-alert-circle-i",
+    icon: "nc-icon nc-notification-70",
     component: ErrorLogs,
     layout: "/admin",
     systemAdminOnly: true // Only show for systemadmin
