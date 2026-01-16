@@ -15,6 +15,7 @@ import InvoicePaymentDetail from "views/InvoicePaymentDetail.js";
 import ActivityLogs from "views/ActivityLogs.js";
 import ActivityLogDetail from "views/ActivityLogDetail.js";
 import ApiLogs from "views/ApiLogs.js";
+import ErrorLogs from "views/ErrorLogs.js";
 import ResellerStatistics from "views/ResellerStatistics.js";
 import AdminSettings from "views/AdminSettings.js";
 import Offers from "views/Offers.js";
@@ -177,6 +178,22 @@ const dashboardRoutes = [
     component: Offers,
     layout: "/admin"
   },
+  
+  {
+    path: "/customers",
+    name: "Customer Support",
+    icon: "nc-icon nc-support-17",
+    component: Customers,
+    layout: "/admin"
+  },
+  {
+    path: "/genie",
+    name: "Genie",
+    icon: "nc-icon nc-headphones-2",
+    component: Genie,
+    layout: "/admin",
+    permission: "genie.view" // Permission-based visibility
+  },
   {
     path: "/activity-logs",
     name: "Activity Logs",
@@ -193,19 +210,12 @@ const dashboardRoutes = [
     systemAdminOnly: true // Only show for systemadmin
   },
   {
-    path: "/customers",
-    name: "Customer Support",
-    icon: "nc-icon nc-support-17",
-    component: Customers,
-    layout: "/admin"
-  },
-  {
-    path: "/genie",
-    name: "Genie",
-    icon: "nc-icon nc-headphones-2",
-    component: Genie,
+    path: "/error-logs",
+    name: "Error Logs",
+    icon: "nc-icon nc-alert-circle-i",
+    component: ErrorLogs,
     layout: "/admin",
-    permission: "genie.view" // Permission-based visibility
+    systemAdminOnly: true // Only show for systemadmin
   },
   {
     path: "/settings",

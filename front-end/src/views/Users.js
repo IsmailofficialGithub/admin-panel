@@ -997,7 +997,7 @@ const User = () => {
                             Reset Password
                           </button>
                           {/* Login As - Only visible for system admins */}
-                          {/* {profile?.is_systemadmin ? (
+                          {profile?.is_systemadmin ? (
                             <>
                               <div style={{ 
                                 height: '1px', 
@@ -1031,7 +1031,7 @@ const User = () => {
                                 Login As
                               </button>
                             </>
-                          ) : null} */}
+                          ) : null}
                           <button
                             onClick={() => handleAction('Deactivate Account', userId, user.nickname || user.name || user.full_name)}
                             disabled={hasRole(user.role, 'admin')}

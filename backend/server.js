@@ -32,6 +32,7 @@ import callLogsRoutes from './routes/callLogs.routes.js';
 import genieRoutes from './routes/genie.routes.js';
 import vapiRoutes from './routes/vapi.routes.js';
 import logsRoutes from './routes/logs.routes.js';
+import errorLogsRoutes from './routes/errorLogs.routes.js';
 import { testRedisConnection } from './config/redis.js';
 import { apiLogger } from './middleware/apiLogger.js';
 import fs from 'fs';
@@ -390,6 +391,7 @@ app.use('/api/call-logs', callLogsRoutes);
 app.use('/api/genie', genieRoutes);
 app.use('/api/vapi', vapiRoutes);
 app.use('/api/logs', logsRoutes);
+app.use('/api/error-logs', errorLogsRoutes);
 
 // Debug: Log all registered routes
 ;

@@ -79,6 +79,12 @@ export {
 } from './activityLogs';
 
 export {
+  getErrorLogs,
+  getErrorLogById,
+  createErrorLog
+} from './errorLogs';
+
+export {
   createTicket,
   getTickets,
   getTicket,

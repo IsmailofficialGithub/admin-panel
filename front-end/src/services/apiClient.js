@@ -814,6 +814,24 @@ const apiClient = {
     getAll: (queryString = '') => axiosInstance.get(`/logs${queryString}`),
   },
 
+  // ==================== ERROR LOGS ====================
+  errorLogs: {
+    /**
+     * Get all error logs with optional filters
+     */
+    getAll: (queryString = '') => axiosInstance.get(`/error-logs${queryString}`),
+
+    /**
+     * Get error log by ID
+     */
+    getById: (id) => axiosInstance.get(`/error-logs/${id}`),
+
+    /**
+     * Create error log (for error reporting)
+     */
+    create: (data) => axiosInstance.post('/error-logs', data),
+  },
+
   // ==================== SETTINGS ====================
   settings: {
     /**
