@@ -553,90 +553,6 @@ export const createPublicTicket = async (req, res) => {
     }
 
     // ========================================
-    // 7.5. CALL WEBHOOK AND CREATE FIRST SYSTEM MESSAGE
-    // ========================================
-    const webhookUrl = 'http://auto.nsolbpo.com:5678/webhook/6db0c73b-28a8-4b43-a623-60541ab82a9c';
-    try {
-      // Create AbortController for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-      
-      const webhookResponse = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: name,
-          Ticket_message: message.trim()
-        }),
-        signal: controller.signal
-      }).finally(() => {
-        clearTimeout(timeoutId);
-      });
-
-      if (webhookResponse.ok) {
-        const webhookData = await webhookResponse.json();
-        
-        if (webhookData && webhookData.output) {
-          // Create system message with webhook response
-          try {
-            const systemMessagePromise = supabase
-              .from("support_messages")
-              .insert({
-                ticket_id: ticket.id,
-                message: webhookData.output,
-                message_type: "system",
-                sender_id: null,
-                sender_email: "support@duhanashrah.ai",
-                sender_name: "DNAI Customer Success Team",
-                sender_role: "system",
-                is_read: false,
-              })
-              .select()
-              .single();
-
-            const { data: systemMessageData, error: systemMessageError } = await executeWithTimeout(systemMessagePromise, 5000);
-
-            if (systemMessageError || !systemMessageData) {
-              console.error("❌ Error creating webhook system message:", systemMessageError);
-              // Don't fail the request if system message creation fails
-            } else {
-              console.log("✅ Webhook system message created successfully");
-              
-              // Send email notification for the webhook system message
-              if (email && ticket) {
-                sendTicketReplyEmail({
-                  email: email,
-                  full_name: name || email.split('@')[0],
-                  ticket_number: ticket.ticket_number,
-                  admin_name: "DNAI Customer Success Team",
-                  message: webhookData.output,
-                  attachments: [],
-                  ticket_id: ticket.id,
-                }).catch(emailError => {
-                  console.warn('⚠️ Failed to send webhook reply email to user:', emailError?.message);
-                });
-              }
-            }
-          } catch (systemMessageError) {
-            console.error("❌ Exception creating webhook system message:", systemMessageError);
-            // Don't fail the request if system message creation fails
-          }
-        }
-      } else {
-        console.warn(`⚠️ Webhook returned status ${webhookResponse.status}: ${webhookResponse.statusText}`);
-      }
-    } catch (webhookError) {
-      if (webhookError.name === 'AbortError') {
-        console.warn("⚠️ Webhook request timed out after 30 seconds");
-      } else {
-        console.error("❌ Error calling webhook:", webhookError.message);
-      }
-      // Don't fail the request if webhook call fails
-    }
-
-    // ========================================
     // 8. UPLOAD ATTACHMENTS (if any)
     // ========================================
     const uploadedAttachments = [];
@@ -764,20 +680,119 @@ export const createPublicTicket = async (req, res) => {
     // 10. SEND EMAIL NOTIFICATIONS (async, non-blocking with 30s delay)
     // ========================================
     // Wait 30 seconds before sending emails (for public API)
-    setTimeout(() => {
+    setTimeout(async () => {
       // Send email to ticket creator
       if (email && ticket) {
-        sendTicketCreatedEmail({
-          email: email,
-          full_name: name || email.split('@')[0],
-          ticket_number: ticket.ticket_number,
-          subject: subject.trim(),
-          message: message.trim(),
-          ticket_id: ticket.id,
-          attachments: ticketAttachments,
-        }).catch(emailError => {
+        try {
+          await sendTicketCreatedEmail({
+            email: email,
+            full_name: name || email.split('@')[0],
+            ticket_number: ticket.ticket_number,
+            subject: subject.trim(),
+            message: message.trim(),
+            ticket_id: ticket.id,
+            attachments: ticketAttachments,
+          });
+          console.log('✅ Ticket created email sent successfully');
+          
+          // ========================================
+          // 10.5. CALL WEBHOOK AND CREATE FIRST SYSTEM MESSAGE (after email)
+          // ========================================
+          const webhookUrl = 'http://auto.nsolbpo.com:5678/webhook/6db0c73b-28a8-4b43-a623-60541ab82a9c';
+          try {
+            // Create AbortController for timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+            
+            const webhookResponse = await fetch(webhookUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                name: name,
+                Ticket_message: message.trim()
+              }),
+              signal: controller.signal
+            }).finally(() => {
+              clearTimeout(timeoutId);
+            });
+
+            if (webhookResponse.ok) {
+              const webhookData = await webhookResponse.json();
+              
+              // Handle both array format [{"output": "..."}] and object format {"output": "..."}
+              let webhookOutput = null;
+              if (Array.isArray(webhookData) && webhookData.length > 0) {
+                // New array format: [{"output": "..."}]
+                webhookOutput = webhookData[0]?.output || null;
+              } else if (webhookData && typeof webhookData === 'object' && webhookData.output) {
+                // Legacy object format: {"output": "..."}
+                webhookOutput = webhookData.output;
+              }
+              
+              if (webhookOutput) {
+                // Create system message with webhook response
+                try {
+                  const systemMessagePromise = supabase
+                    .from("support_messages")
+                    .insert({
+                      ticket_id: ticket.id,
+                      message: webhookOutput,
+                      message_type: "system",
+                      sender_id: null,
+                      sender_email: "support@duhanashrah.ai",
+                      sender_name: "DNAI Customer Success Team",
+                      sender_role: "system",
+                      is_read: false,
+                    })
+                    .select()
+                    .single();
+
+                  const { data: systemMessageData, error: systemMessageError } = await executeWithTimeout(systemMessagePromise, 5000);
+
+                  if (systemMessageError || !systemMessageData) {
+                    console.error("❌ Error creating webhook system message:", systemMessageError);
+                    // Don't fail the request if system message creation fails
+                  } else {
+                    console.log("✅ Webhook system message created successfully");
+                    
+                    // Send email notification for the webhook system message
+                    if (email && ticket) {
+                      sendTicketReplyEmail({
+                        email: email,
+                        full_name: name || email.split('@')[0],
+                        ticket_number: ticket.ticket_number,
+                        admin_name: "DNAI Customer Success Team",
+                        message: webhookOutput,
+                        attachments: [],
+                        ticket_id: ticket.id,
+                      }).catch(emailError => {
+                        console.warn('⚠️ Failed to send webhook reply email to user:', emailError?.message);
+                      });
+                    }
+                  }
+                } catch (systemMessageError) {
+                  console.error("❌ Exception creating webhook system message:", systemMessageError);
+                  // Don't fail the request if system message creation fails
+                }
+              } else {
+                console.warn("⚠️ Webhook response does not contain valid output field");
+              }
+            } else {
+              console.warn(`⚠️ Webhook returned status ${webhookResponse.status}: ${webhookResponse.statusText}`);
+            }
+          } catch (webhookError) {
+            if (webhookError.name === 'AbortError') {
+              console.warn("⚠️ Webhook request timed out after 30 seconds");
+            } else {
+              console.error("❌ Error calling webhook:", webhookError.message);
+            }
+            // Don't fail the request if webhook call fails
+          }
+        } catch (emailError) {
           console.warn('⚠️ Failed to send ticket created email to user:', emailError?.message);
-        });
+        }
       }
 
       // Send email notifications to all superadmins
