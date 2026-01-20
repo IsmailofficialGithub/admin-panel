@@ -6,7 +6,8 @@ import {
   User, Calendar, Tag, ChevronLeft, ChevronRight, FileText,
   Download, Image as ImageIcon, Wifi, WifiOff, Check,
   MailOpen,
-  Sparkles
+  Sparkles,
+  Mail
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { 
