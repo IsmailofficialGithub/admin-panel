@@ -364,5 +364,158 @@ export const createApiLogsConnection = async (options = {}) => {
   };
 };
 
-export default { createApiLogsConnection };
+/**
+ * Create WebSocket connection to N8N Errors namespace
+ * @param {Object} options - Connection options
+ * @param {Function} options.onConnect - Callback when connected
+ * @param {Function} options.onDisconnect - Callback when disconnected
+ * @param {Function} options.onError - Callback on error
+ * @param {Function} options.onNewError - Callback when new error is received
+ * @param {Function} options.onRecentErrors - Callback when recent errors are received
+ * @returns {Object} Socket instance and connection control functions
+ */
+export const createN8nErrorsConnection = async (options = {}) => {
+  const {
+    onConnect,
+    onDisconnect,
+    onError,
+    onNewError,
+    onRecentErrors
+  } = options;
+
+  let socket = null;
+  let reconnectAttempts = 0;
+  let maxReconnectAttempts = 5;
+  let reconnectDelay = 1000;
+  let reconnectTimer = null;
+  let isManualDisconnect = false;
+
+  /**
+   * Connect to WebSocket server
+   */
+  const connect = async () => {
+    try {
+      console.log('🔌 N8N Errors WebSocket: Starting connection process...');
+      
+      const token = await getAuthToken();
+      
+      if (!token) {
+        console.error('❌ N8N Errors WebSocket: No authentication token available');
+        if (onError) onError(new Error('No authentication token'));
+        return null;
+      }
+
+      console.log('✅ N8N Errors WebSocket: Token obtained');
+
+      const namespaceUrl = `${WS_BASE_URL}/n8n-errors`;
+      
+      console.log('🔌 N8N Errors WebSocket: Creating Socket.IO connection...');
+      
+      socket = io(namespaceUrl, {
+        path: '/socket.io',
+        auth: {
+          token: token
+        },
+        transports: ['polling', 'websocket'],
+        reconnection: false,
+        timeout: 20000,
+        forceNew: true,
+        upgrade: true,
+        rememberUpgrade: false
+      });
+      
+      console.log('✅ N8N Errors WebSocket: Socket.IO instance created');
+
+      socket.on('connect', () => {
+        console.log('✅ N8N Errors WebSocket: Connected successfully');
+        reconnectAttempts = 0;
+        reconnectDelay = 1000;
+        if (onConnect) onConnect();
+        
+        // Request recent errors on connection
+        socket.emit('request_recent_errors');
+      });
+
+      socket.on('disconnect', (reason) => {
+        console.log('❌ N8N Errors WebSocket: Disconnected:', reason);
+        if (onDisconnect) onDisconnect(reason);
+        
+        if (!isManualDisconnect && reconnectAttempts < maxReconnectAttempts) {
+          reconnectAttempts++;
+          reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+          console.log(`🔄 N8N Errors WebSocket: Attempting reconnect ${reconnectAttempts}/${maxReconnectAttempts} in ${reconnectDelay}ms`);
+          
+          reconnectTimer = setTimeout(() => {
+            connect();
+          }, reconnectDelay);
+        }
+      });
+
+      socket.on('new_error', (errorData) => {
+        console.log('📨 N8N Errors WebSocket: Received new error');
+        if (onNewError) onNewError(errorData);
+      });
+
+      socket.on('recent_errors', (data) => {
+        console.log(`📨 N8N Errors WebSocket: Received ${data.errors?.length || 0} recent errors`);
+        if (onRecentErrors) onRecentErrors(data.errors || []);
+      });
+
+      socket.on('error', (error) => {
+        console.error('❌ N8N Errors WebSocket error:', error);
+        if (onError) onError(error);
+      });
+
+      return socket;
+    } catch (error) {
+      console.error('❌ Error creating N8N Errors WebSocket connection:', error);
+      if (onError) onError(error);
+      return null;
+    }
+  };
+
+  /**
+   * Disconnect from WebSocket server
+   */
+  const disconnect = () => {
+    console.log('🔌 N8N Errors WebSocket: Manual disconnect requested');
+    isManualDisconnect = true;
+    
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+
+    if (socket) {
+      socket.disconnect();
+      socket = null;
+    }
+  };
+
+  /**
+   * Reconnect to WebSocket server
+   */
+  const reconnect = () => {
+    console.log('🔄 N8N Errors WebSocket: Manual reconnect requested');
+    isManualDisconnect = false;
+    reconnectAttempts = 0;
+    disconnect();
+    setTimeout(() => {
+      connect();
+    }, 1000);
+  };
+
+  // Start connection
+  await connect();
+
+  return {
+    socket,
+    connect,
+    disconnect,
+    reconnect,
+    isConnected: () => socket?.connected || false
+  };
+};
+
+export default { createApiLogsConnection, createN8nErrorsConnection };
 

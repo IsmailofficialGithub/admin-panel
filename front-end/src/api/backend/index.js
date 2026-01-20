@@ -122,6 +122,15 @@ export {
   impersonateUser
 } from './auth';
 
+export {
+  getApiKeys,
+  getApiKeyById,
+  createApiKey,
+  updateApiKey,
+  deleteApiKey,
+  regenerateApiSecret
+} from './apiKeys';
+
 // Re-export API client for direct access if needed
 export { default as apiClient } from '../../services/apiClient';
 

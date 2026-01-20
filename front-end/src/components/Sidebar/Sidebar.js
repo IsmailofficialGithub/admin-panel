@@ -108,6 +108,7 @@ function Sidebar({ color, image, routes }) {
       '/customers': ['customer_support.view'],
       '/invoices': ['invoices.view', 'invoices.read'], // Allow invoices.read as alternative
       '/genie': ['genie.view'],
+      '/n8n-errors': ['n8n_errors.view'],
     };
 
     const requiredPermissions = routePermissions[routePath];

@@ -16,6 +16,7 @@ import ActivityLogs from "views/ActivityLogs.js";
 import ActivityLogDetail from "views/ActivityLogDetail.js";
 import ApiLogs from "views/ApiLogs.js";
 import ErrorLogs from "views/ErrorLogs.js";
+import N8nErrors from "views/N8nErrors.js";
 import ResellerStatistics from "views/ResellerStatistics.js";
 import AdminSettings from "views/AdminSettings.js";
 import Offers from "views/Offers.js";
@@ -25,6 +26,7 @@ import Permissions from "views/Permissions.js";
 import Genie from "views/Genie.js";
 import CallDetail from "views/CallDetail.js";
 import LeadDetail from "views/LeadDetail.js";
+import ApiKeys from "views/ApiKeys.js";
 
 const dashboardRoutes = [
   // Hidden routes (not shown in sidebar)
@@ -218,6 +220,14 @@ const dashboardRoutes = [
     systemAdminOnly: true // Only show for systemadmin
   },
   {
+    path: "/n8n-errors",
+    name: "N8N Errors",
+    icon: "nc-icon nc-alert-circle-i",
+    component: N8nErrors,
+    layout: "/admin",
+    requiredPermissions: ['n8n_errors.view'] // Permission-based access
+  },
+  {
     path: "/settings",
     name: "Settings",
     icon: "nc-icon nc-settings-gear-64",
@@ -229,6 +239,14 @@ const dashboardRoutes = [
     name: "Permissions",
     icon: "nc-icon nc-key-25",
     component: Permissions,
+    layout: "/admin",
+    systemAdminOnly: true // Only show for systemadmin
+  },
+  {
+    path: "/api-keys",
+    name: "API Keys",
+    icon: "nc-icon nc-key-25",
+    component: ApiKeys,
     layout: "/admin",
     systemAdminOnly: true // Only show for systemadmin
   },

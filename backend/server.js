@@ -33,6 +33,8 @@ import genieRoutes from './routes/genie.routes.js';
 import vapiRoutes from './routes/vapi.routes.js';
 import logsRoutes from './routes/logs.routes.js';
 import errorLogsRoutes from './routes/errorLogs.routes.js';
+import apiKeysRoutes from './routes/apiKeys.routes.js';
+import n8nErrorsRoutes from './routes/n8nErrors.routes.js';
 import { testRedisConnection } from './config/redis.js';
 import { apiLogger } from './middleware/apiLogger.js';
 import fs from 'fs';
@@ -284,10 +286,141 @@ apiLogsNamespace.on('connection', (socket) => {
   });
 });
 
+// N8N Errors namespace - only for superadmins
+const n8nErrorsNamespace = io.of('/n8n-errors');
+
+// Store connected clients for n8n errors
+let n8nErrorsConnectedClients = new Set();
+
+n8nErrorsNamespace.use(async (socket, next) => {
+  try {
+    console.log('🔐 N8N Errors WebSocket: Authentication attempt from', socket.handshake.address);
+    
+    const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.replace('Bearer ', '');
+    
+    if (!token) {
+      console.error('❌ N8N Errors WebSocket: No authentication token provided');
+      return next(new Error('Authentication token required'));
+    }
+
+    console.log('🔐 N8N Errors WebSocket: Verifying token with Supabase...');
+    // Verify token with Supabase
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    
+    if (error || !user) {
+      console.error('❌ N8N Errors WebSocket: Token verification failed:', error?.message);
+      return next(new Error('Invalid or expired token'));
+    }
+
+    console.log('🔐 N8N Errors WebSocket: Token verified for user:', user.email);
+    // Check if user is superadmin or has n8n_errors.view permission
+    const { data: profile, error: profileError } = await supabase
+      .from('auth_role_with_profiles')
+      .select('is_systemadmin, role')
+      .eq('user_id', user.id)
+      .single();
+
+    if (profileError || !profile) {
+      console.error('❌ N8N Errors WebSocket: Error fetching profile:', profileError?.message);
+      return next(new Error('Failed to verify user profile'));
+    }
+
+    // Systemadmins have all permissions
+    if (profile.is_systemadmin === true) {
+      socket.userId = user.id;
+      socket.userEmail = user.email;
+      socket.isSystemAdmin = true;
+      console.log('✅ N8N Errors WebSocket: System admin access granted');
+      next();
+      return;
+    }
+
+    // Check for n8n_errors.view permission using has_permission function
+    const { data: hasPermission, error: permError } = await supabase
+      .rpc('has_permission', {
+        p_user_id: user.id,
+        p_permission_name: 'n8n_errors.view'
+      });
+
+    if (permError) {
+      console.error('❌ N8N Errors WebSocket: Permission check error:', permError?.message);
+      return next(new Error('Failed to check permission'));
+    }
+
+    if (hasPermission !== true) {
+      console.error('❌ N8N Errors WebSocket: User does not have n8n_errors.view permission');
+      return next(new Error('Permission denied: n8n_errors.view required'));
+    }
+
+    // Permission granted
+    socket.userId = user.id;
+    socket.userEmail = user.email;
+    socket.isSystemAdmin = false;
+
+    // Attach user info to socket
+    socket.userId = user.id;
+    socket.userEmail = user.email;
+    socket.isSystemAdmin = true;
+    
+    console.log('✅ N8N Errors WebSocket: Authentication successful for', user.email);
+    next();
+  } catch (error) {
+    console.error('❌ N8N Errors WebSocket authentication error:', error);
+    next(new Error('Authentication failed'));
+  }
+});
+
+n8nErrorsNamespace.on('connection', (socket) => {
+  console.log(`✅ N8N Errors WebSocket connected: ${socket.userEmail} (${socket.userId})`);
+  n8nErrorsConnectedClients.add(socket.id);
+
+  // Send recent errors on connection (optional - can be requested by client)
+  socket.on('request_recent_errors', async () => {
+    try {
+      console.log(`📤 N8N Errors WebSocket: ${socket.userEmail} requested recent errors`);
+      // Get recent errors from database (last 50)
+      const { data: errors, error } = await supabase
+        .from('n8n_errors')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50);
+      
+      if (error) {
+        console.error('❌ Error fetching recent n8n errors:', error);
+        socket.emit('error', { message: 'Failed to load recent errors' });
+        return;
+      }
+      
+      console.log(`📤 N8N Errors WebSocket: Sending ${errors?.length || 0} recent errors to ${socket.userEmail}`);
+      socket.emit('recent_errors', { errors: errors || [] });
+      console.log(`✅ N8N Errors WebSocket: Recent errors sent successfully to ${socket.userEmail}`);
+    } catch (error) {
+      console.error('❌ Error sending recent n8n errors:', error);
+      socket.emit('error', { message: 'Failed to load recent errors' });
+    }
+  });
+
+  socket.on('disconnect', (reason) => {
+    console.log(`❌ N8N Errors WebSocket disconnected: ${socket.userEmail} - ${reason}`);
+    n8nErrorsConnectedClients.delete(socket.id);
+  });
+
+  socket.on('error', (error) => {
+    console.error('❌ N8N Errors WebSocket error:', error);
+  });
+});
+
+// Make namespace available globally for controllers (will be imported where needed)
+
 // Set the namespace in apiLogger middleware BEFORE it's used
 import { setApiLogsNamespace } from './middleware/apiLogger.js';
 setApiLogsNamespace(apiLogsNamespace);
 console.log('✅ WebSocket namespace initialized for API logs');
+
+// Set the n8nErrors namespace in controller
+import { setN8nErrorsNamespace } from './routes/controllers/n8nErrors.controller.js';
+setN8nErrorsNamespace(n8nErrorsNamespace);
+console.log('✅ WebSocket namespace initialized for N8N errors');
 
 app.use('/api/', limiter); // Apply rate limiting to all API routes
 app.use('/api/', apiLogger); // Apply API logging middleware to all API routes
@@ -392,6 +525,8 @@ app.use('/api/genie', genieRoutes);
 app.use('/api/vapi', vapiRoutes);
 app.use('/api/logs', logsRoutes);
 app.use('/api/error-logs', errorLogsRoutes);
+app.use('/api/api-keys', apiKeysRoutes);
+app.use('/api/n8n-errors', n8nErrorsRoutes);
 
 // Debug: Log all registered routes
 ;

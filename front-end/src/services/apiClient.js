@@ -825,6 +825,51 @@ const apiClient = {
      * Get error log by ID
      */
     getById: (id) => axiosInstance.get(`/error-logs/${id}`),
+  },
+
+  // ==================== N8N ERRORS ====================
+  n8nErrors: {
+    /**
+     * Get all n8n errors with optional filters
+     */
+    getAll: (queryString = '') => axiosInstance.get(`/n8n-errors${queryString}`),
+
+    /**
+     * Get n8n error by ID
+     */
+    getById: (id) => axiosInstance.get(`/n8n-errors/${id}`),
+  },
+
+  apiKeys: {
+    /**
+     * Get all API keys with optional filters
+     */
+    getAll: (queryString = '') => axiosInstance.get(`/api-keys${queryString}`),
+
+    /**
+     * Get API key by ID
+     */
+    getById: (id) => axiosInstance.get(`/api-keys/${id}`),
+
+    /**
+     * Create new API key
+     */
+    create: (data) => axiosInstance.post(`/api-keys`, data),
+
+    /**
+     * Update API key
+     */
+    update: (id, data) => axiosInstance.put(`/api-keys/${id}`, data),
+
+    /**
+     * Delete API key
+     */
+    delete: (id) => axiosInstance.delete(`/api-keys/${id}`),
+
+    /**
+     * Regenerate API secret
+     */
+    regenerateSecret: (id) => axiosInstance.post(`/api-keys/${id}/regenerate-secret`),
 
     /**
      * Create error log (for error reporting)
