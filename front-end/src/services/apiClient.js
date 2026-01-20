@@ -870,11 +870,6 @@ const apiClient = {
      * Regenerate API secret
      */
     regenerateSecret: (id) => axiosInstance.post(`/api-keys/${id}/regenerate-secret`),
-
-    /**
-     * Create error log (for error reporting)
-     */
-    create: (data) => axiosInstance.post('/error-logs', data),
   },
 
   // ==================== SETTINGS ====================
