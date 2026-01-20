@@ -4,7 +4,9 @@ import {
   MessageSquare, Search, Filter, Plus, Eye, MoreVertical, 
   Send, Paperclip, X, CheckCircle, Clock, AlertCircle, 
   User, Calendar, Tag, ChevronLeft, ChevronRight, FileText,
-  Download, Image as ImageIcon, Wifi, WifiOff, Check
+  Download, Image as ImageIcon, Wifi, WifiOff, Check,
+  MailOpen,
+  Sparkles
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { 
@@ -90,6 +92,11 @@ const Customers = () => {
     assigned_to: '',
     internal_notes: ''
   });
+
+  // AI Generate Response state
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiResponse, setAiResponse] = useState('');
+  const [showAiResponse, setShowAiResponse] = useState(false);
 
   const ticketsPerPage = 20;
 
@@ -496,6 +503,7 @@ const Customers = () => {
   const messagesEndRef = useRef(null);
   const subscriptionRef = useRef(null);
   const ticketsSubscriptionRef = useRef(null);
+  const textareaRef = useRef(null);
   // Refs for filters to avoid recreating subscriptions
   const filtersRef = useRef({ statusFilter, priorityFilter, searchQuery, isAdmin, currentPage, user });
   
@@ -511,6 +519,28 @@ const Customers = () => {
   useEffect(() => {
     scrollToBottom();
   }, [ticketMessages]);
+
+  // Auto-resize textarea
+  const autoResizeTextarea = () => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      const maxHeight = window.innerHeight * 0.25; // 25vh
+      const scrollHeight = textarea.scrollHeight;
+      
+      if (scrollHeight > maxHeight) {
+        textarea.style.height = `${maxHeight}px`;
+        textarea.style.overflowY = 'auto';
+      } else {
+        textarea.style.height = `${scrollHeight}px`;
+        textarea.style.overflowY = 'hidden';
+      }
+    }
+  };
+
+  useEffect(() => {
+    autoResizeTextarea();
+  }, [newMessage]);
 
   const handleViewTicket = async (ticket) => {
     setSelectedTicket(ticket);
@@ -678,6 +708,13 @@ const Customers = () => {
 
       setNewMessage('');
       setSelectedFiles([]);
+      setAiResponse('');
+      setShowAiResponse(false);
+      // Reset textarea height
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+        textareaRef.current.style.overflowY = 'hidden';
+      }
       await fetchTicketDetails(selectedTicket.id);
       await fetchTickets();
       toast.success(attachments.length > 0 ? 'Files sent successfully' : 'Message sent successfully');
@@ -688,6 +725,67 @@ const Customers = () => {
     } finally {
       setSendingMessage(false);
       setUploadingFiles(false);
+    }
+  };
+
+  const handleAiGenerateResponse = async () => {
+    if (!selectedTicket || ticketMessages.length === 0) {
+      toast.error('No messages available to generate response');
+      return;
+    }
+
+    setAiGenerating(true);
+    setShowAiResponse(false);
+    setAiResponse('');
+
+    try {
+      // Get last 5 messages
+      const last5Messages = ticketMessages.slice(-5).map(msg => ({
+        sender: msg.sender_name || msg.sender_email || 'Unknown',
+        message: msg.message || '',
+        created_at: msg.created_at
+      }));
+
+      // Call webhook
+      const response = await fetch('http://auto.nsolbpo.com:5678/webhook/6db0c73b-28a8-4b43-a623-60541ab82a9c', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: last5Messages
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate AI response');
+      }
+
+      const data = await response.json();
+      
+      if (Array.isArray(data) && data.length > 0 && data[0].output) {
+        setAiResponse(data[0].output);
+        setShowAiResponse(true);
+        toast.success('AI response generated successfully');
+      } else {
+        throw new Error('Invalid response format from AI service');
+      }
+    } catch (err) {
+      console.error('Error generating AI response:', err);
+      toast.error('Failed to generate AI response. Please try again.');
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
+  const handleUseAiResponse = () => {
+    if (aiResponse.trim()) {
+      setNewMessage(aiResponse);
+      setShowAiResponse(false);
+      // Trigger resize after setting the message
+      setTimeout(() => {
+        autoResizeTextarea();
+      }, 0);
     }
   };
 
@@ -799,6 +897,57 @@ const Customers = () => {
       toast.error('Failed to update ticket status');
     } finally {
       setUpdatingStatus(false);
+    }
+  };
+
+  const handleToggleReadStatus = async (ticket, e) => {
+    e.stopPropagation();
+    
+    // Check permission
+    if (!permissions.update) {
+      toast.error('You do not have permission to update ticket status.');
+      return;
+    }
+
+    const newReadStatus = !ticket.has_unread_messages;
+
+    try {
+      // Update ticket read status directly via Supabase
+      const { error } = await supabase
+        .from('support_tickets')
+        .update({ has_unread_messages: newReadStatus })
+        .eq('id', ticket.id);
+
+      if (error) {
+        throw error;
+      }
+
+      // Update local state
+      setTickets(prevTickets =>
+        prevTickets.map(t =>
+          t.id === ticket.id
+            ? { ...t, has_unread_messages: newReadStatus }
+            : t
+        )
+      );
+
+      // Update selected ticket if it's the one being viewed
+      if (selectedTicket && selectedTicket.id === ticket.id) {
+        setSelectedTicket(prev => ({
+          ...prev,
+          has_unread_messages: newReadStatus
+        }));
+      }
+
+      toast.success(newReadStatus ? 'Ticket marked as unread' : 'Ticket marked as read');
+      
+      // Refresh stats if admin
+      if (isAdmin) {
+        await fetchStats();
+      }
+    } catch (err) {
+      console.error('Error toggling read status:', err);
+      toast.error('Failed to update read status');
     }
   };
 
@@ -1159,21 +1308,41 @@ const Customers = () => {
                       {formatDate(ticket.created_at)}
                     </td>
                     <td style={{ padding: '12px', textAlign: 'center' }}>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleViewTicket(ticket);
-                        }}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          padding: '4px',
-                          color: '#8a3b9a'
-                        }}
-                      >
-                        <Eye size={18} />
-                      </button>
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center' }}>
+                        <button
+                          onClick={(e) => handleToggleReadStatus(ticket, e)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: '4px',
+                            color: ticket.has_unread_messages ? '#dc3545' : '#28a745',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'color 0.2s'
+                          }}
+                          title={ticket.has_unread_messages ? 'Mark as read' : 'Mark as unread'}
+                        >
+                          {ticket.has_unread_messages ? <Mail size={18} /> : <MailOpen size={18} />}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleViewTicket(ticket);
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: '4px',
+                            color: '#8a3b9a'
+                          }}
+                          title="View ticket"
+                        >
+                          <Eye size={18} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1703,10 +1872,11 @@ const Customers = () => {
             maxHeight: '90vh',
             display: 'flex',
             flexDirection: 'column',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.15)'
+            boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+            overflow: 'hidden'
           }}>
             {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexShrink: 0 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
                   <h2 style={{ margin: 0, fontSize: '24px', fontWeight: '700' }}>
@@ -1751,6 +1921,14 @@ const Customers = () => {
                   setNewMessage('');
                   setSelectedFiles([]);
                   setLoadingTicketDetails(false);
+                  setAiResponse('');
+                  setShowAiResponse(false);
+                  setAiGenerating(false);
+                  // Reset textarea height
+                  if (textareaRef.current) {
+                    textareaRef.current.style.height = 'auto';
+                    textareaRef.current.style.overflowY = 'hidden';
+                  }
                 }}
                 style={{
                   background: 'none',
@@ -1770,7 +1948,8 @@ const Customers = () => {
                 padding: '16px',
                 backgroundColor: '#f8f9fa',
                 borderRadius: '8px',
-                marginBottom: '24px'
+                marginBottom: '24px',
+                flexShrink: 0
               }}>
                 <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '600' }}>Update Ticket</h4>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
@@ -1836,10 +2015,10 @@ const Customers = () => {
 
             {/* Messages - Chat Style */}
             <div style={{ 
-              flex: 1, 
+              flex: '1 1 auto',
               marginBottom: '16px', 
-              minHeight: '300px',
-              maxHeight: '500px', 
+              minHeight: '200px',
+              maxHeight: showAiResponse ? '350px' : '500px', 
               overflowY: 'auto',
               overflowX: 'hidden',
               padding: '12px',
@@ -2019,8 +2198,133 @@ const Customers = () => {
               padding: '12px',
               backgroundColor: '#ffffff',
               borderRadius: '8px',
-              border: '1px solid #e0e0e0'
+              border: '1px solid #e0e0e0',
+              flexShrink: 0,
+              maxHeight: showAiResponse ? '280px' : '200px',
+              overflowY: 'auto',
+              overflowX: 'hidden'
             }}>
+              {/* AI Generate Response Button */}
+              {ticketMessages.length > 0 && (
+                <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={handleAiGenerateResponse}
+                    disabled={aiGenerating}
+                    style={{
+                      padding: '8px 16px',
+                      border: 'none',
+                      borderRadius: '8px',
+                      backgroundColor: aiGenerating ? '#6c757d' : '#17a2b8',
+                      color: 'white',
+                      cursor: aiGenerating ? 'not-allowed' : 'pointer',
+                      fontWeight: '600',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontSize: '13px',
+                      opacity: aiGenerating ? 0.6 : 1,
+                      transition: 'opacity 0.2s'
+                    }}
+                  >
+                    <Sparkles size={14} />
+                    {aiGenerating ? 'Generating...' : 'AI Generate '}
+                  </button>
+                </div>
+              )}
+
+              {/* AI Response Display */}
+              {showAiResponse && aiResponse && (
+                <div style={{
+                  marginBottom: '12px',
+                  padding: '12px',
+                  backgroundColor: '#e7f3ff',
+                  border: '1px solid #17a2b8',
+                  borderRadius: '8px',
+                  borderLeft: '4px solid #17a2b8',
+                  maxHeight: '150px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                  flexShrink: 0
+                }}>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'flex-start',
+                    marginBottom: '8px',
+                    flexShrink: 0
+                  }}>
+                    <div style={{ 
+                      fontSize: '12px', 
+                      fontWeight: '600', 
+                      color: '#17a2b8',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}>
+                      <Sparkles size={12} />
+                      AI Generated Response
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowAiResponse(false);
+                        setAiResponse('');
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '2px',
+                        color: '#6c757d',
+                        display: 'flex',
+                        alignItems: 'center',
+                        flexShrink: 0
+                      }}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                  <div style={{
+                    fontSize: '14px',
+                    color: '#212529',
+                    whiteSpace: 'pre-wrap',
+                    lineHeight: '1.5',
+                    marginBottom: '8px',
+                    overflowY: 'auto',
+                    overflowX: 'hidden',
+                    flex: '1 1 auto',
+                    minHeight: 0,
+                    maxHeight: '80px',
+                    paddingRight: '8px',
+                    WebkitOverflowScrolling: 'touch'
+                  }}>
+                    {aiResponse}
+                  </div>
+                  <button
+                    onClick={handleUseAiResponse}
+                    style={{
+                      padding: '6px 12px',
+                      border: 'none',
+                      borderRadius: '6px',
+                      backgroundColor: '#17a2b8',
+                      color: 'white',
+                      cursor: 'pointer',
+                      fontWeight: '600',
+                      fontSize: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      flexShrink: 0,
+                      alignSelf: 'flex-start',
+                      marginTop: 'auto'
+                    }}
+                  >
+                    <Send size={12} />
+                    Use This Response
+                  </button>
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {selectedFiles.length > 0 && (
@@ -2059,8 +2363,12 @@ const Customers = () => {
                     </div>
                   )}
                   <textarea
+                    ref={textareaRef}
                     value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
+                    onChange={(e) => {
+                      setNewMessage(e.target.value);
+                      autoResizeTextarea();
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
@@ -2080,7 +2388,11 @@ const Customers = () => {
                       resize: 'none',
                       fontFamily: 'inherit',
                       outline: 'none',
-                      transition: 'border-color 0.2s'
+                      transition: 'border-color 0.2s',
+                      minHeight: '44px',
+                      maxHeight: '25vh',
+                      overflowY: 'auto',
+                      lineHeight: '1.5'
                     }}
                     onFocus={(e) => e.target.style.borderColor = '#8a3b9a'}
                     onBlur={(e) => e.target.style.borderColor = '#ddd'}
