@@ -222,7 +222,7 @@ const dashboardRoutes = [
   {
     path: "/n8n-errors",
     name: "N8N Errors",
-    icon: "nc-icon nc-alert-circle-i",
+    icon: "nc-icon nc-settings-tool-66",
     component: N8nErrors,
     layout: "/admin",
     requiredPermissions: ['n8n_errors.view'] // Permission-based access
@@ -237,7 +237,7 @@ const dashboardRoutes = [
   {
     path: "/permissions",
     name: "Permissions",
-    icon: "nc-icon nc-key-25",
+    icon: "nc-icon nc-settings-90",
     component: Permissions,
     layout: "/admin",
     systemAdminOnly: true // Only show for systemadmin

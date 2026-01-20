@@ -3024,11 +3024,11 @@ export const createMyReseller = async (req, res) => {
     let { email, password, full_name, phone, country, city, nickname } = req.body;
 
     // Validate required fields
-    if (!email || !password || !full_name || !country || !city) {
+    if (!email || !password || !full_name || !country ) {
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
-        message: 'FullName, Email, password, country, city are required'
+        message: 'FullName, Email, password, country are required'
       });
     }
 
