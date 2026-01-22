@@ -1118,6 +1118,9 @@ const apiClient = {
       if (params.startDate) queryParams.append('startDate', params.startDate);
       if (params.endDate) queryParams.append('endDate', params.endDate);
       if (params.search) queryParams.append('search', params.search);
+      if (params.listId) queryParams.append('listId', params.listId);
+      if (params.scheduledListId) queryParams.append('scheduledListId', params.scheduledListId);
+      if (params.minDuration) queryParams.append('minDuration', params.minDuration);
       const query = queryParams.toString();
       return axiosInstance.get(`/genie/calls${query ? `?${query}` : ''}`);
     },

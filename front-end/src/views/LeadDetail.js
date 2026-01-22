@@ -96,7 +96,7 @@ function LeadDetail() {
           <i className="fa fa-exclamation-triangle text-warning" style={{ fontSize: '48px' }}></i>
           <h5 className="mt-3">Lead Not Found</h5>
           <p className="text-muted">The lead you're looking for doesn't exist or has been deleted.</p>
-          <Button variant="primary" onClick={() => history.push('/admin/genie')}>
+          <Button variant="primary" onClick={() => history.push('/admin/genie?tab=leads')}>
             <i className="fa fa-arrow-left me-2"></i>
             Back to Genie
           </Button>
@@ -116,7 +116,7 @@ function LeadDetail() {
                 variant="outline-secondary" 
                 size="sm" 
                 className="me-3"
-                onClick={() => history.push('/admin/genie')}
+                onClick={() => history.push('/admin/genie?tab=leads')}
               >
                 <i className="fa fa-arrow-left me-1"></i>
                 Back

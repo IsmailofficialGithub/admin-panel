@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useHistory } from "react-router-dom";
-import { Calendar, Plus, MoreVertical, X, Clock, Globe, Users, CheckCircle, XCircle, Pause, Play, Search, Target, Eye, PlayCircle } from "lucide-react";
-import { getAllCampaigns, cancelCampaign, pauseCampaign, resumeCampaign, getAllBots, getAllContactLists, getAllLeads } from "api/backend/genie";
+import { Calendar, Plus, MoreVertical, X, Clock, Globe, Users, CheckCircle, XCircle, Pause, Play, Search, Target, Eye, PlayCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { getAllCampaigns, cancelCampaign, pauseCampaign, resumeCampaign, getAllBots, getAllContactLists, getAllLeads, getAllCalls } from "api/backend/genie";
 import { usePermissions } from "hooks/usePermissions";
 import { useGenieWebSocket } from "hooks/useGenieWebSocket";
 import CreateCampaignModal from "./CreateCampaignModal";
@@ -44,6 +44,29 @@ function CampaignsTab() {
   const [campaignLeads, setCampaignLeads] = useState([]);
   const [leadsLoading, setLeadsLoading] = useState(false);
   const [selectedCampaignForLeads, setSelectedCampaignForLeads] = useState(null);
+
+  // Campaign Calls/Contacts Modal
+  const [showCallsModal, setShowCallsModal] = useState(false);
+  const [modalType, setModalType] = useState(null); // 'contacts', 'completed', 'failed'
+  const [campaignCalls, setCampaignCalls] = useState([]);
+  const [callsLoading, setCallsLoading] = useState(false);
+  const [selectedCampaignForCalls, setSelectedCampaignForCalls] = useState(null);
+  
+  // Calls Modal Filters
+  const [callsSearchQuery, setCallsSearchQuery] = useState("");
+  const [callsStartDate, setCallsStartDate] = useState("");
+  const [callsEndDate, setCallsEndDate] = useState("");
+  const [callsMinDuration, setCallsMinDuration] = useState("");
+  
+  // Calls Modal Pagination
+  const [callsCurrentPage, setCallsCurrentPage] = useState(1);
+  const [callsTotalPages, setCallsTotalPages] = useState(1);
+  const [callsTotalCount, setCallsTotalCount] = useState(0);
+  const callsLimit = 10;
+  
+  // Currently playing call
+  const [playingCallId, setPlayingCallId] = useState(null);
+  const [playingCall, setPlayingCall] = useState(null);
 
   // Dropdown state
   const [openDropdown, setOpenDropdown] = useState(null);
@@ -484,6 +507,97 @@ function CampaignsTab() {
     setShowLeadsModal(false);
     setSelectedCampaignForLeads(null);
     setCampaignLeads([]);
+  };
+
+  // Open campaign calls/contacts modal
+  const openCallsModal = async (campaign, type) => {
+    setSelectedCampaignForCalls(campaign);
+    setModalType(type);
+    setShowCallsModal(true);
+    setCallsLoading(true);
+    setCampaignCalls([]);
+    setCallsCurrentPage(1);
+    setCallsSearchQuery("");
+    setCallsStartDate("");
+    setCallsEndDate("");
+    setCallsMinDuration("");
+    
+    await fetchCampaignCalls(campaign, type, 1);
+  };
+
+  // Fetch campaign calls
+  const fetchCampaignCalls = async (campaign, type, page = 1) => {
+    setCallsLoading(true);
+    try {
+      const params = {
+        page,
+        limit: callsLimit,
+        scheduledListId: campaign.id,
+        startDate: callsStartDate || undefined,
+        endDate: callsEndDate || undefined,
+        search: callsSearchQuery || undefined,
+        minDuration: callsMinDuration || undefined,
+      };
+
+      // Set status filter based on type
+      if (type === 'completed') {
+        params.status = 'completed';
+      } else if (type === 'failed') {
+        params.status = 'failed';
+      }
+      // For 'contacts', no status filter - show all calls
+
+      const response = await getAllCalls(params);
+      if (response?.error) {
+        toast.error(response.error);
+        setCallsLoading(false);
+        return;
+      }
+
+      setCampaignCalls(response?.data || []);
+      setCallsTotalCount(response?.total || 0);
+      setCallsTotalPages(response?.totalPages || 1);
+      setCallsCurrentPage(page);
+    } catch (error) {
+      console.error("Error fetching campaign calls:", error);
+      toast.error("Failed to fetch calls");
+    } finally {
+      setCallsLoading(false);
+    }
+  };
+
+  // Handle calls filter change
+  const handleCallsFilterChange = () => {
+    if (selectedCampaignForCalls && modalType) {
+      setCallsCurrentPage(1);
+      fetchCampaignCalls(selectedCampaignForCalls, modalType, 1);
+    }
+  };
+
+  // Close calls modal
+  const closeCallsModal = () => {
+    setShowCallsModal(false);
+    setSelectedCampaignForCalls(null);
+    setModalType(null);
+    setCampaignCalls([]);
+    setCallsCurrentPage(1);
+    setCallsSearchQuery("");
+    setCallsStartDate("");
+    setCallsEndDate("");
+    setCallsMinDuration("");
+    setPlayingCallId(null);
+    setPlayingCall(null);
+  };
+
+  // Format duration
+  const formatDuration = (seconds) => {
+    if (!seconds) return "-";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (mins > 0) {
+      return `${mins}m ${secs}s`;
+    }
+    return `${secs}s`;
   };
 
   // Format date for leads
@@ -943,18 +1057,99 @@ function CampaignsTab() {
 
                   {/* Stats */}
                   <div style={{ display: 'flex', gap: '16px', marginTop: '12px' }}>
-                    <div style={{ textAlign: 'center', flex: 1 }}>
+                    <div 
+                      style={{ 
+                        textAlign: 'center', 
+                        flex: 1,
+                        cursor: (campaign.contacts_count || 0) > 0 ? 'pointer' : 'default',
+                        opacity: (campaign.contacts_count || 0) > 0 ? 1 : 0.6,
+                        transition: 'all 0.2s ease',
+                        padding: '8px',
+                        borderRadius: '8px'
+                      }}
+                      onClick={() => {
+                        if ((campaign.contacts_count || 0) > 0) {
+                          openCallsModal(campaign, 'contacts');
+                        }
+                      }}
+                      onMouseEnter={(e) => {
+                        if ((campaign.contacts_count || 0) > 0) {
+                          e.currentTarget.style.backgroundColor = '#f8fafc';
+                          e.currentTarget.style.transform = 'scale(1.05)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if ((campaign.contacts_count || 0) > 0) {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                          e.currentTarget.style.transform = 'scale(1)';
+                        }
+                      }}
+                    >
                       <div style={{ fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>{campaign.contacts_count || 0}</div>
                       <div style={{ fontSize: '12px', color: '#64748b' }}>Contacts</div>
-                      </div>
-                    <div style={{ textAlign: 'center', flex: 1 }}>
+                    </div>
+                    <div 
+                      style={{ 
+                        textAlign: 'center', 
+                        flex: 1,
+                        cursor: (campaign.calls_completed || 0) > 0 ? 'pointer' : 'default',
+                        opacity: (campaign.calls_completed || 0) > 0 ? 1 : 0.6,
+                        transition: 'all 0.2s ease',
+                        padding: '8px',
+                        borderRadius: '8px'
+                      }}
+                      onClick={() => {
+                        if ((campaign.calls_completed || 0) > 0) {
+                          openCallsModal(campaign, 'completed');
+                        }
+                      }}
+                      onMouseEnter={(e) => {
+                        if ((campaign.calls_completed || 0) > 0) {
+                          e.currentTarget.style.backgroundColor = '#f0fdf4';
+                          e.currentTarget.style.transform = 'scale(1.05)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if ((campaign.calls_completed || 0) > 0) {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                          e.currentTarget.style.transform = 'scale(1)';
+                        }
+                      }}
+                    >
                       <div style={{ fontSize: '20px', fontWeight: '700', color: '#22c55e' }}>{campaign.calls_completed || 0}</div>
                       <div style={{ fontSize: '12px', color: '#64748b' }}>Completed</div>
                     </div>
-                    <div style={{ textAlign: 'center', flex: 1 }}>
+                    <div 
+                      style={{ 
+                        textAlign: 'center', 
+                        flex: 1,
+                        cursor: (campaign.calls_failed || 0) > 0 ? 'pointer' : 'default',
+                        opacity: (campaign.calls_failed || 0) > 0 ? 1 : 0.6,
+                        transition: 'all 0.2s ease',
+                        padding: '8px',
+                        borderRadius: '8px'
+                      }}
+                      onClick={() => {
+                        if ((campaign.calls_failed || 0) > 0) {
+                          openCallsModal(campaign, 'failed');
+                        }
+                      }}
+                      onMouseEnter={(e) => {
+                        if ((campaign.calls_failed || 0) > 0) {
+                          e.currentTarget.style.backgroundColor = '#fef2f2';
+                          e.currentTarget.style.transform = 'scale(1.05)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if ((campaign.calls_failed || 0) > 0) {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                          e.currentTarget.style.transform = 'scale(1)';
+                        }
+                      }}
+                    >
                       <div style={{ fontSize: '20px', fontWeight: '700', color: '#ef4444' }}>{campaign.calls_failed || 0}</div>
                       <div style={{ fontSize: '12px', color: '#64748b' }}>Failed</div>
-                      </div>
+                    </div>
                     <div 
                       style={{ 
                         textAlign: 'center', 
@@ -1281,6 +1476,598 @@ function CampaignsTab() {
         </div>
       )}
 
+      {/* Campaign Calls/Contacts Modal */}
+      {showCallsModal && selectedCampaignForCalls && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px'
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              closeCallsModal();
+            }
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '12px',
+              width: '100%',
+              maxWidth: '1400px',
+              maxHeight: '90vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div style={{
+              padding: '20px 24px',
+              borderBottom: '1px solid #e5e7eb',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '600', color: '#1e293b' }}>
+                  {modalType === 'contacts' ? 'Campaign Contacts' : modalType === 'completed' ? 'Completed Calls' : 'Failed Calls'}
+                </h3>
+                <p style={{ margin: '4px 0 0 0', fontSize: '14px', color: '#64748b' }}>
+                  {selectedCampaignForCalls?.genie_contact_lists?.name || 'Campaign'} - {callsTotalCount} {modalType === 'contacts' ? 'contact' : 'call'}{callsTotalCount !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <button
+                onClick={closeCallsModal}
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: '#f1f5f9',
+                  color: '#64748b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#e2e8f0';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#f1f5f9';
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Filters */}
+            <div style={{
+              padding: '20px 24px',
+              borderBottom: '1px solid #e5e7eb',
+              backgroundColor: '#f8fafc'
+            }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'flex-end' }}>
+                <div style={{ flex: '1 1 200px', minWidth: '200px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Search</label>
+                  <div style={{ position: 'relative' }}>
+                    <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+                    <input
+                      type="text"
+                      placeholder="Name, phone..."
+                      value={callsSearchQuery}
+                      onChange={(e) => setCallsSearchQuery(e.target.value)}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          handleCallsFilterChange();
+                        }
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px 8px 36px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '6px',
+                        fontSize: '14px',
+                        outline: 'none',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                </div>
+                <div style={{ flex: '0 1 140px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>From Date</label>
+                  <input
+                    type="date"
+                    value={callsStartDate}
+                    onChange={(e) => setCallsStartDate(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                      outline: 'none',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+                <div style={{ flex: '0 1 140px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>To Date</label>
+                  <input
+                    type="date"
+                    value={callsEndDate}
+                    onChange={(e) => setCallsEndDate(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                      outline: 'none',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+                <div style={{ flex: '0 1 160px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Min Duration</label>
+                  <select
+                    value={callsMinDuration}
+                    onChange={(e) => setCallsMinDuration(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                      outline: 'none',
+                      backgroundColor: 'white',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="">All Durations</option>
+                    <option value="30">30+ seconds</option>
+                    <option value="60">1+ minute</option>
+                    <option value="300">5+ minutes</option>
+                    <option value="600">10+ minutes</option>
+                  </select>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCallsSearchQuery("");
+                      setCallsStartDate("");
+                      setCallsEndDate("");
+                      setCallsMinDuration("");
+                    }}
+                    style={{
+                      padding: '8px 16px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      backgroundColor: 'white',
+                      color: '#64748b',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <X size={14} /> Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCallsFilterChange}
+                    style={{
+                      padding: '8px 16px',
+                      border: 'none',
+                      borderRadius: '6px',
+                      backgroundColor: '#74317e',
+                      color: 'white',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <Search size={14} /> Apply
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{
+              padding: '24px',
+              overflowY: 'auto',
+              flex: 1
+            }}>
+              {callsLoading ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 20px' }}>
+                  <div style={{ width: '48px', height: '48px', border: '3px solid #f1f5f9', borderTopColor: '#74317e', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                  <p style={{ marginTop: '16px', color: '#64748b', fontSize: '14px' }}>Loading calls...</p>
+                </div>
+              ) : campaignCalls.length === 0 ? (
+                <div style={{ padding: '60px 20px', textAlign: 'center' }}>
+                  <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', color: '#94a3b8' }}>
+                    <Clock size={32} />
+                  </div>
+                  <h5 style={{ margin: '0 0 8px 0', color: '#1e293b', fontWeight: '600' }}>No calls found</h5>
+                  <p style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>No {modalType === 'contacts' ? 'contacts' : modalType === 'completed' ? 'completed calls' : 'failed calls'} found for this campaign</p>
+                </div>
+              ) : (
+                <>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
+                      <thead style={{ backgroundColor: '#f8fafc' }}>
+                        <tr>
+                          <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Contact</th>
+                          <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Status</th>
+                          <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Duration</th>
+                          <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Date</th>
+                          <th style={{ padding: '14px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0', width: '320px' }}>Recording</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {campaignCalls.map((call) => (
+                          <tr
+                            key={call.id}
+                            style={{
+                              borderBottom: '1px solid #f1f5f9',
+                              transition: 'background-color 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                          >
+                            <td style={{ padding: '14px 16px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{
+                                  width: '40px',
+                                  height: '40px',
+                                  borderRadius: '10px',
+                                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: 'white',
+                                  fontWeight: '600',
+                                  fontSize: '14px'
+                                }}>
+                                  {getInitials(call.name)}
+                                </div>
+                                <div>
+                                  <div style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>{call.name || "Unknown"}</div>
+                                  <div style={{ color: '#64748b', fontSize: '13px' }}>{call.phone || "-"}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td style={{ padding: '14px 16px' }}>
+                              <span style={{
+                                padding: '4px 10px',
+                                borderRadius: '20px',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                backgroundColor: call.call_status === 'completed' ? '#dcfce7' : call.call_status === 'failed' ? '#fee2e2' : '#f3f4f6',
+                                color: call.call_status === 'completed' ? '#22c55e' : call.call_status === 'failed' ? '#ef4444' : '#64748b'
+                              }}>
+                                {call.call_status || 'unknown'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '14px' }}>
+                              {formatDuration(call.duration)}
+                            </td>
+                            <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '14px' }}>
+                              {formatLeadDate(call.created_at)}
+                            </td>
+                            <td style={{ padding: '14px 16px', textAlign: 'center', verticalAlign: 'top' }} colSpan={playingCallId === call.id ? 1 : 1}>
+                              {call.call_url ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '12px', width: '100%' }}>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (playingCallId === call.id) {
+                                        setPlayingCallId(null);
+                                        setPlayingCall(null);
+                                      } else {
+                                        setPlayingCallId(call.id);
+                                        setPlayingCall(call);
+                                      }
+                                    }}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      gap: '6px',
+                                      padding: '6px 14px',
+                                      backgroundColor: playingCallId === call.id ? '#74317e' : '#f1f5f9',
+                                      borderRadius: '6px',
+                                      color: playingCallId === call.id ? 'white' : '#74317e',
+                                      border: 'none',
+                                      textDecoration: 'none',
+                                      fontSize: '13px',
+                                      fontWeight: '500',
+                                      cursor: 'pointer',
+                                      transition: 'all 0.2s',
+                                      whiteSpace: 'nowrap',
+                                      minWidth: '80px',
+                                      alignSelf: 'center'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      if (playingCallId !== call.id) {
+                                        e.currentTarget.style.backgroundColor = '#e2e8f0';
+                                      } else {
+                                        e.currentTarget.style.backgroundColor = '#5a2570';
+                                      }
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      if (playingCallId !== call.id) {
+                                        e.currentTarget.style.backgroundColor = '#f1f5f9';
+                                      } else {
+                                        e.currentTarget.style.backgroundColor = '#74317e';
+                                      }
+                                    }}
+                                  >
+                                    <PlayCircle size={14} /> {playingCallId === call.id ? 'Stop' : 'Play'}
+                                  </button>
+                                </div>
+                              ) : (
+                                <span style={{ color: '#94a3b8', fontSize: '13px' }}>-</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Pagination */}
+                  {callsTotalPages > 1 && (
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginTop: '24px',
+                      paddingTop: '24px',
+                      borderTop: '1px solid #e9ecef',
+                      flexWrap: 'wrap',
+                      gap: '12px'
+                    }}>
+                      <div style={{ fontSize: '14px', color: '#6c757d' }}>
+                        Showing {((callsCurrentPage - 1) * callsLimit) + 1} to {Math.min(callsCurrentPage * callsLimit, callsTotalCount)} of {callsTotalCount} calls
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <button
+                          onClick={() => {
+                            if (selectedCampaignForCalls && modalType) {
+                              fetchCampaignCalls(selectedCampaignForCalls, modalType, 1);
+                            }
+                          }}
+                          disabled={callsCurrentPage === 1}
+                          style={{
+                            padding: '8px 12px',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '6px',
+                            backgroundColor: callsCurrentPage === 1 ? '#f3f4f6' : 'white',
+                            color: callsCurrentPage === 1 ? '#9ca3af' : '#374151',
+                            cursor: callsCurrentPage === 1 ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            fontSize: '14px'
+                          }}
+                        >
+                          <ChevronLeft size={18} /> Previous
+                        </button>
+                        <span style={{ fontSize: '14px', color: '#6c757d', padding: '0 12px' }}>
+                          Page {callsCurrentPage} of {callsTotalPages}
+                        </span>
+                        <button
+                          onClick={() => {
+                            if (selectedCampaignForCalls && modalType) {
+                              fetchCampaignCalls(selectedCampaignForCalls, modalType, callsCurrentPage + 1);
+                            }
+                          }}
+                          disabled={callsCurrentPage >= callsTotalPages}
+                          style={{
+                            padding: '8px 12px',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '6px',
+                            backgroundColor: callsCurrentPage >= callsTotalPages ? '#f3f4f6' : 'white',
+                            color: callsCurrentPage >= callsTotalPages ? '#9ca3af' : '#374151',
+                            cursor: callsCurrentPage >= callsTotalPages ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            fontSize: '14px'
+                          }}
+                        >
+                          Next <ChevronRight size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Audio Player Modal */}
+      {playingCall && playingCall.call_url && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100,
+            padding: '20px'
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setPlayingCallId(null);
+              setPlayingCall(null);
+            }
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '600px',
+              padding: '32px',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '24px'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '600', color: '#1e293b' }}>
+                  Call Recording
+                </h3>
+                <p style={{ margin: '8px 0 0 0', fontSize: '14px', color: '#64748b' }}>
+                  {playingCall.name || 'Unknown'} - {playingCall.phone || '-'}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setPlayingCallId(null);
+                  setPlayingCall(null);
+                }}
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: '#f1f5f9',
+                  color: '#64748b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#e2e8f0';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#f1f5f9';
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Audio Player */}
+            <div style={{
+              width: '100%',
+              padding: '24px',
+              backgroundColor: '#f8fafc',
+              borderRadius: '12px',
+              border: '2px solid #74317e',
+              boxShadow: '0 4px 12px rgba(116, 49, 126, 0.15)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minHeight: '120px'
+            }}>
+              <audio
+                controls
+                autoPlay
+                style={{
+                  width: '100%',
+                  height: '72px',
+                  minHeight: '72px',
+                  maxHeight: '72px',
+                  outline: 'none',
+                  display: 'block',
+                  margin: '0 auto'
+                }}
+                onEnded={() => {
+                  setPlayingCallId(null);
+                  setPlayingCall(null);
+                }}
+                controlsList="nodownload noplaybackrate"
+              >
+                <source src={playingCall.call_url} type="audio/mpeg" />
+                <source src={playingCall.call_url} type="audio/wav" />
+                <source src={playingCall.call_url} type="audio/mp3" />
+                <source src={playingCall.call_url} type="audio/ogg" />
+                Your browser does not support the audio element.
+              </audio>
+            </div>
+
+            {/* Call Info */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: '16px',
+              padding: '16px',
+              backgroundColor: '#f8fafc',
+              borderRadius: '8px'
+            }}>
+              <div>
+                <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600', marginBottom: '4px' }}>Status</div>
+                <div style={{ fontSize: '14px', color: '#1e293b', fontWeight: '500' }}>
+                  <span style={{
+                    padding: '4px 10px',
+                    borderRadius: '20px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    backgroundColor: playingCall.call_status === 'completed' ? '#dcfce7' : playingCall.call_status === 'failed' ? '#fee2e2' : '#f3f4f6',
+                    color: playingCall.call_status === 'completed' ? '#22c55e' : playingCall.call_status === 'failed' ? '#ef4444' : '#64748b'
+                  }}>
+                    {playingCall.call_status || 'unknown'}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600', marginBottom: '4px' }}>Duration</div>
+                <div style={{ fontSize: '14px', color: '#1e293b', fontWeight: '500' }}>
+                  {formatDuration(playingCall.duration)}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600', marginBottom: '4px' }}>Date</div>
+                <div style={{ fontSize: '14px', color: '#1e293b', fontWeight: '500' }}>
+                  {formatLeadDate(playingCall.created_at)}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600', marginBottom: '4px' }}>Bot</div>
+                <div style={{ fontSize: '14px', color: '#1e293b', fontWeight: '500' }}>
+                  {playingCall.genie_bots?.name || '-'}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Animation styles */}
       <style>{`
         @keyframes pulse {
@@ -1290,6 +2077,103 @@ function CampaignsTab() {
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
+        }
+        audio {
+          width: 100%;
+          height: 72px !important;
+          min-height: 72px !important;
+          max-height: 72px !important;
+        }
+        audio::-webkit-media-controls-panel {
+          background-color: #f8fafc;
+          border-radius: 12px;
+          padding: 16px 20px;
+          height: 72px !important;
+          min-height: 72px !important;
+          max-height: 72px !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+        }
+        audio::-webkit-media-controls-play-button {
+          background-color: #74317e;
+          border-radius: 50% !important;
+          width: 48px !important;
+          height: 48px !important;
+          min-width: 48px !important;
+          min-height: 48px !important;
+          max-width: 48px !important;
+          max-height: 48px !important;
+          margin-right: 16px;
+          margin-left: 0;
+          flex-shrink: 0;
+          border: none !important;
+          padding: 0 !important;
+        }
+        audio::-webkit-media-controls-current-time-display,
+        audio::-webkit-media-controls-time-remaining-display {
+          color: #1e293b;
+          font-size: 16px;
+          font-weight: 600;
+          margin: 0 10px;
+          flex-shrink: 0;
+        }
+        audio::-webkit-media-controls-timeline {
+          background-color: #e2e8f0;
+          border-radius: 6px;
+          height: 8px !important;
+          margin: 0 12px;
+          flex: 1;
+          min-width: 0;
+        }
+        audio::-webkit-media-controls-mute-button {
+          background-color: transparent;
+          width: 36px !important;
+          height: 36px !important;
+          margin-left: 12px;
+          margin-right: 8px;
+          flex-shrink: 0;
+          order: 1;
+        }
+        audio::-webkit-media-controls-volume-slider {
+          background-color: #e2e8f0;
+          border-radius: 6px;
+          height: 8px;
+          margin-left: 0;
+          margin-right: 12px;
+          width: 80px;
+          flex-shrink: 0;
+          order: 2;
+        }
+        audio::-webkit-media-controls-timeline-container {
+          height: 8px;
+          flex: 1;
+          display: flex;
+          align-items: center;
+          min-width: 0;
+        }
+        audio::-webkit-media-controls-volume-slider-container {
+          margin-left: 0;
+          margin-right: 0;
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          order: 3;
+        }
+        audio::-webkit-media-controls-enclosure {
+          width: 100%;
+          height: 72px !important;
+          min-height: 72px !important;
+          max-height: 72px !important;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        audio::-webkit-media-controls {
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          height: 72px !important;
         }
       `}</style>
     </div>

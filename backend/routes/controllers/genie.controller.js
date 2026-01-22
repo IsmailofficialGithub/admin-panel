@@ -85,7 +85,7 @@ const clearGenieCaches = async (userId, options = {}) => {
  */
 export const getAllCalls = async (req, res) => {
   try {
-    const { page, limit, botId, status, isLead, startDate, endDate, search } =
+    const { page, limit, botId, status, isLead, startDate, endDate, search, listId, scheduledListId, minDuration } =
       req.query;
     const { pageNum, limitNum } = validatePagination(page, limit);
     const offset = (pageNum - 1) * limitNum;
@@ -101,12 +101,33 @@ export const getAllCalls = async (req, res) => {
       });
     }
 
+    // Validate listId if provided
+    if (listId && !isValidUUID(listId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Invalid list ID format",
+      });
+    }
+
+    // Validate scheduledListId if provided
+    if (scheduledListId && !isValidUUID(scheduledListId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Invalid scheduled list ID format",
+      });
+    }
+
     console.log("📞 Fetching calls with filters:", {
       page: pageNum,
       limit: limitNum,
       botId,
       status,
       isLead,
+      listId,
+      scheduledListId,
+      minDuration,
       isSystemAdmin,
     });
 
@@ -132,6 +153,7 @@ export const getAllCalls = async (req, res) => {
         bot_id,
         contact_id,
         list_id,
+        scheduled_list_id,
         genie_bots (
           id,
           name,
@@ -151,6 +173,18 @@ export const getAllCalls = async (req, res) => {
     }
     if (isLead !== undefined) {
       query = query.eq("is_lead", isLead === "true");
+    }
+    if (listId) {
+      query = query.eq("list_id", listId);
+    }
+    if (scheduledListId) {
+      query = query.eq("scheduled_list_id", scheduledListId);
+    }
+    if (minDuration) {
+      const minDurationNum = parseInt(minDuration, 10);
+      if (!isNaN(minDurationNum) && minDurationNum > 0) {
+        query = query.gte("duration", minDurationNum);
+      }
     }
     if (startDate) {
       query = query.gte("created_at", startDate);

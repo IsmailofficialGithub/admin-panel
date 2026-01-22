@@ -18,11 +18,32 @@ function LeadsTab() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   
+  // Calculate default dates (last 2 days)
+  const getDefaultDates = () => {
+    const today = new Date();
+    const twoDaysAgo = new Date();
+    twoDaysAgo.setDate(today.getDate() - 2);
+    
+    const formatDate = (date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    
+    return {
+      start: formatDate(twoDaysAgo),
+      end: formatDate(today)
+    };
+  };
+
+  const defaultDates = getDefaultDates();
+
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedBot, setSelectedBot] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [startDate, setStartDate] = useState(defaultDates.start);
+  const [endDate, setEndDate] = useState(defaultDates.end);
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
