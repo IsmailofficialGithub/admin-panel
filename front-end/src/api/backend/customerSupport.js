@@ -127,3 +127,17 @@ export const getTicketStats = async () => {
   }
 };
 
+/**
+ * Generate AI response via webhook (proxy endpoint)
+ * @param {Array} messages - Array of message objects with sender, message, and created_at
+ * @returns {Promise<Object>} AI generated response
+ */
+export const generateAiResponse = async (messages) => {
+  try {
+    const response = await apiClient.customerSupport.generateAiResponse(messages);
+    return response;
+  } catch (error) {
+    console.error('Error generating AI response:', error);
+    throw error;
+  }
+};

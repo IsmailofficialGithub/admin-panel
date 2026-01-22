@@ -16,7 +16,8 @@ import {
   createTicket, 
   addMessage, 
   updateTicketStatus,
-  getTicketStats
+  getTicketStats,
+  generateAiResponse
 } from '../api/backend';
 import { searchAllUsers } from '../api/backend/users';
 import { useAuth } from '../contexts/AuthContext';
@@ -747,25 +748,11 @@ const Customers = () => {
         created_at: msg.created_at
       }));
 
-      // Call webhook
-      const response = await fetch('http://auto.nsolbpo.com:5678/webhook/6db0c73b-28a8-4b43-a623-60541ab82a9c', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: last5Messages
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to generate AI response');
-      }
-
-      const data = await response.json();
+      // Call backend proxy endpoint (avoids CORS issues)
+      const response = await generateAiResponse(last5Messages);
       
-      if (Array.isArray(data) && data.length > 0 && data[0].output) {
-        setAiResponse(data[0].output);
+      if (response.success && response.data && response.data.output) {
+        setAiResponse(response.data.output);
         setShowAiResponse(true);
         toast.success('AI response generated successfully');
       } else {
@@ -773,7 +760,30 @@ const Customers = () => {
       }
     } catch (err) {
       console.error('Error generating AI response:', err);
-      toast.error('Failed to generate AI response. Please try again.');
+      console.error('Error details:', {
+        message: err.message,
+        response: err.response?.data,
+        status: err.response?.status,
+        statusText: err.response?.statusText,
+        stack: err.stack
+      });
+      
+      // Extract error message from various possible locations
+      let errorMessage = 'Failed to generate AI response';
+      if (err.response?.data?.message) {
+        errorMessage = err.response.data.message;
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      // Add more context for network errors
+      if (err.message?.includes('Network Error') || err.message?.includes('Failed to fetch')) {
+        errorMessage = 'Network error: Unable to reach the server. Please check your connection.';
+      }
+      
+      toast.error(errorMessage);
     } finally {
       setAiGenerating(false);
     }

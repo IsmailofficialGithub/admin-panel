@@ -90,7 +90,8 @@ export {
   getTicket,
   addMessage,
   updateTicketStatus,
-  getTicketStats
+  getTicketStats,
+  generateAiResponse
 } from './customerSupport';
 
 export {

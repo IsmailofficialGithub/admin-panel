@@ -14,18 +14,22 @@ function CampaignsTab() {
   const { lastCampaignEvent, joinCampaign, leaveCampaign } = useGenieWebSocket();
   
   // State
-  const [campaigns, setCampaigns] = useState([]);
+  const [allCampaigns, setAllCampaigns] = useState([]); // Master list of all loaded campaigns
   const [bots, setBots] = useState([]);
   const [contactLists, setContactLists] = useState([]);
   const [loading, setLoading] = useState(true);
   
-  // Filters
-  const [statusFilter, setStatusFilter] = useState("");
+  // Filters - initialize with "in_progress" for first load
+  const [statusFilter, setStatusFilter] = useState("in_progress");
   const [leadFilter, setLeadFilter] = useState("");
   const [campaignSearchInput, setCampaignSearchInput] = useState("");
   const [campaignSearch, setCampaignSearch] = useState("");
   const [consumerSearchInput, setConsumerSearchInput] = useState("");
   const [consumerSearch, setConsumerSearch] = useState("");
+  
+  // Track which filter combinations have been loaded
+  const loadedFilterKeys = useRef(new Set());
+  const allCampaignsRef = useRef([]);
   
   // Create Modal
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -50,8 +54,23 @@ function CampaignsTab() {
   const canDelete = hasPermission('genie.campaigns.delete');
   const canUpdate = hasPermission('genie.campaigns.update');
 
-  // Fetch campaigns
-  const fetchCampaigns = useCallback(async () => {
+  // Generate cache key from filters (for tracking what's been loaded)
+  const getFilterKey = useCallback((status, lead, campaignSearch, consumerSearch) => {
+    // Only use status and leadFilter for cache key (search filters are client-side)
+    return `${status || 'all'}_${lead || 'all'}`;
+  }, []);
+
+  // Fetch campaigns with caching
+  const fetchCampaigns = useCallback(async (forceRefresh = false) => {
+    const filterKey = getFilterKey(statusFilter, leadFilter, campaignSearch, consumerSearch);
+    
+    // Check if we already have this filter combination loaded
+    if (!forceRefresh && loadedFilterKeys.current.has(filterKey)) {
+      console.log(`✅ Filter combination already loaded: ${filterKey}, using cached data`);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       const params = {
@@ -68,10 +87,28 @@ function CampaignsTab() {
         return;
       }
 
-      setCampaigns(response?.data || []);
+      const fetchedCampaigns = response?.data || [];
+      
+      // Mark this filter combination as loaded
+      loadedFilterKeys.current.add(filterKey);
+      
+      // Merge with existing campaigns (update existing, add new)
+      setAllCampaigns(prevCampaigns => {
+        const campaignMap = new Map(prevCampaigns.map(c => [c.id, c]));
+        
+        // Update existing campaigns or add new ones
+        fetchedCampaigns.forEach(campaign => {
+          campaignMap.set(campaign.id, campaign);
+        });
+        
+        const merged = Array.from(campaignMap.values());
+        allCampaignsRef.current = merged; // Update ref for cleanup
+        console.log(`📦 Merged campaigns: ${prevCampaigns.length} existing, ${fetchedCampaigns.length} fetched, ${merged.length} total`);
+        return merged;
+      });
       
       // Join rooms for active campaigns
-      (response?.data || []).forEach(campaign => {
+      fetchedCampaigns.forEach(campaign => {
         if (campaign.runtime_call_status || campaign.status === 'running') {
           joinCampaign(campaign.id);
         }
@@ -82,7 +119,54 @@ function CampaignsTab() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, leadFilter, campaignSearch, consumerSearch, joinCampaign]);
+  }, [statusFilter, leadFilter, campaignSearch, consumerSearch, joinCampaign, getFilterKey]);
+
+  // Filter campaigns client-side based on current filters
+  const filteredCampaigns = React.useMemo(() => {
+    let filtered = [...allCampaigns];
+
+    // Filter by status
+    if (statusFilter) {
+      filtered = filtered.filter(campaign => {
+        const isRunning = campaign.runtime_call_status || campaign.status === 'running' || campaign.status === 'in_progress';
+        if (statusFilter === 'in_progress') {
+          return isRunning || campaign.status === 'in_progress' || campaign.status === 'running';
+        }
+        return campaign.status === statusFilter;
+      });
+    }
+
+    // Filter by leads
+    if (leadFilter) {
+      const shouldHaveLeads = leadFilter === 'true';
+      filtered = filtered.filter(campaign => {
+        const hasLeads = (campaign.leads_count || 0) > 0;
+        return shouldHaveLeads ? hasLeads : !hasLeads;
+      });
+    }
+
+    // Filter by campaign search (bot name, contact list name)
+    if (campaignSearch && campaignSearch.trim()) {
+      const searchTerm = campaignSearch.trim().toLowerCase();
+      filtered = filtered.filter(campaign => {
+        const botName = (campaign.genie_bots?.name || "").toLowerCase();
+        const listName = (campaign.genie_contact_lists?.name || "").toLowerCase();
+        return botName.includes(searchTerm) || listName.includes(searchTerm);
+      });
+    }
+
+    // Filter by consumer search
+    if (consumerSearch && consumerSearch.trim()) {
+      const searchTerm = consumerSearch.trim().toLowerCase();
+      filtered = filtered.filter(campaign => {
+        const consumerName = (campaign.consumer_name || "").toLowerCase();
+        const consumerEmail = (campaign.consumer_email || "").toLowerCase();
+        return consumerName.includes(searchTerm) || consumerEmail.includes(searchTerm);
+      });
+    }
+
+    return filtered;
+  }, [allCampaigns, statusFilter, leadFilter, campaignSearch, consumerSearch]);
 
   // Fetch supporting data
   const fetchSupportingData = useCallback(async () => {
@@ -105,7 +189,8 @@ function CampaignsTab() {
     fetchCampaigns();
     
     return () => {
-      campaigns.forEach(c => leaveCampaign(c.id));
+      // Cleanup: leave all campaign rooms on unmount
+      allCampaignsRef.current.forEach(c => leaveCampaign(c.id));
     };
   }, []);
 
@@ -127,9 +212,9 @@ function CampaignsTab() {
     return () => clearTimeout(debounceTimer);
   }, [consumerSearchInput]);
 
-  // Fetch campaigns when filters change
+  // Fetch campaigns when filters change (only if not cached)
   useEffect(() => {
-    fetchCampaigns();
+    fetchCampaigns(false);
   }, [statusFilter, leadFilter, campaignSearch, consumerSearch, fetchCampaigns]);
 
   // Handle click outside dropdown
@@ -176,16 +261,20 @@ function CampaignsTab() {
   useEffect(() => {
     if (lastCampaignEvent) {
       const eventData = lastCampaignEvent.data;
-      setCampaigns(prev => prev.map(c => {
-        if (c.id === eventData?.id) {
-          return {
-            ...c,
-            ...eventData,
-            progress_percent: eventData.progress_percent || c.progress_percent,
-          };
-        }
-        return c;
-      }));
+      setAllCampaigns(prev => {
+        const updated = prev.map(c => {
+          if (c.id === eventData?.id) {
+            return {
+              ...c,
+              ...eventData,
+              progress_percent: eventData.progress_percent || c.progress_percent,
+            };
+          }
+          return c;
+        });
+        allCampaignsRef.current = updated; // Update ref
+        return updated;
+      });
     }
   }, [lastCampaignEvent]);
 
@@ -219,7 +308,7 @@ function CampaignsTab() {
         return;
       }
       toast.success("Campaign cancelled successfully");
-      fetchCampaigns();
+      fetchCampaigns(true); // Force refresh to get updated status
       closeCancelModal();
     } catch (error) {
       toast.error("Failed to cancel campaign");
@@ -253,7 +342,7 @@ function CampaignsTab() {
       
       if (isSuccess) {
         toast.success(response.message || "Campaign paused successfully");
-        fetchCampaigns();
+        fetchCampaigns(true); // Force refresh to get updated status
       } else if (response?.error) {
         toast.error(response.error);
       } else {
@@ -261,7 +350,7 @@ function CampaignsTab() {
         if (response && (response.data || response.id)) {
           console.log('🔵 Response has data/id, treating as success');
           toast.success("Campaign paused successfully");
-          fetchCampaigns();
+          fetchCampaigns(true); // Force refresh to get updated status
         } else {
           console.error('🔵 Unexpected response structure:', response);
           toast.error(response?.message || "Failed to pause campaign");
@@ -299,7 +388,7 @@ function CampaignsTab() {
       
       if (isSuccess) {
         toast.success(response.message || "Campaign resumed successfully");
-        fetchCampaigns();
+        fetchCampaigns(true); // Force refresh to get updated status
       } else if (response?.error) {
         toast.error(response.error);
       } else {
@@ -307,7 +396,7 @@ function CampaignsTab() {
         if (response && (response.data || response.id)) {
           console.log('🟢 Response has data/id, treating as success');
           toast.success("Campaign resumed successfully");
-          fetchCampaigns();
+          fetchCampaigns(true); // Force refresh to get updated status
         } else {
           console.error('🟢 Unexpected response structure:', response);
           toast.error(response?.message || "Failed to resume campaign");
@@ -351,7 +440,7 @@ function CampaignsTab() {
   // Handle campaign created
   const handleCampaignCreated = () => {
     setShowCreateModal(false);
-    fetchCampaigns();
+    fetchCampaigns(true); // Force refresh to get new campaign
   };
 
   // Open leads modal
@@ -576,7 +665,7 @@ function CampaignsTab() {
           <div style={{ width: '48px', height: '48px', border: '3px solid #f1f5f9', borderTopColor: '#74317e', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
           <p style={{ marginTop: '16px', color: '#64748b', fontSize: '14px' }}>Loading campaigns...</p>
         </div>
-      ) : campaigns.length === 0 ? (
+      ) : filteredCampaigns.length === 0 ? (
         <div style={{
           backgroundColor: 'white',
           border: '1px solid #e5e7eb',
@@ -619,7 +708,7 @@ function CampaignsTab() {
           </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
-          {campaigns.map((campaign) => {
+          {filteredCampaigns.map((campaign) => {
             const isRunning = campaign.runtime_call_status || campaign.status === 'running' || campaign.status === 'in_progress';
             const progress = campaign.progress_percent || 0;
             const statusConfig = getStatusConfig(campaign.status, isRunning);
@@ -641,10 +730,10 @@ function CampaignsTab() {
                 <div style={{ padding: '16px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div style={{ flex: 1 }}>
                     <h6 style={{ margin: '0 0 4px 0', fontWeight: '600', fontSize: '15px', color: '#1e293b' }}>
-                        {campaign.genie_bots?.name || "Unknown Agent"}
+                        {campaign.genie_contact_lists?.name || "Unknown Campaign"}
                       </h6>
                     <small style={{ color: '#64748b', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
-                        {campaign.genie_contact_lists?.name || "Unknown List"}
+                        {campaign.genie_bots?.name || "Unknown Agent"}
                       </small>
                     {campaign.consumer_name && (
                       <small style={{ color: '#74317e', fontSize: '12px', fontWeight: '500', display: 'block' }}>
@@ -1009,7 +1098,7 @@ function CampaignsTab() {
                   Campaign Leads
                 </h3>
                 <p style={{ margin: '4px 0 0 0', fontSize: '14px', color: '#64748b' }}>
-                  {selectedCampaignForLeads?.genie_bots?.name || 'Campaign'} - {campaignLeads.length} lead{campaignLeads.length !== 1 ? 's' : ''}
+                  {selectedCampaignForLeads?.genie_contact_lists?.name || 'Campaign'} - {campaignLeads.length} lead{campaignLeads.length !== 1 ? 's' : ''}
                 </p>
               </div>
               <button

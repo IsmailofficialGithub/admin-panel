@@ -1374,3 +1374,163 @@ export const getTicketStats = async (req, res) => {
     return handleApiError(error, res, 'An error occurred while fetching ticket statistics.');
   }
 };
+
+/**
+ * Generate AI response via webhook (proxy endpoint)
+ * @route   POST /api/customer-support/generate-ai-response
+ * @access  Private (Admin or Support)
+ * 
+ * This endpoint proxies the webhook call to avoid CORS issues when deployed.
+ * The webhook URL is configured via environment variable AI_WEBHOOK_URL.
+ */
+export const generateAiResponse = async (req, res) => {
+  try {
+    // ========================================
+    // 1. INPUT VALIDATION
+    // ========================================
+    const { messages } = req.body;
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Validation Error",
+        message: "Messages array is required and must not be empty",
+      });
+    }
+
+    // ========================================
+    // 2. GET WEBHOOK URL FROM ENVIRONMENT
+    // ========================================
+    const webhookUrl = process.env.AI_WEBHOOK_URL || 'http://auto.nsolbpo.com:5678/webhook/6db0c73b-28a8-4b43-a623-60541ab82a9c';
+    
+    if (!webhookUrl) {
+      return res.status(500).json({
+        success: false,
+        error: "Configuration Error",
+        message: "AI webhook URL is not configured",
+      });
+    }
+
+    // ========================================
+    // 3. CALL WEBHOOK WITH TIMEOUT
+    // ========================================
+    console.log(`🔗 Calling webhook: ${webhookUrl}`);
+    console.log(`📤 Sending ${messages.length} messages to webhook`);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+    try {
+      // Use fetch with proper configuration for HTTP URLs
+      const webhookResponse = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'User-Agent': 'AdminPanel-Backend/1.0',
+        },
+        body: JSON.stringify({ messages }),
+        signal: controller.signal,
+        // Allow redirects and follow them
+        redirect: 'follow',
+        // For HTTP URLs, we might need to allow insecure connections in some environments
+        // but this is handled by Node.js fetch automatically
+      });
+
+      clearTimeout(timeoutId);
+
+      console.log(`📥 Webhook response status: ${webhookResponse.status} ${webhookResponse.statusText}`);
+
+      if (!webhookResponse.ok) {
+        const errorText = await webhookResponse.text().catch(() => 'Unknown error');
+        console.error(`❌ Webhook returned status ${webhookResponse.status}: ${errorText}`);
+        console.error(`❌ Webhook URL: ${webhookUrl}`);
+        return res.status(webhookResponse.status).json({
+          success: false,
+          error: "Webhook Error",
+          message: `Failed to generate AI response: ${webhookResponse.statusText}`,
+          details: process.env.NODE_ENV === 'development' ? errorText : undefined,
+        });
+      }
+
+      const webhookData = await webhookResponse.json();
+      console.log(`✅ Webhook response received, data type: ${typeof webhookData}, isArray: ${Array.isArray(webhookData)}`);
+
+      // ========================================
+      // 4. PARSE RESPONSE
+      // ========================================
+      let aiOutput = null;
+      
+      if (Array.isArray(webhookData) && webhookData.length > 0 && webhookData[0].output) {
+        aiOutput = webhookData[0].output;
+      } else if (webhookData && typeof webhookData === 'object' && webhookData.output) {
+        aiOutput = webhookData.output;
+      } else if (typeof webhookData === 'string') {
+        aiOutput = webhookData;
+      }
+
+      if (!aiOutput) {
+        console.warn("⚠️ Webhook response does not contain valid output field");
+        return res.status(500).json({
+          success: false,
+          error: "Invalid Response",
+          message: "Webhook response format is invalid",
+        });
+      }
+
+      // ========================================
+      // 5. RETURN SUCCESS RESPONSE
+      // ========================================
+      res.json({
+        success: true,
+        data: {
+          output: aiOutput,
+        },
+      });
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      
+      if (fetchError.name === 'AbortError') {
+        console.warn("⚠️ Webhook request timed out after 30 seconds");
+        console.warn(`⚠️ Webhook URL: ${webhookUrl}`);
+        return res.status(504).json({
+          success: false,
+          error: "Timeout Error",
+          message: "AI response generation timed out. Please try again.",
+        });
+      }
+      
+      console.error("❌ Error calling webhook:", {
+        message: fetchError.message,
+        name: fetchError.name,
+        code: fetchError.code,
+        stack: fetchError.stack,
+        webhookUrl: webhookUrl
+      });
+      
+      // Provide more specific error messages
+      let errorMessage = 'Failed to call webhook';
+      if (fetchError.code === 'ECONNREFUSED') {
+        errorMessage = 'Connection refused. The webhook server may be down or unreachable.';
+      } else if (fetchError.code === 'ENOTFOUND') {
+        errorMessage = 'Webhook host not found. Please check the webhook URL.';
+      } else if (fetchError.code === 'ETIMEDOUT') {
+        errorMessage = 'Connection timed out. The webhook server may be slow or unreachable.';
+      } else if (fetchError.message) {
+        errorMessage = fetchError.message;
+      }
+      
+      return res.status(500).json({
+        success: false,
+        error: "Webhook Error",
+        message: errorMessage,
+        details: process.env.NODE_ENV === 'development' ? {
+          code: fetchError.code,
+          name: fetchError.name,
+        } : undefined,
+      });
+    }
+  } catch (error) {
+    return handleApiError(error, res, 'An error occurred while generating AI response.');
+  }
+};

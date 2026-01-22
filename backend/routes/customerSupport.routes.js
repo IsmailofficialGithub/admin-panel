@@ -6,7 +6,8 @@ import {
   addMessage,
   updateTicketStatus,
   getTicketStats,
-  uploadAttachmentHandler
+  uploadAttachmentHandler,
+  generateAiResponse
 } from './controllers/customerSupport.controller.js';
 import { authenticate, requireAdmin, requireRole, loadUserProfile } from '../middleware/auth.js';
 import { upload } from './controllers/customerSupport.controller.js';
@@ -70,6 +71,13 @@ router.get('/stats', authenticate, loadUserProfile, requireRole(['admin', 'suppo
  * @access  Private
  */
 router.post('/upload', authenticate, loadUserProfile, rateLimitMiddleware, upload.single('file'), sanitizeInputMiddleware, uploadAttachmentHandler);
+
+/**
+ * @route   POST /api/customer-support/generate-ai-response
+ * @desc    Generate AI response via webhook (proxy endpoint)
+ * @access  Private (Admin or Support)
+ */
+router.post('/generate-ai-response', authenticate, loadUserProfile, requireRole(['admin', 'support']), rateLimitMiddleware, sanitizeInputMiddleware, generateAiResponse);
 
 export default router;
 

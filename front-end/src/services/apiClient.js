@@ -1010,6 +1010,11 @@ const apiClient = {
     getStats: () => axiosInstance.get('/customer-support/stats'),
 
     /**
+     * Generate AI response via webhook (proxy endpoint)
+     */
+    generateAiResponse: (messages) => axiosInstance.post('/customer-support/generate-ai-response', { messages }),
+
+    /**
      * Upload attachment file
      */
     uploadAttachment: (formData) => {
