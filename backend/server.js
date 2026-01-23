@@ -35,6 +35,8 @@ import logsRoutes from './routes/logs.routes.js';
 import errorLogsRoutes from './routes/errorLogs.routes.js';
 import apiKeysRoutes from './routes/apiKeys.routes.js';
 import n8nErrorsRoutes from './routes/n8nErrors.routes.js';
+import whatsappRoutes from './routes/whatsapp.routes.js';
+import publicWhatsappRoutes from './routes/publicWhatsapp.routes.js';
 import { testRedisConnection } from './config/redis.js';
 import { apiLogger } from './middleware/apiLogger.js';
 import fs from 'fs';
@@ -527,6 +529,8 @@ app.use('/api/logs', logsRoutes);
 app.use('/api/error-logs', errorLogsRoutes);
 app.use('/api/api-keys', apiKeysRoutes);
 app.use('/api/n8n-errors', n8nErrorsRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/public/whatsapp', publicWhatsappRoutes);
 
 // Debug: Log all registered routes
 ;

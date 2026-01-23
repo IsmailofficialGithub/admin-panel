@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card, Form, Button, Alert } from 'react-bootstrap';
 import { useLocation, useHistory } from 'react-router-dom';
-import { 
-  Settings, 
-  Save, 
-  Mail, 
-  Server, 
-  Database, 
-  Key, 
-  Globe, 
-  Bell, 
+import {
+  Settings,
+  Save,
+  Mail,
+  Server,
+  Database,
+  Key,
+  Globe,
+  Bell,
   Lock,
   RefreshCw,
   CheckCircle,
@@ -21,21 +21,35 @@ import {
   Edit2,
   Trash2,
   TestTube,
-  ExternalLink
+  ExternalLink,
+  MessageSquare,
+  Wifi,
+  WifiOff,
+  QrCode
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../hooks/useAuth';
 import { usePermissions } from '../hooks/usePermissions';
 import { getDefaultCommission, updateDefaultCommission, getResellerSettings, updateResellerSettings } from '../api/backend';
 import { getAllProducts } from '../api/backend/products';
-import { 
-  getAllProductDatabases, 
-  getProductDatabase, 
-  upsertProductDatabase, 
-  deleteProductDatabase, 
+import {
+  getAllProductDatabases,
+  getProductDatabase,
+  upsertProductDatabase,
+  deleteProductDatabase,
   testProductDatabaseConnection,
   testCredentials
 } from '../api/backend/productDatabases';
+import {
+  createWhatsAppApplication,
+  getWhatsAppApplications,
+  updateWhatsAppApplication,
+  deleteWhatsAppApplication,
+  connectWhatsAppApplication,
+  disconnectWhatsAppApplication,
+  reconnectWhatsAppApplication,
+  getQRCode
+} from '../api/backend/whatsapp';
 
 const AdminSettings = () => {
   const { profile, user } = useAuth();
@@ -59,7 +73,8 @@ const AdminSettings = () => {
     { id: 'security', label: 'Security', icon: Lock },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'features', label: 'Features', icon: Key },
-    { id: 'product-databases', label: 'Product Databases', icon: Database }
+    { id: 'product-databases', label: 'Product Databases', icon: Database },
+    { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare }
   ];
 
   // Check settings.view permission first (required to access the page)
@@ -90,7 +105,7 @@ const AdminSettings = () => {
     setHasViewPermission(hasViewPerm);
     setHasUpdatePermission(hasUpdatePerm);
     setCheckingViewPermission(false);
-    
+
     // Redirect if no view permission (only after permissions are loaded)
     if (!hasViewPerm) {
       toast.error('You do not have permission to view settings.');
@@ -110,7 +125,7 @@ const AdminSettings = () => {
     const searchParams = new URLSearchParams(location.search);
     const tabParam = searchParams.get('tab');
     const validTabIds = mainTabs.map(tab => tab.id);
-    
+
     if (tabParam && validTabIds.includes(tabParam)) {
       setActiveMainTab(tabParam);
     } else if (!tabParam) {
@@ -133,39 +148,39 @@ const AdminSettings = () => {
     appName: 'Admin Dashboard',
     appVersion: '1.0.0',
     maintenanceMode: false,
-    
+
     // Email Settings
     emailHost: '',
     emailPort: 587,
     emailUser: '',
     emailPassword: '',
     emailFrom: '',
-    
+
     // Server Settings
     serverUrl: '',
     apiUrl: '',
     environment: 'production',
-    
+
     // Database Settings
     dbConnectionString: '',
-    
+
     // Security Settings
     sessionTimeout: 30,
     passwordMinLength: 8,
     requireStrongPassword: true,
     twoFactorAuth: false,
-    
+
     // Notification Settings
     emailNotifications: true,
     systemNotifications: true,
     activityLogRetention: 90,
-    
+
     // Feature Flags
     enableResellerFeatures: true,
     enableConsumerFeatures: true,
     enableInvoiceFeatures: true,
     enableActivityLogs: true,
-    
+
     // Reseller Settings
     maxConsumersPerReseller: '',
     defaultCommissionRate: '',
@@ -186,11 +201,11 @@ const AdminSettings = () => {
     try {
       // Load all reseller settings from API
       const resellerSettingsResult = await getResellerSettings();
-      
+
       let resellerSettings = {};
       // Handle both response structures: { success: true, data: {...} } or direct data object
       const apiData = resellerSettingsResult?.data || resellerSettingsResult;
-      
+
       if (apiData && (resellerSettingsResult?.success !== false)) {
         // Convert numbers to strings for input fields, null to empty string
         // Handle 0 explicitly since it's falsy but valid
@@ -217,7 +232,7 @@ const AdminSettings = () => {
           defaultCommissionRate: commissionRate,
           minInvoiceAmount: minAmount,
           requireResellerApproval: apiData.requireResellerApproval === true || apiData.requireResellerApproval === 'true',
-          allowResellerPriceOverride: apiData.allowResellerPriceOverride !== undefined 
+          allowResellerPriceOverride: apiData.allowResellerPriceOverride !== undefined
             ? (apiData.allowResellerPriceOverride === true || apiData.allowResellerPriceOverride === 'true')
             : true
         };
@@ -255,7 +270,7 @@ const AdminSettings = () => {
           ...localStorageSettings,
           ...resellerSettings
         };
-      
+
         return newSettings;
       });
     } catch (error) {
@@ -282,16 +297,16 @@ const AdminSettings = () => {
 
     setSaving(true);
     setSaveStatus(null);
-    
+
     try {
       // Save all reseller settings to API if on resellers tab
       if (activeMainTab === 'general' && activeSubTab === 'resellers') {
-       
-        
+
+
         // Convert string values to numbers for API (empty strings become null)
         const resellerSettingsToSave = {
-          maxConsumersPerReseller: settings.maxConsumersPerReseller === '' || settings.maxConsumersPerReseller === null 
-            ? null 
+          maxConsumersPerReseller: settings.maxConsumersPerReseller === '' || settings.maxConsumersPerReseller === null
+            ? null
             : (typeof settings.maxConsumersPerReseller === 'string' ? parseInt(settings.maxConsumersPerReseller) : settings.maxConsumersPerReseller),
           defaultCommissionRate: settings.defaultCommissionRate === '' || settings.defaultCommissionRate === null
             ? null
@@ -300,13 +315,13 @@ const AdminSettings = () => {
             ? null
             : (typeof settings.minInvoiceAmount === 'string' ? parseFloat(settings.minInvoiceAmount) : settings.minInvoiceAmount),
           requireResellerApproval: settings.requireResellerApproval || false,
-          allowResellerPriceOverride: settings.allowResellerPriceOverride !== undefined 
-            ? settings.allowResellerPriceOverride 
+          allowResellerPriceOverride: settings.allowResellerPriceOverride !== undefined
+            ? settings.allowResellerPriceOverride
             : true
         };
-        
+
         const result = await updateResellerSettings(resellerSettingsToSave);
-        
+
         // Check if result indicates success
         if (result && result.success === true) {
           toast.success(result.message || 'Reseller settings updated successfully!');
@@ -331,20 +346,20 @@ const AdminSettings = () => {
         delete settingsForLocalStorage[key];
       });
       localStorage.setItem('adminSettings', JSON.stringify(settingsForLocalStorage));
-      
+
       setSaveStatus('success');
       // Only show generic success toast if we didn't already show one for reseller settings
       if (!(activeMainTab === 'general' && activeSubTab === 'resellers')) {
         toast.success('Settings saved successfully!');
       }
-      
+
       // Clear success status after 3 seconds
       setTimeout(() => setSaveStatus(null), 3000);
     } catch (error) {
       console.error('❌ Error saving settings:', error);
       setSaveStatus('error');
       toast.error(error.message || 'Failed to save settings');
-      
+
       // Clear error status after 3 seconds
       setTimeout(() => setSaveStatus(null), 3000);
     } finally {
@@ -363,6 +378,15 @@ const AdminSettings = () => {
   // Product Databases state
   const [products, setProducts] = useState([]);
   const [productDatabases, setProductDatabases] = useState([]);
+
+  // WhatsApp Applications state
+  const [whatsappApplications, setWhatsappApplications] = useState([]);
+  const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [selectedWhatsAppApp, setSelectedWhatsAppApp] = useState(null);
+  const [whatsappForm, setWhatsappForm] = useState({ name: '', phone: '', purpose: '' });
+  const [qrCodeData, setQrCodeData] = useState(null);
+  const [qrPollingInterval, setQrPollingInterval] = useState(null);
   const [selectedProductForConfig, setSelectedProductForConfig] = useState(null);
   const [productDbConfig, setProductDbConfig] = useState({
     product_id: '',
@@ -383,11 +407,24 @@ const AdminSettings = () => {
   const [testingCredentials, setTestingCredentials] = useState(false);
   const [credentialTestResult, setCredentialTestResult] = useState(null);
 
+  // WhatsApp Sandbox state
+  const [sandboxApp, setSandboxApp] = useState('');
+  const [sandboxPhone, setSandboxPhone] = useState('');
+  const [sandboxMessage, setSandboxMessage] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
+
   // Load products and product databases
   useEffect(() => {
     if (activeMainTab === 'product-databases') {
       loadProducts();
       loadProductDatabases();
+    }
+  }, [activeMainTab]);
+
+  // Load WhatsApp applications
+  useEffect(() => {
+    if (activeMainTab === 'whatsapp') {
+      loadWhatsAppApplications();
     }
   }, [activeMainTab]);
 
@@ -479,9 +516,9 @@ const AdminSettings = () => {
     try {
       setTestingCredentials(true);
       setCredentialTestResult(null);
-      
+
       const result = await testCredentials(productDbConfig);
-      
+
       if (result.success) {
         setCredentialTestResult({ success: true, message: result.message || 'Credentials are valid!' });
         toast.success('Credentials are valid!');
@@ -565,7 +602,7 @@ const AdminSettings = () => {
     try {
       setSaving(true);
       const result = await upsertProductDatabase(productDbConfig.product_id, productDbConfig);
-      
+
       if (result.error) {
         toast.error(result.error);
       } else {
@@ -615,6 +652,229 @@ const AdminSettings = () => {
     }
   };
 
+  // WhatsApp Applications functions
+  const loadWhatsAppApplications = async () => {
+    try {
+      const result = await getWhatsAppApplications();
+      if (!result.error) {
+        setWhatsappApplications(result.data || []);
+      }
+    } catch (error) {
+      console.error('Error loading WhatsApp applications:', error);
+    }
+  };
+
+  const handleOpenWhatsAppModal = (app = null) => {
+    if (app) {
+      setWhatsappForm({ name: app.name, phone: app.phone, purpose: app.purpose || '' });
+      setSelectedWhatsAppApp(app);
+    } else {
+      setWhatsappForm({ name: '', phone: '', purpose: '' });
+      setSelectedWhatsAppApp(null);
+    }
+    setShowWhatsAppModal(true);
+  };
+
+  const handleSaveWhatsApp = async () => {
+    if (!whatsappForm.name || !whatsappForm.phone) {
+      toast.error('Name and phone number are required');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      let result;
+      if (selectedWhatsAppApp) {
+        result = await updateWhatsAppApplication(selectedWhatsAppApp.id, whatsappForm);
+      } else {
+        result = await createWhatsAppApplication(whatsappForm.name, whatsappForm.phone, whatsappForm.purpose);
+      }
+
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success(result.message || 'WhatsApp application saved successfully!');
+        setShowWhatsAppModal(false);
+        await loadWhatsAppApplications();
+      }
+    } catch (error) {
+      toast.error('Failed to save WhatsApp application');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteWhatsApp = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this WhatsApp application?')) {
+      return;
+    }
+
+    try {
+      const result = await deleteWhatsAppApplication(id);
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success('WhatsApp application deleted successfully!');
+        await loadWhatsAppApplications();
+      }
+    } catch (error) {
+      toast.error('Failed to delete WhatsApp application');
+    }
+  };
+
+  const handleConnectWhatsApp = async (id) => {
+    try {
+      const result = await connectWhatsAppApplication(id);
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success('Connection initiated. QR code will appear shortly.');
+        // Open QR modal and start polling
+        setSelectedWhatsAppApp(whatsappApplications.find(app => app.id === id));
+        setShowQRModal(true);
+        startQRPolling(id);
+      }
+    } catch (error) {
+      toast.error('Failed to initiate connection');
+    }
+  };
+
+  const handleDisconnectWhatsApp = async (id) => {
+    try {
+      const result = await disconnectWhatsAppApplication(id);
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success('WhatsApp application disconnected successfully!');
+        await loadWhatsAppApplications();
+      }
+    } catch (error) {
+      toast.error('Failed to disconnect WhatsApp application');
+    }
+  };
+
+  const handleReconnectWhatsApp = async (id) => {
+    try {
+      const result = await reconnectWhatsAppApplication(id);
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success('Reconnection initiated. New QR code will appear shortly.');
+        setSelectedWhatsAppApp(whatsappApplications.find(app => app.id === id));
+        setShowQRModal(true);
+        startQRPolling(id);
+      }
+    } catch (error) {
+      toast.error('Failed to reconnect WhatsApp application');
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!sandboxApp) {
+      toast.error('Please select a WhatsApp application');
+      return;
+    }
+    if (!sandboxPhone || !sandboxPhone.trim()) {
+      toast.error('Please enter a phone number');
+      return;
+    }
+    if (!sandboxMessage || !sandboxMessage.trim()) {
+      toast.error('Please enter a message');
+      return;
+    }
+
+    setSendingMessage(true);
+    try {
+      // Import the send message API function
+      const { sendWhatsAppMessage } = await import('../api/backend/whatsapp');
+
+      const result = await sendWhatsAppMessage(sandboxApp, sandboxPhone, sandboxMessage);
+
+      if (result.error) {
+        toast.error(result.error || 'Failed to send message');
+      } else {
+        toast.success('Message sent successfully!');
+        // Clear the message field but keep phone and app selection
+        setSandboxMessage('');
+      }
+    } catch (error) {
+      console.error('Send message error:', error);
+      toast.error('Failed to send message');
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  const startQRPolling = (id) => {
+    // Clear existing interval
+    if (qrPollingInterval) {
+      clearInterval(qrPollingInterval);
+    }
+
+    let pollCount = 0;
+    const maxPolls = 150; // 5 minutes (150 * 2 seconds)
+
+    // Poll for QR code and status
+    const interval = setInterval(async () => {
+      pollCount++;
+
+      try {
+        const result = await getQRCode(id);
+        if (!result.error && result.data) {
+          setQrCodeData(result.data.qr_code);
+
+          console.log('QR Poll:', result.data.status); // Debug log
+
+          // Check if connected
+          if (result.data.status === 'connected') {
+            console.log('✅ Connected! Closing modal...');
+            clearInterval(interval);
+            setQrPollingInterval(null);
+            toast.success('WhatsApp connected successfully!');
+
+            // Close modal and refresh list
+            setShowQRModal(false);
+            setQrCodeData(null);
+            await loadWhatsAppApplications();
+          } else if (result.data.status === 'error') {
+            console.log('❌ Error status detected');
+            clearInterval(interval);
+            setQrPollingInterval(null);
+            toast.error('Connection failed. Please try again.');
+            setShowQRModal(false);
+            setQrCodeData(null);
+          } else if (result.data.status === 'disconnected' && pollCount > 5) {
+            // Only treat as error if disconnected after some polling attempts
+            console.log('⚠️ Disconnected after polling');
+            clearInterval(interval);
+            setQrPollingInterval(null);
+          }
+        }
+      } catch (error) {
+        console.error('Polling error:', error);
+      }
+
+      // Stop polling after max attempts
+      if (pollCount >= maxPolls) {
+        console.log('⏱️ Polling timeout');
+        clearInterval(interval);
+        setQrPollingInterval(null);
+        toast.warning('QR code expired. Please try connecting again.');
+      }
+    }, 2000); // Poll every 2 seconds
+
+    setQrPollingInterval(interval);
+  };
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (qrPollingInterval) {
+        clearInterval(qrPollingInterval);
+      }
+    };
+  }, [qrPollingInterval]);
+
 
   // Sub-tabs configuration for each main tab
   const subTabsConfig = {
@@ -658,7 +918,7 @@ const AdminSettings = () => {
   if (checkingViewPermission) {
     return (
       <Container fluid style={{ padding: '24px' }}>
-        <div style={{ 
+        <div style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -679,7 +939,7 @@ const AdminSettings = () => {
   if (!hasViewPermission) {
     return (
       <Container fluid style={{ padding: '24px' }}>
-        <div style={{ 
+        <div style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -752,9 +1012,9 @@ const AdminSettings = () => {
 
       {/* Save Status Alert */}
       {saveStatus && (
-        <Alert 
+        <Alert
           variant={saveStatus === 'success' ? 'success' : 'danger'}
-          style={{ 
+          style={{
             marginBottom: '20px',
             display: 'flex',
             alignItems: 'center',
@@ -875,104 +1135,104 @@ const AdminSettings = () => {
         {/* General Settings - Basic Tab */}
         {activeMainTab === 'general' && activeSubTab === 'basic' && (
           <Card style={{ marginBottom: '24px' }}>
-          <Card.Header style={{ 
-            backgroundColor: '#74317e', 
-            color: 'white',
-            borderBottom: 'none',
-            borderRadius: '8px 8px 0 0',
-            padding: '16px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px'
-          }}>
-            <Globe size={20} />
-            <h5 style={{ margin: 0, fontWeight: '600' }}>General Settings</h5>
-          </Card.Header>
-          <Card.Body style={{ padding: '24px' }}>
-            <Row>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
-                  Application Name
-                </label>
-                <input
-                  type="text"
-                  value={settings.appName}
-                  onChange={(e) => handleChange('appName', e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </Col>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
-                  Application Version
-                </label>
-                <input
-                  type="text"
-                  value={settings.appVersion}
-                  onChange={(e) => handleChange('appVersion', e.target.value)}
-                  disabled
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    outline: 'none',
-                    backgroundColor: '#f9fafb',
-                    color: '#6c757d'
-                  }}
-                />
-              </Col>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
-                  Environment
-                </label>
-                <select
-                  value={settings.environment}
-                  onChange={(e) => handleChange('environment', e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    outline: 'none',
-                    cursor: 'pointer',
-                    backgroundColor: 'white'
-                  }}
-                >
-                  <option value="production">Production</option>
-                  <option value="staging">Staging</option>
-                  <option value="development">Development</option>
-                </select>
-              </Col>
-              <Col md={6} style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', paddingTop: '28px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+            <Card.Header style={{
+              backgroundColor: '#74317e',
+              color: 'white',
+              borderBottom: 'none',
+              borderRadius: '8px 8px 0 0',
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              <Globe size={20} />
+              <h5 style={{ margin: 0, fontWeight: '600' }}>General Settings</h5>
+            </Card.Header>
+            <Card.Body style={{ padding: '24px' }}>
+              <Row>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                    Application Name
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={settings.maintenanceMode}
-                    onChange={() => handleChange('maintenanceMode', !settings.maintenanceMode)}
-                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    type="text"
+                    value={settings.appName}
+                    onChange={(e) => handleChange('appName', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
                   />
-                  <span>Maintenance Mode</span>
-                </label>
-              </Col>
-            </Row>
-          </Card.Body>
-        </Card>
+                </Col>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                    Application Version
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.appVersion}
+                    onChange={(e) => handleChange('appVersion', e.target.value)}
+                    disabled
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none',
+                      backgroundColor: '#f9fafb',
+                      color: '#6c757d'
+                    }}
+                  />
+                </Col>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                    Environment
+                  </label>
+                  <select
+                    value={settings.environment}
+                    onChange={(e) => handleChange('environment', e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none',
+                      cursor: 'pointer',
+                      backgroundColor: 'white'
+                    }}
+                  >
+                    <option value="production">Production</option>
+                    <option value="staging">Staging</option>
+                    <option value="development">Development</option>
+                  </select>
+                </Col>
+                <Col md={6} style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', paddingTop: '28px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.maintenanceMode}
+                      onChange={() => handleChange('maintenanceMode', !settings.maintenanceMode)}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <span>Maintenance Mode</span>
+                  </label>
+                </Col>
+              </Row>
+            </Card.Body>
+          </Card>
         )}
 
         {/* General Settings - Resellers Tab */}
         {activeMainTab === 'general' && activeSubTab === 'resellers' && (
           <Card style={{ marginBottom: '24px' }}>
-            <Card.Header style={{ 
-              backgroundColor: '#8b5cf6', 
+            <Card.Header style={{
+              backgroundColor: '#8b5cf6',
               color: 'white',
               borderBottom: 'none',
               borderRadius: '8px 8px 0 0',
@@ -1001,12 +1261,12 @@ const AdminSettings = () => {
                   <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
                     Maximum Consumers per Reseller
                   </label>
-                                      <input
-                      type="number"
-                      value={settings.maxConsumersPerReseller || ''}
-                      onChange={(e) => handleChange('maxConsumersPerReseller', e.target.value === '' ? '' : e.target.value)}
-                      placeholder="Unlimited"
-                      min={0}
+                  <input
+                    type="number"
+                    value={settings.maxConsumersPerReseller || ''}
+                    onChange={(e) => handleChange('maxConsumersPerReseller', e.target.value === '' ? '' : e.target.value)}
+                    placeholder="Unlimited"
+                    min={0}
                     style={{
                       width: '100%',
                       padding: '10px 12px',
@@ -1021,18 +1281,18 @@ const AdminSettings = () => {
                   <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
                     Default Commission Rate (%)
                   </label>
-                                      <input
-                      type="number"
-                      value={settings.defaultCommissionRate ?? ''}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        // Keep as string for consistency with API-loaded values
-                        handleChange('defaultCommissionRate', value === '' ? '' : value);
-                      }}
-                      placeholder="Enter commission rate (0-100)"
-                      min={0}
-                      max={100}
-                      step={0.01}
+                  <input
+                    type="number"
+                    value={settings.defaultCommissionRate ?? ''}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // Keep as string for consistency with API-loaded values
+                      handleChange('defaultCommissionRate', value === '' ? '' : value);
+                    }}
+                    placeholder="Enter commission rate (0-100)"
+                    min={0}
+                    max={100}
+                    step={0.01}
                     style={{
                       width: '100%',
                       padding: '10px 12px',
@@ -1050,13 +1310,13 @@ const AdminSettings = () => {
                   <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
                     Minimum Invoice Amount
                   </label>
-                                      <input
-                      type="number"
-                      value={settings.minInvoiceAmount || ''}
-                      onChange={(e) => handleChange('minInvoiceAmount', e.target.value === '' ? '' : e.target.value)}
-                      placeholder="0.00"
-                      min={0}
-                      step={0.01}
+                  <input
+                    type="number"
+                    value={settings.minInvoiceAmount || ''}
+                    onChange={(e) => handleChange('minInvoiceAmount', e.target.value === '' ? '' : e.target.value)}
+                    placeholder="0.00"
+                    min={0}
+                    step={0.01}
                     style={{
                       width: '100%',
                       padding: '10px 12px',
@@ -1097,125 +1357,125 @@ const AdminSettings = () => {
         {/* Email Settings */}
         {activeMainTab === 'email' && activeSubTab === 'smtp' && (
           <Card style={{ marginBottom: '24px' }}>
-          <Card.Header style={{ 
-            backgroundColor: '#8b5cf6', 
-            color: 'white',
-            borderBottom: 'none',
-            borderRadius: '8px 8px 0 0',
-            padding: '16px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px'
-          }}>
-            <Mail size={20} />
-            <h5 style={{ margin: 0, fontWeight: '600' }}>Email Settings</h5>
-          </Card.Header>
-          <Card.Body style={{ padding: '24px' }}>
-            <Row>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
-                  SMTP Host
-                </label>
-                <input
-                  type="text"
-                  value={settings.emailHost}
-                  onChange={(e) => handleChange('emailHost', e.target.value)}
-                  placeholder="smtp.gmail.com"
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </Col>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
-                  SMTP Port
-                </label>
-                <input
-                  type="number"
-                  value={settings.emailPort}
-                  onChange={(e) => handleChange('emailPort', parseInt(e.target.value) || 587)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </Col>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
-                  Email Username
-                </label>
-                <input
-                  type="text"
-                  value={settings.emailUser}
-                  onChange={(e) => handleChange('emailUser', e.target.value)}
-                  placeholder="your-email@gmail.com"
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </Col>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
-                  Email Password (App Password)
-                </label>
-                <input
-                  type="password"
-                  value={settings.emailPassword}
-                  onChange={(e) => handleChange('emailPassword', e.target.value)}
-                  placeholder="••••••••"
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </Col>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
-                  From Email Address
-                </label>
-                <input
-                  type="email"
-                  value={settings.emailFrom}
-                  onChange={(e) => handleChange('emailFrom', e.target.value)}
-                  placeholder="noreply@example.com"
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </Col>
-            </Row>
-          </Card.Body>
-        </Card>
+            <Card.Header style={{
+              backgroundColor: '#8b5cf6',
+              color: 'white',
+              borderBottom: 'none',
+              borderRadius: '8px 8px 0 0',
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              <Mail size={20} />
+              <h5 style={{ margin: 0, fontWeight: '600' }}>Email Settings</h5>
+            </Card.Header>
+            <Card.Body style={{ padding: '24px' }}>
+              <Row>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                    SMTP Host
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.emailHost}
+                    onChange={(e) => handleChange('emailHost', e.target.value)}
+                    placeholder="smtp.gmail.com"
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
+                  />
+                </Col>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                    SMTP Port
+                  </label>
+                  <input
+                    type="number"
+                    value={settings.emailPort}
+                    onChange={(e) => handleChange('emailPort', parseInt(e.target.value) || 587)}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
+                  />
+                </Col>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                    Email Username
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.emailUser}
+                    onChange={(e) => handleChange('emailUser', e.target.value)}
+                    placeholder="your-email@gmail.com"
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
+                  />
+                </Col>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                    Email Password (App Password)
+                  </label>
+                  <input
+                    type="password"
+                    value={settings.emailPassword}
+                    onChange={(e) => handleChange('emailPassword', e.target.value)}
+                    placeholder="••••••••"
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
+                  />
+                </Col>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                    From Email Address
+                  </label>
+                  <input
+                    type="email"
+                    value={settings.emailFrom}
+                    onChange={(e) => handleChange('emailFrom', e.target.value)}
+                    placeholder="noreply@example.com"
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
+                  />
+                </Col>
+              </Row>
+            </Card.Body>
+          </Card>
         )}
 
         {/* Email Settings - Templates Tab */}
         {activeMainTab === 'email' && activeSubTab === 'templates' && (
           <Card style={{ marginBottom: '24px' }}>
-            <Card.Header style={{ 
-              backgroundColor: '#8b5cf6', 
+            <Card.Header style={{
+              backgroundColor: '#8b5cf6',
               color: 'white',
               borderBottom: 'none',
               borderRadius: '8px 8px 0 0',
@@ -1238,69 +1498,69 @@ const AdminSettings = () => {
         {/* Server Settings */}
         {activeMainTab === 'server' && activeSubTab === 'urls' && (
           <Card style={{ marginBottom: '24px' }}>
-          <Card.Header style={{ 
-            backgroundColor: '#10b981', 
-            color: 'white',
-            borderBottom: 'none',
-            borderRadius: '8px 8px 0 0',
-            padding: '16px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px'
-          }}>
-            <Server size={20} />
-            <h5 style={{ margin: 0, fontWeight: '600' }}>Server Settings</h5>
-          </Card.Header>
-          <Card.Body style={{ padding: '24px' }}>
-            <Row>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
-                  Server URL
-                </label>
-                <input
-                  type="url"
-                  value={settings.serverUrl}
-                  onChange={(e) => handleChange('serverUrl', e.target.value)}
-                  placeholder="http://localhost:5000"
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </Col>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
-                  API URL
-                </label>
-                <input
-                  type="url"
-                  value={settings.apiUrl}
-                  onChange={(e) => handleChange('apiUrl', e.target.value)}
-                  placeholder="http://localhost:5000/api"
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </Col>
-            </Row>
-          </Card.Body>
-        </Card>
+            <Card.Header style={{
+              backgroundColor: '#10b981',
+              color: 'white',
+              borderBottom: 'none',
+              borderRadius: '8px 8px 0 0',
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              <Server size={20} />
+              <h5 style={{ margin: 0, fontWeight: '600' }}>Server Settings</h5>
+            </Card.Header>
+            <Card.Body style={{ padding: '24px' }}>
+              <Row>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                    Server URL
+                  </label>
+                  <input
+                    type="url"
+                    value={settings.serverUrl}
+                    onChange={(e) => handleChange('serverUrl', e.target.value)}
+                    placeholder="http://localhost:5000"
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
+                  />
+                </Col>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                    API URL
+                  </label>
+                  <input
+                    type="url"
+                    value={settings.apiUrl}
+                    onChange={(e) => handleChange('apiUrl', e.target.value)}
+                    placeholder="http://localhost:5000/api"
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
+                  />
+                </Col>
+              </Row>
+            </Card.Body>
+          </Card>
         )}
 
         {/* Server Settings - Database Tab */}
         {activeMainTab === 'server' && activeSubTab === 'database' && (
           <Card style={{ marginBottom: '24px' }}>
-            <Card.Header style={{ 
-              backgroundColor: '#10b981', 
+            <Card.Header style={{
+              backgroundColor: '#10b981',
               color: 'white',
               borderBottom: 'none',
               borderRadius: '8px 8px 0 0',
@@ -1344,93 +1604,93 @@ const AdminSettings = () => {
         {/* Security Settings */}
         {activeMainTab === 'security' && activeSubTab === 'authentication' && (
           <Card style={{ marginBottom: '24px' }}>
-          <Card.Header style={{ 
-            backgroundColor: '#ef4444', 
-            color: 'white',
-            borderBottom: 'none',
-            borderRadius: '8px 8px 0 0',
-            padding: '16px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px'
-          }}>
-            <Lock size={20} />
-            <h5 style={{ margin: 0, fontWeight: '600' }}>Security Settings</h5>
-          </Card.Header>
-          <Card.Body style={{ padding: '24px' }}>
-            <Row>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
-                  Session Timeout (minutes)
-                </label>
-                <input
-                  type="number"
-                  value={settings.sessionTimeout}
-                  onChange={(e) => handleChange('sessionTimeout', parseInt(e.target.value) || 30)}
-                  min={5}
-                  max={1440}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </Col>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
-                  Minimum Password Length
-                </label>
-                <input
-                  type="number"
-                  value={settings.passwordMinLength}
-                  onChange={(e) => handleChange('passwordMinLength', parseInt(e.target.value) || 8)}
-                  min={6}
-                  max={32}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </Col>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+            <Card.Header style={{
+              backgroundColor: '#ef4444',
+              color: 'white',
+              borderBottom: 'none',
+              borderRadius: '8px 8px 0 0',
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              <Lock size={20} />
+              <h5 style={{ margin: 0, fontWeight: '600' }}>Security Settings</h5>
+            </Card.Header>
+            <Card.Body style={{ padding: '24px' }}>
+              <Row>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                    Session Timeout (minutes)
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={settings.requireStrongPassword}
-                    onChange={() => handleChange('requireStrongPassword', !settings.requireStrongPassword)}
-                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    type="number"
+                    value={settings.sessionTimeout}
+                    onChange={(e) => handleChange('sessionTimeout', parseInt(e.target.value) || 30)}
+                    min={5}
+                    max={1440}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
                   />
-                  <span>Require Strong Password</span>
-                </label>
-              </Col>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+                </Col>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                    Minimum Password Length
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={settings.twoFactorAuth}
-                    onChange={() => handleChange('twoFactorAuth', !settings.twoFactorAuth)}
-                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    type="number"
+                    value={settings.passwordMinLength}
+                    onChange={(e) => handleChange('passwordMinLength', parseInt(e.target.value) || 8)}
+                    min={6}
+                    max={32}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
                   />
-                  <span>Enable Two-Factor Authentication</span>
-                </label>
-              </Col>
-            </Row>
-          </Card.Body>
-        </Card>
+                </Col>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.requireStrongPassword}
+                      onChange={() => handleChange('requireStrongPassword', !settings.requireStrongPassword)}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <span>Require Strong Password</span>
+                  </label>
+                </Col>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.twoFactorAuth}
+                      onChange={() => handleChange('twoFactorAuth', !settings.twoFactorAuth)}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <span>Enable Two-Factor Authentication</span>
+                  </label>
+                </Col>
+              </Row>
+            </Card.Body>
+          </Card>
         )}
 
         {/* Security Settings - Permissions Tab */}
         {activeMainTab === 'security' && activeSubTab === 'permissions' && (
           <Card style={{ marginBottom: '24px' }}>
-            <Card.Header style={{ 
-              backgroundColor: '#ef4444', 
+            <Card.Header style={{
+              backgroundColor: '#ef4444',
               color: 'white',
               borderBottom: 'none',
               borderRadius: '8px 8px 0 0',
@@ -1453,73 +1713,73 @@ const AdminSettings = () => {
         {/* Notification Settings */}
         {activeMainTab === 'notifications' && activeSubTab === 'email' && (
           <Card style={{ marginBottom: '24px' }}>
-          <Card.Header style={{ 
-            backgroundColor: '#f59e0b', 
-            color: 'white',
-            borderBottom: 'none',
-            borderRadius: '8px 8px 0 0',
-            padding: '16px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px'
-          }}>
-            <Bell size={20} />
-            <h5 style={{ margin: 0, fontWeight: '600' }}>Notification Settings</h5>
-          </Card.Header>
-          <Card.Body style={{ padding: '24px' }}>
-            <Row>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+            <Card.Header style={{
+              backgroundColor: '#f59e0b',
+              color: 'white',
+              borderBottom: 'none',
+              borderRadius: '8px 8px 0 0',
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              <Bell size={20} />
+              <h5 style={{ margin: 0, fontWeight: '600' }}>Notification Settings</h5>
+            </Card.Header>
+            <Card.Body style={{ padding: '24px' }}>
+              <Row>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.emailNotifications}
+                      onChange={() => handleChange('emailNotifications', !settings.emailNotifications)}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <span>Enable Email Notifications</span>
+                  </label>
+                </Col>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.systemNotifications}
+                      onChange={() => handleChange('systemNotifications', !settings.systemNotifications)}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <span>Enable System Notifications</span>
+                  </label>
+                </Col>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                    Activity Log Retention (days)
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={settings.emailNotifications}
-                    onChange={() => handleChange('emailNotifications', !settings.emailNotifications)}
-                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    type="number"
+                    value={settings.activityLogRetention}
+                    onChange={(e) => handleChange('activityLogRetention', parseInt(e.target.value) || 90)}
+                    min={1}
+                    max={365}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
                   />
-                  <span>Enable Email Notifications</span>
-                </label>
-              </Col>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
-                  <input
-                    type="checkbox"
-                    checked={settings.systemNotifications}
-                    onChange={() => handleChange('systemNotifications', !settings.systemNotifications)}
-                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                  />
-                  <span>Enable System Notifications</span>
-                </label>
-              </Col>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
-                  Activity Log Retention (days)
-                </label>
-                <input
-                  type="number"
-                  value={settings.activityLogRetention}
-                  onChange={(e) => handleChange('activityLogRetention', parseInt(e.target.value) || 90)}
-                  min={1}
-                  max={365}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </Col>
-            </Row>
-          </Card.Body>
-        </Card>
+                </Col>
+              </Row>
+            </Card.Body>
+          </Card>
         )}
 
         {/* Notification Settings - System Tab */}
         {activeMainTab === 'notifications' && activeSubTab === 'system' && (
           <Card style={{ marginBottom: '24px' }}>
-            <Card.Header style={{ 
-              backgroundColor: '#f59e0b', 
+            <Card.Header style={{
+              backgroundColor: '#f59e0b',
               color: 'white',
               borderBottom: 'none',
               borderRadius: '8px 8px 0 0',
@@ -1572,75 +1832,75 @@ const AdminSettings = () => {
         {/* Feature Flags */}
         {activeMainTab === 'features' && activeSubTab === 'flags' && (
           <Card style={{ marginBottom: '24px' }}>
-          <Card.Header style={{ 
-            backgroundColor: '#06b6d4', 
-            color: 'white',
-            borderBottom: 'none',
-            borderRadius: '8px 8px 0 0',
-            padding: '16px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px'
-          }}>
-            <Key size={20} />
-            <h5 style={{ margin: 0, fontWeight: '600' }}>Feature Flags</h5>
-          </Card.Header>
-          <Card.Body style={{ padding: '24px' }}>
-            <Row>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
-                  <input
-                    type="checkbox"
-                    checked={settings.enableResellerFeatures}
-                    onChange={() => handleChange('enableResellerFeatures', !settings.enableResellerFeatures)}
-                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                  />
-                  <span>Enable Reseller Features</span>
-                </label>
-              </Col>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
-                  <input
-                    type="checkbox"
-                    checked={settings.enableConsumerFeatures}
-                    onChange={() => handleChange('enableConsumerFeatures', !settings.enableConsumerFeatures)}
-                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                  />
-                  <span>Enable Consumer Features</span>
-                </label>
-              </Col>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
-                  <input
-                    type="checkbox"
-                    checked={settings.enableInvoiceFeatures}
-                    onChange={() => handleChange('enableInvoiceFeatures', !settings.enableInvoiceFeatures)}
-                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                  />
-                  <span>Enable Invoice Features</span>
-                </label>
-              </Col>
-              <Col md={6} style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
-                  <input
-                    type="checkbox"
-                    checked={settings.enableActivityLogs}
-                    onChange={() => handleChange('enableActivityLogs', !settings.enableActivityLogs)}
-                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                  />
-                  <span>Enable Activity Logs</span>
-                </label>
-              </Col>
-            </Row>
-          </Card.Body>
-        </Card>
+            <Card.Header style={{
+              backgroundColor: '#06b6d4',
+              color: 'white',
+              borderBottom: 'none',
+              borderRadius: '8px 8px 0 0',
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              <Key size={20} />
+              <h5 style={{ margin: 0, fontWeight: '600' }}>Feature Flags</h5>
+            </Card.Header>
+            <Card.Body style={{ padding: '24px' }}>
+              <Row>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.enableResellerFeatures}
+                      onChange={() => handleChange('enableResellerFeatures', !settings.enableResellerFeatures)}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <span>Enable Reseller Features</span>
+                  </label>
+                </Col>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.enableConsumerFeatures}
+                      onChange={() => handleChange('enableConsumerFeatures', !settings.enableConsumerFeatures)}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <span>Enable Consumer Features</span>
+                  </label>
+                </Col>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.enableInvoiceFeatures}
+                      onChange={() => handleChange('enableInvoiceFeatures', !settings.enableInvoiceFeatures)}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <span>Enable Invoice Features</span>
+                  </label>
+                </Col>
+                <Col md={6} style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={settings.enableActivityLogs}
+                      onChange={() => handleChange('enableActivityLogs', !settings.enableActivityLogs)}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <span>Enable Activity Logs</span>
+                  </label>
+                </Col>
+              </Row>
+            </Card.Body>
+          </Card>
         )}
 
         {/* Feature Flags - Modules Tab */}
         {activeMainTab === 'features' && activeSubTab === 'modules' && (
           <Card style={{ marginBottom: '24px' }}>
-            <Card.Header style={{ 
-              backgroundColor: '#06b6d4', 
+            <Card.Header style={{
+              backgroundColor: '#06b6d4',
               color: 'white',
               borderBottom: 'none',
               borderRadius: '8px 8px 0 0',
@@ -1663,8 +1923,8 @@ const AdminSettings = () => {
         {/* Product Databases Tab */}
         {activeMainTab === 'product-databases' && (
           <Card style={{ marginBottom: '24px' }}>
-            <Card.Header style={{ 
-              backgroundColor: '#10b981', 
+            <Card.Header style={{
+              backgroundColor: '#10b981',
               color: 'white',
               borderBottom: 'none',
               borderRadius: '8px 8px 0 0',
@@ -1720,9 +1980,9 @@ const AdminSettings = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   {productDatabases.map((db) => {
                     const product = products.find(p => p.id === db.product_id);
-                    const healthColor = db.health_status === 'healthy' ? '#16a34a' : 
-                                       db.health_status === 'degraded' ? '#f59e0b' : '#dc3545';
-                    
+                    const healthColor = db.health_status === 'healthy' ? '#16a34a' :
+                      db.health_status === 'degraded' ? '#f59e0b' : '#dc3545';
+
                     return (
                       <Card key={db.id} style={{ border: '1px solid #e5e7eb' }}>
                         <Card.Body style={{ padding: '20px' }}>
@@ -1823,6 +2083,579 @@ const AdminSettings = () => {
           </Card>
         )}
 
+        {/* WhatsApp Applications Tab */}
+        {activeMainTab === 'whatsapp' && (
+          <Card style={{ marginBottom: '24px' }}>
+            <Card.Header style={{
+              backgroundColor: '#25D366',
+              color: 'white',
+              borderBottom: 'none',
+              borderRadius: '8px 8px 0 0',
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <MessageSquare size={20} />
+                <h5 style={{ margin: 0, fontWeight: '600' }}>WhatsApp Applications</h5>
+              </div>
+              <Button
+                variant="light"
+                size="sm"
+                onClick={() => handleOpenWhatsAppModal()}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  color: 'white',
+                  fontWeight: '600',
+                  backgroundColor: '#25D366',
+                  borderColor: '#25D366'
+                }}
+              >
+                <Plus size={16} />
+                Add New Application
+              </Button>
+            </Card.Header>
+            <Card.Body style={{ padding: '24px' }}>
+              {whatsappApplications.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '48px' }}>
+                  <MessageSquare size={48} style={{ opacity: 0.3, marginBottom: '16px' }} />
+                  <p style={{ color: '#6c757d', marginBottom: '16px' }}>No WhatsApp applications yet</p>
+                  <Button
+                    variant="primary"
+                    onClick={() => handleOpenWhatsAppModal()}
+                    style={{
+                      backgroundColor: '#25D366',
+                      borderColor: '#25D366',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      margin: '0 auto'
+                    }}
+                  >
+                    <Plus size={16} />
+                    Add First Application
+                  </Button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {whatsappApplications.map((app) => {
+                    const statusColors = {
+                      connected: { bg: '#dcfce7', color: '#16a34a' },
+                      connecting: { bg: '#fef3c7', color: '#f59e0b' },
+                      disconnected: { bg: '#fee2e2', color: '#dc3545' },
+                      error: { bg: '#fed7aa', color: '#ea580c' }
+                    };
+                    const statusColor = statusColors[app.status] || statusColors.disconnected;
+
+                    return (
+                      <Card key={app.id} style={{ border: '1px solid #e5e7eb' }}>
+                        <Card.Body style={{ padding: '20px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                                <MessageSquare size={20} color="#25D366" />
+                                <h6 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>
+                                  {app.name}
+                                </h6>
+                                <span style={{
+                                  padding: '4px 12px',
+                                  borderRadius: '12px',
+                                  fontSize: '12px',
+                                  fontWeight: '500',
+                                  backgroundColor: statusColor.bg,
+                                  color: statusColor.color,
+                                  textTransform: 'capitalize'
+                                }}>
+                                  {app.status}
+                                </span>
+                              </div>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', fontSize: '14px', color: '#6c757d' }}>
+                                <div>
+                                  <strong>Phone:</strong> {app.phone}
+                                </div>
+                                {app.purpose && (
+                                  <div>
+                                    <strong>Purpose:</strong> {app.purpose}
+                                  </div>
+                                )}
+                                {app.last_connected_at && (
+                                  <div>
+                                    <strong>Last Connected:</strong> {new Date(app.last_connected_at).toLocaleString()}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              {app.status === 'disconnected' || app.status === 'error' ? (
+                                <Button
+                                  variant="outline-success"
+                                  size="sm"
+                                  onClick={() => handleConnectWhatsApp(app.id)}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                  }}
+                                >
+                                  <Wifi size={14} />
+                                  Connect
+                                </Button>
+                              ) : app.status === 'connected' ? (
+                                <>
+                                  <Button
+                                    variant="outline-warning"
+                                    size="sm"
+                                    onClick={() => handleReconnectWhatsApp(app.id)}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '6px'
+                                    }}
+                                  >
+                                    <RefreshCw size={14} />
+                                    Reconnect
+                                  </Button>
+                                  <Button
+                                    variant="outline-danger"
+                                    size="sm"
+                                    onClick={() => handleDisconnectWhatsApp(app.id)}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '6px'
+                                    }}
+                                  >
+                                    <WifiOff size={14} />
+                                    Disconnect
+                                  </Button>
+                                </>
+                              ) : (
+                                <Button
+                                  variant="outline-secondary"
+                                  size="sm"
+                                  disabled
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                  }}
+                                >
+                                  Connecting...
+                                </Button>
+                              )}
+                              <Button
+                                variant="outline-secondary"
+                                size="sm"
+                                onClick={() => handleOpenWhatsAppModal(app)}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px'
+                                }}
+                              >
+                                <Edit2 size={14} />
+                                Edit
+                              </Button>
+                              <Button
+                                variant="outline-danger"
+                                size="sm"
+                                onClick={() => handleDeleteWhatsApp(app.id)}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px'
+                                }}
+                              >
+                                <Trash2 size={14} />
+                                Delete
+                              </Button>
+                            </div>
+                          </div>
+                        </Card.Body>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </Card.Body>
+          </Card>
+        )}
+
+        {/* WhatsApp Message Sandbox */}
+        {activeMainTab === 'whatsapp' && whatsappApplications.some(app => app.status === 'connected') && (
+          <Card style={{ marginTop: '24px', border: '1px solid #e5e7eb' }}>
+            <Card.Header style={{
+              backgroundColor: '#f9fafb',
+              borderBottom: '1px solid #e5e7eb',
+              padding: '16px 24px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <TestTube size={20} color="#3b82f6" />
+                <h5 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>
+                  Message Sandbox
+                </h5>
+              </div>
+              <span style={{
+                padding: '4px 12px',
+                borderRadius: '12px',
+                fontSize: '12px',
+                fontWeight: '500',
+                backgroundColor: '#dbeafe',
+                color: '#3b82f6'
+              }}>
+                Testing Tool
+              </span>
+            </Card.Header>
+            <Card.Body style={{ padding: '24px' }}>
+              <p style={{ fontSize: '14px', color: '#6c757d', marginBottom: '24px' }}>
+                Test sending WhatsApp messages from your connected applications. Enter a phone number and message below.
+              </p>
+
+              <Row>
+                <Col md={12} style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                    Select Application *
+                  </label>
+                  <select
+                    value={sandboxApp}
+                    onChange={(e) => setSandboxApp(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none',
+                      backgroundColor: 'white'
+                    }}
+                  >
+                    <option value="">Choose an application...</option>
+                    {whatsappApplications
+                      .filter(app => app.status === 'connected')
+                      .map(app => (
+                        <option key={app.id} value={app.id}>
+                          {app.name} ({app.phone})
+                        </option>
+                      ))}
+                  </select>
+                </Col>
+
+                <Col md={12} style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                    Phone Number * (with country code, no +)
+                  </label>
+                  <input
+                    type="text"
+                    value={sandboxPhone}
+                    onChange={(e) => setSandboxPhone(e.target.value)}
+                    placeholder="e.g., 1234567890"
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
+                  />
+                  <small style={{ fontSize: '12px', color: '#9ca3af', marginTop: '4px', display: 'block' }}>
+                    Format: Country code + number (e.g., 923001234567 for Pakistan)
+                  </small>
+                </Col>
+
+                <Col md={12} style={{ marginBottom: '20px' }}>
+                  <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                    Message *
+                  </label>
+                  <textarea
+                    value={sandboxMessage}
+                    onChange={(e) => setSandboxMessage(e.target.value)}
+                    placeholder="Enter your message here..."
+                    rows={4}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      outline: 'none',
+                      resize: 'vertical',
+                      fontFamily: 'inherit'
+                    }}
+                  />
+                </Col>
+
+                <Col md={12}>
+                  <Button
+                    variant="primary"
+                    onClick={handleSendMessage}
+                    disabled={sendingMessage || !sandboxApp || !sandboxPhone || !sandboxMessage}
+                    style={{
+                      backgroundColor: '#25D366',
+                      borderColor: '#25D366',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 20px',
+                      borderRadius: '8px'
+                    }}
+                  >
+                    {sendingMessage ? (
+                      <>
+                        <div style={{
+                          width: '16px',
+                          height: '16px',
+                          border: '2px solid rgba(255,255,255,0.3)',
+                          borderTop: '2px solid white',
+                          borderRadius: '50%',
+                          animation: 'spin 0.8s linear infinite'
+                        }} />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <MessageSquare size={16} />
+                        Send Message
+                      </>
+                    )}
+                  </Button>
+                </Col>
+              </Row>
+            </Card.Body>
+          </Card>
+        )}
+
+
+        {/* WhatsApp Application Modal */}
+        {showWhatsAppModal && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1050,
+            padding: '20px'
+          }}>
+            <Card style={{ maxWidth: '500px', width: '100%' }}>
+              <Card.Header style={{
+                backgroundColor: '#25D366',
+                color: 'white',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <h5 style={{ margin: 0 }}>
+                  {selectedWhatsAppApp ? 'Edit' : 'Add'} WhatsApp Application
+                </h5>
+                <button
+                  onClick={() => setShowWhatsAppModal(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'white',
+                    fontSize: '24px',
+                    cursor: 'pointer',
+                    padding: 0,
+                    width: '30px',
+                    height: '30px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  ×
+                </button>
+              </Card.Header>
+              <Card.Body style={{ padding: '24px' }}>
+                <Row>
+                  <Col md={12} style={{ marginBottom: '20px' }}>
+                    <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                      Name *
+                    </label>
+                    <input
+                      type="text"
+                      value={whatsappForm.name}
+                      onChange={(e) => setWhatsappForm({ ...whatsappForm, name: e.target.value })}
+                      placeholder="e.g., Customer Support"
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        outline: 'none'
+                      }}
+                    />
+                  </Col>
+                  <Col md={12} style={{ marginBottom: '20px' }}>
+                    <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                      Phone Number *
+                    </label>
+                    <input
+                      type="text"
+                      value={whatsappForm.phone}
+                      onChange={(e) => setWhatsappForm({ ...whatsappForm, phone: e.target.value })}
+                      placeholder="+1234567890"
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        outline: 'none'
+                      }}
+                    />
+                  </Col>
+                  <Col md={12} style={{ marginBottom: '20px' }}>
+                    <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                      Purpose
+                    </label>
+                    <textarea
+                      value={whatsappForm.purpose}
+                      onChange={(e) => setWhatsappForm({ ...whatsappForm, purpose: e.target.value })}
+                      placeholder="Describe the purpose of this WhatsApp application"
+                      rows={3}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        outline: 'none',
+                        resize: 'vertical'
+                      }}
+                    />
+                  </Col>
+                </Row>
+                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
+                  <Button
+                    variant="outline-secondary"
+                    onClick={() => setShowWhatsAppModal(false)}
+                    disabled={saving}
+                  >
+                    Cancel
+                  </Button>
+                  {hasUpdatePermission && (
+                    <Button
+                      variant="primary"
+                      onClick={handleSaveWhatsApp}
+                      disabled={saving}
+                      style={{
+                        backgroundColor: '#25D366',
+                        borderColor: '#25D366',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                      }}
+                    >
+                      {saving ? 'Saving...' : 'Save'}
+                    </Button>
+                  )}
+                </div>
+              </Card.Body>
+            </Card>
+          </div>
+        )}
+
+        {/* QR Code Modal */}
+        {showQRModal && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1060,
+            padding: '20px'
+          }}>
+            <Card style={{ maxWidth: '400px', width: '100%' }}>
+              <Card.Header style={{
+                backgroundColor: '#25D366',
+                color: 'white',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <h5 style={{ margin: 0 }}>
+                  Scan QR Code
+                </h5>
+                <button
+                  onClick={() => {
+                    setShowQRModal(false);
+                    if (qrPollingInterval) {
+                      clearInterval(qrPollingInterval);
+                      setQrPollingInterval(null);
+                    }
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'white',
+                    fontSize: '24px',
+                    cursor: 'pointer',
+                    padding: 0,
+                    width: '30px',
+                    height: '30px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  ×
+                </button>
+              </Card.Header>
+              <Card.Body style={{ padding: '24px', textAlign: 'center' }}>
+                {selectedWhatsAppApp && (
+                  <div>
+                    <p style={{ marginBottom: '16px', fontSize: '14px', color: '#6c757d' }}>
+                      Scan this QR code with WhatsApp to connect <strong>{selectedWhatsAppApp.name}</strong>
+                    </p>
+                    {qrCodeData ? (
+                      <div style={{ marginBottom: '16px' }}>
+                        <img
+                          src={qrCodeData}
+                          alt="QR Code"
+                          style={{
+                            maxWidth: '100%',
+                            height: 'auto',
+                            border: '1px solid #e5e7eb',
+                            borderRadius: '8px',
+                            padding: '16px',
+                            backgroundColor: 'white'
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div style={{ padding: '40px', color: '#6c757d' }}>
+                        <QrCode size={48} style={{ opacity: 0.3, marginBottom: '16px' }} />
+                        <p>Generating QR code...</p>
+                      </div>
+                    )}
+                    <p style={{ fontSize: '12px', color: '#9ca3af', marginTop: '16px' }}>
+                      Open WhatsApp → Settings → Linked Devices → Link a Device
+                    </p>
+                  </div>
+                )}
+              </Card.Body>
+            </Card>
+          </div>
+        )}
+
         {/* Product Database Configuration Modal */}
         {showProductDbModal && (
           <div style={{
@@ -1839,8 +2672,8 @@ const AdminSettings = () => {
             padding: '20px'
           }}>
             <Card style={{ maxWidth: '700px', width: '100%', maxHeight: '90vh', overflow: 'auto' }}>
-              <Card.Header style={{ 
-                backgroundColor: '#10b981', 
+              <Card.Header style={{
+                backgroundColor: '#10b981',
                 color: 'white',
                 display: 'flex',
                 justifyContent: 'space-between',
@@ -1901,8 +2734,8 @@ const AdminSettings = () => {
                         // Check if product already has a database configured
                         const hasDatabase = productDatabases.some(db => db.product_id === product.id);
                         return (
-                          <option 
-                            key={product.id} 
+                          <option
+                            key={product.id}
                             value={product.id}
                             disabled={hasDatabase && !selectedProductForConfig}
                             style={{ color: hasDatabase && !selectedProductForConfig ? '#9ca3af' : 'inherit' }}
@@ -1951,7 +2784,7 @@ const AdminSettings = () => {
                       <option value="postgres">PostgreSQL</option>
                     </select>
                   </Col>
-                  
+
                   {productDbConfig.db_type === 'supabase' ? (
                     <>
                       <Col md={12} style={{ marginBottom: '20px' }}>
@@ -1960,11 +2793,11 @@ const AdminSettings = () => {
                         </label>
                         <input
                           type="text"
-                      value={productDbConfig.supabase_url}
-                      onChange={(e) => {
-                        setProductDbConfig({ ...productDbConfig, supabase_url: e.target.value });
-                        setCredentialTestResult(null); // Clear test result when field changes
-                      }}
+                          value={productDbConfig.supabase_url}
+                          onChange={(e) => {
+                            setProductDbConfig({ ...productDbConfig, supabase_url: e.target.value });
+                            setCredentialTestResult(null); // Clear test result when field changes
+                          }}
                           placeholder="https://your-project.supabase.co"
                           style={{
                             width: '100%',
@@ -2103,7 +2936,7 @@ const AdminSettings = () => {
                       </Col>
                     </>
                   )}
-                  
+
                   <Col md={12} style={{ marginBottom: '20px' }}>
                     <label style={{ fontSize: '12px', color: '#6c757d', fontWeight: '600', marginBottom: '8px', display: 'block' }}>
                       Schema Name
@@ -2217,9 +3050,9 @@ const AdminSettings = () => {
         )}
 
         {/* Action Buttons */}
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'flex-end', 
+        <div style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
           gap: '12px',
           marginTop: '24px',
           padding: '20px',
@@ -2245,36 +3078,36 @@ const AdminSettings = () => {
             <Button
               variant="primary"
               onClick={handleSave}
-            disabled={saving}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '10px 20px',
-              borderRadius: '8px',
-              backgroundColor: '#74317e',
-              borderColor: '#74317e'
-            }}
-          >
-            {saving ? (
-              <>
-                <div style={{
-                  width: '16px',
-                  height: '16px',
-                  border: '2px solid rgba(255,255,255,0.3)',
-                  borderTop: '2px solid white',
-                  borderRadius: '50%',
-                  animation: 'spin 0.8s linear infinite'
-                }} />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Save size={18} />
-                Save Settings
-              </>
-            )}
-          </Button>
+              disabled={saving}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 20px',
+                borderRadius: '8px',
+                backgroundColor: '#74317e',
+                borderColor: '#74317e'
+              }}
+            >
+              {saving ? (
+                <>
+                  <div style={{
+                    width: '16px',
+                    height: '16px',
+                    border: '2px solid rgba(255,255,255,0.3)',
+                    borderTop: '2px solid white',
+                    borderRadius: '50%',
+                    animation: 'spin 0.8s linear infinite'
+                  }} />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save size={18} />
+                  Save Settings
+                </>
+              )}
+            </Button>
           )}
         </div>
       </Form>
