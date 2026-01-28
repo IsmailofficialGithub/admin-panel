@@ -1024,6 +1024,76 @@ const apiClient = {
         },
       });
     },
+
+    /**
+     * Export tickets to CSV (with filters)
+     */
+    exportTickets: async (queryString = '') => {
+      // Use fetch for file download (more reliable for blobs)
+      let token = cachedToken;
+      if (!token) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          token = session?.access_token;
+        } catch (e) {
+          console.error('Error getting session for export:', e);
+        }
+      }
+
+      const baseURL = axiosInstance.defaults.baseURL || '';
+      const response = await fetch(`${baseURL}/customer-support/tickets/export${queryString}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Cache-Control': 'no-cache',
+        },
+      });
+
+      if (!response.ok) {
+        // Try to parse error message from response
+        let errorMessage = `Export failed: ${response.status}`;
+        try {
+          const contentType = response.headers.get('content-type');
+          let errorData;
+          
+          if (contentType && contentType.includes('application/json')) {
+            errorData = await response.json();
+          } else {
+            // Try to read as text and parse JSON
+            const errorText = await response.text();
+            if (errorText) {
+              try {
+                errorData = JSON.parse(errorText);
+              } catch {
+                // If not JSON, use the text as error message
+                errorMessage = errorText;
+                const error = new Error(errorMessage);
+                error.status = response.status;
+                throw error;
+              }
+            }
+          }
+          
+          // Extract message from error data
+          if (errorData) {
+            errorMessage = errorData.message || errorData.error || errorMessage;
+          }
+        } catch (parseError) {
+          // If error is already thrown with message, re-throw it
+          if (parseError.message && parseError.message !== `Export failed: ${response.status}`) {
+            throw parseError;
+          }
+          console.error('Error parsing error response:', parseError);
+        }
+        
+        const error = new Error(errorMessage);
+        error.status = response.status;
+        throw error;
+      }
+
+      const blob = await response.blob();
+      return { data: blob };
+    },
   },
 
   // ==================== PERMISSIONS ====================

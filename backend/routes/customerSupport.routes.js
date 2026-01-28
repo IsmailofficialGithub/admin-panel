@@ -2,6 +2,7 @@ import express from 'express';
 import {
   createTicket,
   getTickets,
+  exportTickets,
   getTicket,
   addMessage,
   updateTicketStatus,
@@ -36,6 +37,13 @@ router.post('/tickets', authenticate, loadUserProfile, ticketCreateRateLimit, sa
  * @access  Private (Admin sees all, users see only their own)
  */
 router.get('/tickets', authenticate, loadUserProfile, rateLimitMiddleware, sanitizeInputMiddleware, getTickets);
+
+/**
+ * @route   GET /api/customer-support/tickets/export
+ * @desc    Export tickets to CSV (with filters)
+ * @access  Private (Admin sees all, users see only their own)
+ */
+router.get('/tickets/export', authenticate, loadUserProfile, rateLimitMiddleware, sanitizeInputMiddleware, exportTickets);
 
 /**
  * @route   GET /api/customer-support/tickets/:ticketId

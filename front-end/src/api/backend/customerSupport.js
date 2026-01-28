@@ -34,6 +34,8 @@ export const createTicket = async (ticketData) => {
  * @param {string} filters.assigned_to - Assigned to user ID
  * @param {string} filters.user_id - User ID filter (admin only)
  * @param {string} filters.search - Search term
+ * @param {string} filters.startDate - Start date filter (YYYY-MM-DD)
+ * @param {string} filters.endDate - End date filter (YYYY-MM-DD)
  * @param {number} filters.page - Page number
  * @param {number} filters.limit - Items per page
  * @returns {Promise<Object>} Tickets data with pagination
@@ -47,6 +49,8 @@ export const getTickets = async (filters = {}) => {
     if (filters.assigned_to) params.append('assigned_to', filters.assigned_to);
     if (filters.user_id) params.append('user_id', filters.user_id);
     if (filters.search) params.append('search', filters.search);
+    if (filters.startDate) params.append('startDate', filters.startDate);
+    if (filters.endDate) params.append('endDate', filters.endDate);
     if (filters.page) params.append('page', filters.page);
     if (filters.limit) params.append('limit', filters.limit);
     
@@ -138,6 +142,34 @@ export const generateAiResponse = async (messages) => {
     return response;
   } catch (error) {
     console.error('Error generating AI response:', error);
+    throw error;
+  }
+};
+
+/**
+ * Export tickets to CSV (with filters)
+ * @param {Object} filters - Filter options (same as getTickets)
+ * @returns {Promise<Blob>} CSV file blob
+ */
+export const exportTickets = async (filters = {}) => {
+  try {
+    const params = new URLSearchParams();
+    if (filters.status) params.append('status', filters.status);
+    if (filters.priority) params.append('priority', filters.priority);
+    if (filters.category) params.append('category', filters.category);
+    if (filters.assigned_to) params.append('assigned_to', filters.assigned_to);
+    if (filters.user_id) params.append('user_id', filters.user_id);
+    if (filters.search) params.append('search', filters.search);
+    if (filters.startDate) params.append('startDate', filters.startDate);
+    if (filters.endDate) params.append('endDate', filters.endDate);
+    // Add timestamp to prevent caching
+    params.append('_t', Date.now());
+    
+    const queryString = params.toString();
+    const response = await apiClient.customerSupport.exportTickets(queryString ? `?${queryString}` : '');
+    return response;
+  } catch (error) {
+    console.error('Error exporting support tickets:', error);
     throw error;
   }
 };

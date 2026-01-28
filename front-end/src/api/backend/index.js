@@ -91,7 +91,8 @@ export {
   addMessage,
   updateTicketStatus,
   getTicketStats,
-  generateAiResponse
+  generateAiResponse,
+  exportTickets
 } from './customerSupport';
 
 export {

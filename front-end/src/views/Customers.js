@@ -17,7 +17,8 @@ import {
   addMessage, 
   updateTicketStatus,
   getTicketStats,
-  generateAiResponse
+  generateAiResponse,
+  exportTickets
 } from '../api/backend';
 import { searchAllUsers } from '../api/backend/users';
 import { useAuth } from '../contexts/AuthContext';
@@ -52,6 +53,14 @@ const Customers = () => {
   const [searchInput, setSearchInput] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
+  const [dateFilter, setDateFilter] = useState('all'); // 'all', 'weekly', 'monthly', 'manual'
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [exportingCSV, setExportingCSV] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportDateFilter, setExportDateFilter] = useState('all'); // 'all', 'weekly', 'monthly', 'manual'
+  const [exportStartDate, setExportStartDate] = useState('');
+  const [exportEndDate, setExportEndDate] = useState('');
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [showTicketModal, setShowTicketModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -218,7 +227,7 @@ const Customers = () => {
     if (isAdmin) {
       fetchStats();
     }
-  }, [currentPage, searchQuery, statusFilter, priorityFilter, checkingViewPermission, hasViewPermission, isAdmin]);
+  }, [currentPage, searchQuery, statusFilter, priorityFilter, dateFilter, startDate, endDate, checkingViewPermission, hasViewPermission, isAdmin]);
 
   // Set up realtime subscription for tickets list
   useEffect(() => {
@@ -455,15 +464,42 @@ const Customers = () => {
     };
   }, [checkingViewPermission, hasViewPermission, user?.id, isAdmin]);
 
+  // Calculate date range based on filter
+  const getDateRange = () => {
+    if (dateFilter === 'weekly') {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(start.getDate() - 7);
+      return {
+        startDate: start.toISOString().split('T')[0],
+        endDate: end.toISOString().split('T')[0]
+      };
+    } else if (dateFilter === 'monthly') {
+      const end = new Date();
+      const start = new Date();
+      start.setMonth(start.getMonth() - 1);
+      return {
+        startDate: start.toISOString().split('T')[0],
+        endDate: end.toISOString().split('T')[0]
+      };
+    } else if (dateFilter === 'manual' && startDate && endDate) {
+      return { startDate, endDate };
+    }
+    return { startDate: undefined, endDate: undefined };
+  };
+
   const fetchTickets = async () => {
     try {
       setLoading(true);
+      const dateRange = getDateRange();
       const filters = {
         page: currentPage,
         limit: ticketsPerPage,
         search: searchQuery || undefined,
         status: statusFilter !== 'all' ? statusFilter : undefined,
-        priority: priorityFilter !== 'all' ? priorityFilter : undefined
+        priority: priorityFilter !== 'all' ? priorityFilter : undefined,
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate
       };
       
       const response = await getTickets(filters);
@@ -995,6 +1031,88 @@ const Customers = () => {
     });
   };
 
+  // Calculate export date range based on export filter
+  const getExportDateRange = () => {
+    if (exportDateFilter === 'weekly') {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(start.getDate() - 7);
+      return {
+        startDate: start.toISOString().split('T')[0],
+        endDate: end.toISOString().split('T')[0]
+      };
+    } else if (exportDateFilter === 'monthly') {
+      const end = new Date();
+      const start = new Date();
+      start.setMonth(start.getMonth() - 1);
+      return {
+        startDate: start.toISOString().split('T')[0],
+        endDate: end.toISOString().split('T')[0]
+      };
+    } else if (exportDateFilter === 'manual' && exportStartDate && exportEndDate) {
+      return { startDate: exportStartDate, endDate: exportEndDate };
+    }
+    return { startDate: undefined, endDate: undefined };
+  };
+
+  const handleExportCSV = async () => {
+    try {
+      setExportingCSV(true);
+      const dateRange = getExportDateRange();
+      const filters = {
+        search: searchQuery || undefined,
+        status: statusFilter !== 'all' ? statusFilter : undefined,
+        priority: priorityFilter !== 'all' ? priorityFilter : undefined,
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate
+      };
+
+      // Call the export API
+      const response = await exportTickets(filters);
+      
+      if (!response?.data) {
+        toast.error('No data to export');
+        return;
+      }
+
+      // Handle blob response
+      const blob = response.data instanceof Blob 
+        ? response.data 
+        : new Blob([response.data], { type: 'text/csv;charset=utf-8' });
+
+      if (blob.size < 50) {
+        toast.error('No tickets match the selected filters');
+        return;
+      }
+
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const dateStr = new Date().toISOString().split('T')[0];
+      link.download = `tickets-${dateStr}.csv`;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      
+      // Cleanup
+      setTimeout(() => {
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      }, 100);
+
+      toast.success('Tickets exported successfully');
+      setShowExportModal(false);
+    } catch (error) {
+      console.error('Error exporting tickets:', error);
+      // Display the error message from the backend
+      const errorMessage = error.message || 'Failed to export tickets';
+      toast.error(errorMessage);
+    } finally {
+      setExportingCSV(false);
+    }
+  };
+
   // Show loading while checking permission
   if (checkingViewPermission) {
     return (
@@ -1206,6 +1324,94 @@ const Customers = () => {
           <option value="high">High</option>
           <option value="urgent">Urgent</option>
         </select>
+        <select
+          value={dateFilter}
+          onChange={(e) => {
+            setDateFilter(e.target.value);
+            setCurrentPage(1);
+            if (e.target.value !== 'manual') {
+              setStartDate('');
+              setEndDate('');
+            }
+          }}
+          style={{
+            padding: '12px',
+            border: '1px solid #ddd',
+            borderRadius: '8px',
+            fontSize: '14px',
+            cursor: 'pointer'
+          }}
+        >
+          <option value="all">All Dates</option>
+          <option value="weekly">Last 7 Days</option>
+          <option value="monthly">Last 30 Days</option>
+          <option value="manual">Custom Range</option>
+        </select>
+        {dateFilter === 'manual' && (
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setCurrentPage(1);
+              }}
+              style={{
+                padding: '12px',
+                border: '1px solid #ddd',
+                borderRadius: '8px',
+                fontSize: '14px'
+              }}
+              placeholder="Start Date"
+            />
+            <span style={{ color: '#6c757d' }}>to</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setCurrentPage(1);
+              }}
+              style={{
+                padding: '12px',
+                border: '1px solid #ddd',
+                borderRadius: '8px',
+                fontSize: '14px'
+              }}
+              placeholder="End Date"
+            />
+          </div>
+        )}
+        <button
+          onClick={() => setShowExportModal(true)}
+          style={{
+            backgroundColor: '#8a3b9a',
+            color: 'white',
+            border: 'none',
+            padding: '12px 24px',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontWeight: '600',
+            fontSize: '14px',
+            boxShadow: '0 2px 4px rgba(138, 59, 154, 0.2)',
+            transition: 'all 0.2s ease',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = '#74317e';
+            e.currentTarget.style.boxShadow = '0 4px 8px rgba(138, 59, 154, 0.3)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = '#8a3b9a';
+            e.currentTarget.style.boxShadow = '0 2px 4px rgba(138, 59, 154, 0.2)';
+          }}
+          title="Export tickets to CSV"
+        >
+          <Download size={18} />
+          Export CSV
+        </button>
       </div>
 
       {/* Tickets Table */}
@@ -1854,6 +2060,272 @@ const Customers = () => {
                 }}
               >
                 {creatingTicket || uploadingFiles ? 'Creating...' : 'Create Ticket'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Export CSV Modal */}
+      {showExportModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            setShowExportModal(false);
+          }
+        }}
+        >
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '24px',
+            width: '90%',
+            maxWidth: '500px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.15)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+              <h2 style={{ margin: 0, fontSize: '24px', fontWeight: '700', color: '#2c3e50' }}>
+                Export Tickets to CSV
+              </h2>
+              <button
+                onClick={() => {
+                  setShowExportModal(false);
+                  setExportDateFilter('all');
+                  setExportStartDate('');
+                  setExportEndDate('');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  color: '#6c757d',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <p style={{ 
+                margin: '0 0 16px 0', 
+                fontSize: '14px', 
+                color: '#6c757d',
+                lineHeight: '1.5'
+              }}>
+                Select a date range for the tickets you want to export. The export will include all tickets matching your current filters (status, priority, search) within the selected date range.
+              </p>
+              
+              <label style={{ 
+                display: 'block', 
+                marginBottom: '8px', 
+                fontWeight: '600', 
+                color: '#495057',
+                fontSize: '14px'
+              }}>
+                Date Range
+              </label>
+              <select
+                value={exportDateFilter}
+                onChange={(e) => {
+                  setExportDateFilter(e.target.value);
+                  if (e.target.value !== 'manual') {
+                    setExportStartDate('');
+                    setExportEndDate('');
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: '1px solid #ddd',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  cursor: 'pointer',
+                  backgroundColor: 'white'
+                }}
+              >
+                <option value="all">All Dates</option>
+                <option value="weekly">Last 7 Days</option>
+                <option value="monthly">Last 30 Days</option>
+                <option value="manual">Custom Range</option>
+              </select>
+            </div>
+
+            {exportDateFilter === 'manual' && (
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ 
+                      display: 'block', 
+                      marginBottom: '8px', 
+                      fontWeight: '600', 
+                      color: '#495057',
+                      fontSize: '13px'
+                    }}>
+                      Start Date
+                    </label>
+                    <input
+                      type="date"
+                      value={exportStartDate}
+                      onChange={(e) => setExportStartDate(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '12px',
+                        border: '1px solid #ddd',
+                        borderRadius: '8px',
+                        fontSize: '14px'
+                      }}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ 
+                      display: 'block', 
+                      marginBottom: '8px', 
+                      fontWeight: '600', 
+                      color: '#495057',
+                      fontSize: '13px'
+                    }}>
+                      End Date
+                    </label>
+                    <input
+                      type="date"
+                      value={exportEndDate}
+                      onChange={(e) => setExportEndDate(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '12px',
+                        border: '1px solid #ddd',
+                        borderRadius: '8px',
+                        fontSize: '14px'
+                      }}
+                    />
+                  </div>
+                </div>
+                {exportStartDate && exportEndDate && exportStartDate > exportEndDate && (
+                  <p style={{ 
+                    marginTop: '8px', 
+                    fontSize: '12px', 
+                    color: '#dc3545' 
+                  }}>
+                    Start date must be before end date
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div style={{ 
+              padding: '12px', 
+              backgroundColor: '#f8f9fa', 
+              borderRadius: '8px',
+              marginBottom: '20px'
+            }}>
+              <p style={{ 
+                margin: 0, 
+                fontSize: '13px', 
+                color: '#6c757d',
+                fontWeight: '500'
+              }}>
+                Current Filters:
+              </p>
+              <div style={{ 
+                marginTop: '8px', 
+                fontSize: '12px', 
+                color: '#495057',
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '8px'
+              }}>
+                {statusFilter !== 'all' && (
+                  <span style={{ 
+                    padding: '4px 8px', 
+                    backgroundColor: 'white', 
+                    borderRadius: '4px',
+                    border: '1px solid #ddd'
+                  }}>
+                    Status: {statusFilter}
+                  </span>
+                )}
+                {priorityFilter !== 'all' && (
+                  <span style={{ 
+                    padding: '4px 8px', 
+                    backgroundColor: 'white', 
+                    borderRadius: '4px',
+                    border: '1px solid #ddd'
+                  }}>
+                    Priority: {priorityFilter}
+                  </span>
+                )}
+                {searchQuery && (
+                  <span style={{ 
+                    padding: '4px 8px', 
+                    backgroundColor: 'white', 
+                    borderRadius: '4px',
+                    border: '1px solid #ddd'
+                  }}>
+                    Search: {searchQuery}
+                  </span>
+                )}
+                {!statusFilter && !priorityFilter && !searchQuery && (
+                  <span style={{ color: '#6c757d' }}>No additional filters applied</span>
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => {
+                  setShowExportModal(false);
+                  setExportDateFilter('all');
+                  setExportStartDate('');
+                  setExportEndDate('');
+                }}
+                style={{
+                  padding: '10px 20px',
+                  border: '1px solid #ddd',
+                  borderRadius: '8px',
+                  backgroundColor: 'white',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  color: '#495057',
+                  fontSize: '14px'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleExportCSV}
+                disabled={exportingCSV || (exportDateFilter === 'manual' && (!exportStartDate || !exportEndDate || exportStartDate > exportEndDate))}
+                style={{
+                  padding: '10px 24px',
+                  border: 'none',
+                  borderRadius: '8px',
+                  backgroundColor: exportingCSV ? '#6c757d' : '#8a3b9a',
+                  color: 'white',
+                  cursor: exportingCSV || (exportDateFilter === 'manual' && (!exportStartDate || !exportEndDate || exportStartDate > exportEndDate)) ? 'not-allowed' : 'pointer',
+                  fontWeight: '600',
+                  fontSize: '14px',
+                  opacity: exportingCSV || (exportDateFilter === 'manual' && (!exportStartDate || !exportEndDate || exportStartDate > exportEndDate)) ? 0.6 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                <Download size={18} />
+                {exportingCSV ? 'Exporting...' : 'Export CSV'}
               </button>
             </div>
           </div>

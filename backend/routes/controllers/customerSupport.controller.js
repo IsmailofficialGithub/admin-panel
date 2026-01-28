@@ -572,6 +572,8 @@ export const getTickets = async (req, res) => {
       page,
       limit,
       search,
+      startDate,
+      endDate,
     } = req.query;
 
     const userId = req.user.id;
@@ -614,6 +616,22 @@ export const getTickets = async (req, res) => {
     priority = priority ? sanitizeString(priority, 20) : null;
     category = category ? sanitizeString(category, 100) : null;
     search = search ? sanitizeString(search, 200) : null;
+    
+    // Validate date format (YYYY-MM-DD)
+    if (startDate && !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid startDate format. Use YYYY-MM-DD'
+      });
+    }
+    if (endDate && !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid endDate format. Use YYYY-MM-DD'
+      });
+    }
 
     // ========================================
     // 2. CACHE CHECK
@@ -649,6 +667,13 @@ export const getTickets = async (req, res) => {
         `subject.ilike.%${search}%,ticket_number.ilike.%${search}%`
       );
     }
+    // Apply date filters
+    if (startDate) {
+      query = query.gte("created_at", `${startDate}T00:00:00.000Z`);
+    }
+    if (endDate) {
+      query = query.lte("created_at", `${endDate}T23:59:59.999Z`);
+    }
 
     query = query.range(offset, offset + limitNum - 1);
 
@@ -681,6 +706,197 @@ export const getTickets = async (req, res) => {
     res.json(response);
   } catch (error) {
     return handleApiError(error, res, 'An error occurred while fetching support tickets.');
+  }
+};
+
+/**
+ * Export tickets to CSV (with filters)
+ * @route   GET /api/customer-support/tickets/export
+ * @access  Private (Admin sees all, users see only their own)
+ */
+export const exportTickets = async (req, res) => {
+  try {
+    // ========================================
+    // 1. INPUT VALIDATION & SANITIZATION
+    // ========================================
+    let {
+      status,
+      priority,
+      category,
+      assigned_to,
+      user_id,
+      search,
+      startDate,
+      endDate,
+    } = req.query;
+
+    const userId = req.user.id;
+    const userProfile = req.userProfile;
+    if (!userProfile) {
+      return res.status(500).json({
+        success: false,
+        error: "Server Error",
+        message: "User profile not loaded",
+      });
+    }
+
+    const isAdmin = hasRole(userProfile.role, "admin");
+
+    // Validate UUIDs if provided
+    if (assigned_to && !isValidUUID(assigned_to)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid assigned_to ID format'
+      });
+    }
+
+    if (user_id && !isValidUUID(user_id)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid user_id format'
+      });
+    }
+
+    // Sanitize string inputs
+    status = status ? sanitizeString(status, 50) : null;
+    priority = priority ? sanitizeString(priority, 20) : null;
+    category = category ? sanitizeString(category, 100) : null;
+    search = search ? sanitizeString(search, 200) : null;
+    
+    // Validate date format (YYYY-MM-DD)
+    if (startDate && !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid startDate format. Use YYYY-MM-DD'
+      });
+    }
+    if (endDate && !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid endDate format. Use YYYY-MM-DD'
+      });
+    }
+
+    // ========================================
+    // 2. BUILD QUERY (no pagination for export)
+    // ========================================
+    let query = supabase
+      .from("support_tickets")
+      .select("ticket_number, subject, user_email, user_name, user_role, category, priority, status, message_count, created_at, updated_at")
+      .order("created_at", { ascending: false });
+
+    // Non-admins can only see their own tickets
+    if (!isAdmin) {
+      query = query.eq("user_id", userId);
+    }
+
+    // Apply filters
+    if (status) query = query.eq("status", status);
+    if (priority) query = query.eq("priority", priority);
+    if (category) query = query.eq("category", category);
+    if (assigned_to) query = query.eq("assigned_to", assigned_to);
+    if (user_id && isAdmin) query = query.eq("user_id", user_id);
+    if (search) {
+      query = query.or(
+        `subject.ilike.%${search}%,ticket_number.ilike.%${search}%`
+      );
+    }
+    // Apply date filters
+    if (startDate) {
+      query = query.gte("created_at", `${startDate}T00:00:00.000Z`);
+    }
+    if (endDate) {
+      query = query.lte("created_at", `${endDate}T23:59:59.999Z`);
+    }
+
+    const { data: tickets, error } = await executeWithTimeout(query);
+
+    if (error) {
+      console.error("❌ Error fetching tickets for export:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Database Error",
+        message: "Failed to fetch support tickets for export. Please try again.",
+      });
+    }
+
+    // ========================================
+    // 3. BUILD CSV
+    // ========================================
+    const sanitizedTickets = sanitizeArray(tickets || []);
+
+    if (sanitizedTickets.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "No tickets found matching the filters",
+      });
+    }
+
+    // CSV Headers
+    const headers = [
+      'Ticket Number',
+      'Subject',
+      'User Email',
+      'User Name',
+      'User Role',
+      'Category',
+      'Priority',
+      'Status',
+      'Message Count',
+      'Created At',
+      'Updated At'
+    ];
+
+    // CSV Rows
+    const rows = sanitizedTickets.map(ticket => [
+      ticket.ticket_number || '',
+      ticket.subject || '',
+      ticket.user_email || '',
+      ticket.user_name || '',
+      ticket.user_role || '',
+      ticket.category || '',
+      ticket.priority || '',
+      ticket.status || '',
+      ticket.message_count || 0,
+      ticket.created_at ? new Date(ticket.created_at).toISOString() : '',
+      ticket.updated_at ? new Date(ticket.updated_at).toISOString() : ''
+    ]);
+
+    // Escape CSV values (handle commas, quotes, newlines)
+    const escapeCSV = (value) => {
+      if (value === null || value === undefined) return '';
+      const stringValue = String(value);
+      if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+      }
+      return stringValue;
+    };
+
+    const csvContent = [
+      headers.map(escapeCSV).join(','),
+      ...rows.map(row => row.map(escapeCSV).join(','))
+    ].join('\n');
+
+    // ========================================
+    // 4. SEND CSV RESPONSE
+    // ========================================
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=tickets-${new Date().toISOString().split("T")[0]}.csv`
+    );
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Content-Length", Buffer.byteLength(csvContent, "utf8"));
+    res.status(200).send(csvContent);
+  } catch (error) {
+    return handleApiError(error, res, 'An error occurred while exporting support tickets.');
   }
 };
 
