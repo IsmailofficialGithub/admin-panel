@@ -12,6 +12,7 @@ import {
   TicketCreatedAdminNotificationTemplate,
   TicketStatusChangedTemplate,
   TicketReplyTemplate,
+  CallLogsReportTemplate,
 } from "../utils/emailTemplates.js";
 import { encryptPaymentData } from "../utils/encryption.js";
 
@@ -661,6 +662,64 @@ export const sendTicketReplyEmail = async ({
     return { success: true };
   } catch (error) {
     console.error("❌ Error sending ticket reply email:", error.response?.body || error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Send call logs report email with Excel attachment
+ * @param {Object} params
+ * @param {string} params.email - Recipient email
+ * @param {string} params.full_name - User's full name
+ * @param {string} params.campaign_name - Campaign/list name
+ * @param {number} params.call_count - Number of calls in report
+ * @param {Buffer} params.excel_buffer - Excel file buffer
+ * @param {string} params.filename - Excel filename
+ * @returns {Promise<Object>} Email send result
+ */
+export const sendCallLogsReportEmail = async ({
+  email,
+  full_name,
+  campaign_name,
+  call_count,
+  excel_buffer,
+  filename,
+}) => {
+  try {
+    const website_url = process.env.CLIENT_URL || "dev.duhanashrah.ai";
+
+    const htmlContent = CallLogsReportTemplate({
+      full_name: full_name || email.split('@')[0],
+      campaign_name,
+      call_count,
+      website_url,
+    });
+
+    const msg = {
+      to: email,
+      from: {
+        email: SENDER_EMAIL,
+        name: "DuhaNashrahAi"
+      },
+      subject: `Call Logs Report: ${campaign_name}`,
+      html: htmlContent,
+      attachments: [
+        {
+          content: excel_buffer.toString('base64'),
+          filename: filename,
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          disposition: 'attachment',
+        },
+      ],
+    };
+
+    console.log("📧 Sending call logs report email to:", email);
+    await sgMail.send(msg);
+    console.log("✅ Call logs report email sent successfully");
+
+    return { success: true };
+  } catch (error) {
+    console.error("❌ Error sending call logs report email:", error.response?.body || error);
     return { success: false, error: error.message };
   }
 };

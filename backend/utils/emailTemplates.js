@@ -1277,6 +1277,77 @@ export const PasswordResetMagicLinkTemplate = ({
   });
 };
 
+/**
+ * Call Logs Report Email Template
+ */
+export const CallLogsReportTemplate = ({
+  full_name = 'Agent',
+  campaign_name = 'Call Logs',
+  call_count = 0,
+  website_url = '#',
+} = {}) => {
+  const normalizedWebsiteUrl = website_url.replace(/\/+$/, '');
+  const dashboardUrl = normalizedWebsiteUrl;
+
+  const content = `
+    <p style="margin: 0 0 12px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+      Hello <strong style="color: #8a3b9a;">${full_name}</strong>,
+    </p>
+    <p style="margin: 0 0 12px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+      Your dialer list <strong>"${campaign_name}"</strong> has been completed successfully!
+    </p>
+    <p style="margin: 0 0 12px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+      We've generated a comprehensive report with all call statuses and details. The Excel file is attached to this email.
+    </p>
+    <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+      <tr>
+        <td style="padding: 12px; background-color: #f8f9fa; border-radius: 8px; font-family: Verdana, Geneva, sans-serif;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 4px 0; color: #232347; font-weight: 600;">Campaign/List:</td>
+              <td style="padding: 4px 0; color: #66698c;">${campaign_name}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #232347; font-weight: 600;">Total Calls:</td>
+              <td style="padding: 4px 0; color: #66698c;">${call_count}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #232347; font-weight: 600;">Report Date:</td>
+              <td style="padding: 4px 0; color: #66698c;">${new Date().toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })}</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+    <p style="margin: 12px 0 0 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
+      The attached Excel file contains detailed information about each call, including:
+    </p>
+    <ul style="margin: 8px 0 0 0; padding-left: 20px; color: #66698c; font-family: Verdana, Geneva, sans-serif;">
+      <li>Contact name and phone number</li>
+      <li>Call status (completed, failed, etc.)</li>
+      <li>Call duration and timestamps</li>
+      <li>Lead status</li>
+      <li>Call transcript (if available)</li>
+      <li>Bot name and agent information</li>
+    </ul>
+  `;
+
+  return BaseEmailTemplate({
+    title: `Call Logs Report: ${campaign_name}`,
+    subtitle: `Your dialer list has been completed`,
+    content,
+    buttonText: 'View Dashboard',
+    buttonUrl: dashboardUrl,
+    footerText: `Questions about your call logs? Contact us at info@duhanashrah.ai`
+  });
+};
+
 export default { 
   AdminEmailTemplateUserCreated, 
   PasswordResetTemplate, 
@@ -1288,7 +1359,8 @@ export default {
   TicketCreatedTemplate,
   TicketCreatedAdminNotificationTemplate,
   TicketStatusChangedTemplate,
-  TicketReplyTemplate
+  TicketReplyTemplate,
+  CallLogsReportTemplate
 };
 
 export { AdminEmailTemplateUserCreated as _Admin, PasswordResetTemplate as _Reset };

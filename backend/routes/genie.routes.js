@@ -1,6 +1,7 @@
 import express from 'express';
 import { authenticate, loadUserProfile } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permissions.js';
+import { authenticateApiKey } from '../middleware/apiKeyAuth.js';
 import {
   // Calls
   getAllCalls,
@@ -8,6 +9,7 @@ import {
   getCallById,
   getCallStats,
   updateCallLeadStatus,
+  exportCallLogsAndEmail,
   // Campaigns
   getAllCampaigns,
   getCampaignById,
@@ -116,6 +118,23 @@ router.patch(
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   updateCallLeadStatus
+);
+
+/**
+ * @route   POST /api/genie/calls/export-and-email
+ * @desc    Export call logs to Excel and send via email
+ * @access  Protected - API Key and Secret required
+ * 
+ * This endpoint requires API key authentication:
+ * - Headers: X-API-Key and X-API-Secret
+ * - Used by Supabase Edge Function for automated campaign completion notifications
+ */
+router.post(
+  '/calls/export-and-email',
+  authenticateApiKey, // Require API key and secret - no fallback to user auth
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
+  exportCallLogsAndEmail
 );
 
 // =====================================================

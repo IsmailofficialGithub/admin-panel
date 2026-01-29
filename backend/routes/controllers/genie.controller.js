@@ -1864,6 +1864,246 @@ export const exportLeads = async (req, res) => {
   }
 };
 
+/**
+ * Export call logs to Excel and send via email
+ * @route   POST /api/genie/calls/export-and-email
+ * @access  Protected - API Key and Secret required
+ * 
+ * Requires headers:
+ * - X-API-Key: API key identifier
+ * - X-API-Secret: API secret (plain text, will be hashed and verified)
+ */
+export const exportCallLogsAndEmail = async (req, res) => {
+  try {
+    const { scheduled_list_id, owner_user_id, campaign_id } = req.body;
+    const XLSX = (await import('xlsx')).default;
+    
+    // Validate input
+    if (!scheduled_list_id && !owner_user_id && !campaign_id) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Either scheduled_list_id, campaign_id, or owner_user_id is required",
+      });
+    }
+
+    // If campaign_id is provided, get the scheduled_list_id from campaign
+    let actualScheduledListId = scheduled_list_id;
+    let actualOwnerUserId = owner_user_id;
+    
+    if (campaign_id) {
+      if (!isValidUUID(campaign_id)) {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "Invalid campaign ID format",
+        });
+      }
+
+      const { data: campaign, error: campaignError } = await executeWithTimeout(
+        supabase
+          .from("genie_scheduled_calls")
+          .select("id, owner_user_id")
+          .eq("id", campaign_id)
+          .single()
+      );
+
+      if (campaignError || !campaign) {
+        return res.status(404).json({
+          success: false,
+          error: "Not Found",
+          message: "Campaign not found",
+        });
+      }
+
+      actualScheduledListId = campaign.id;
+      actualOwnerUserId = campaign.owner_user_id;
+    }
+
+    // Validate UUIDs
+    if (actualScheduledListId && !isValidUUID(actualScheduledListId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Invalid scheduled_list_id format",
+      });
+    }
+
+    if (actualOwnerUserId && !isValidUUID(actualOwnerUserId)) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Invalid owner_user_id format",
+      });
+    }
+
+    console.log("📤 Exporting call logs and sending email:", {
+      scheduled_list_id: actualScheduledListId,
+      owner_user_id: actualOwnerUserId,
+      campaign_id,
+    });
+
+    // Build query to fetch all call logs
+    let query = supabase
+      .from("call_logs")
+      .select(`
+        id,
+        name,
+        phone,
+        call_url,
+        agent,
+        call_type,
+        call_status,
+        transcript,
+        duration,
+        end_reason,
+        started_at,
+        ended_at,
+        created_at,
+        is_lead,
+        bot_id,
+        genie_bots (
+          id,
+          name
+        )
+      `)
+      .order("created_at", { ascending: false });
+
+    // Apply filters
+    if (actualScheduledListId) {
+      query = query.eq("scheduled_list_id", actualScheduledListId);
+    }
+    if (actualOwnerUserId) {
+      query = query.eq("owner_user_id", actualOwnerUserId);
+    }
+
+    // Fetch all call logs (no pagination for export)
+    const { data: callLogs, error: callsError } = await executeWithTimeout(query);
+
+    if (callsError) {
+      console.error("❌ Error fetching call logs:", callsError);
+      return handleApiError(callsError, res, "Failed to fetch call logs");
+    }
+
+    if (!callLogs || callLogs.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "No call logs found matching the criteria",
+      });
+    }
+
+    // Get user email for sending
+    if (!actualOwnerUserId) {
+      // Try to get owner_user_id from first call log
+      actualOwnerUserId = callLogs[0]?.owner_user_id;
+    }
+
+    if (!actualOwnerUserId) {
+      return res.status(400).json({
+        success: false,
+        error: "Bad Request",
+        message: "Could not determine owner user ID",
+      });
+    }
+
+    // Fetch user profile to get email
+    const { data: userProfile, error: profileError } = await executeWithTimeout(
+      supabaseAdmin
+        .from("auth_role_with_profiles")
+        .select("user_id, email, full_name")
+        .eq("user_id", actualOwnerUserId)
+        .single()
+    );
+
+    if (profileError || !userProfile) {
+      return res.status(404).json({
+        success: false,
+        error: "Not Found",
+        message: "User profile not found",
+      });
+    }
+
+    // Prepare Excel data
+    const excelData = callLogs.map((call) => ({
+      "Name": call.name || "",
+      "Phone": call.phone || "",
+      "Call Status": call.call_status || "",
+      "Call Type": call.call_type || "",
+      "Duration (seconds)": call.duration || 0,
+      "Duration (formatted)": call.duration 
+        ? `${Math.floor(call.duration / 60)}:${String(call.duration % 60).padStart(2, '0')}`
+        : "0:00",
+      "Started At": call.started_at ? new Date(call.started_at).toLocaleString() : "",
+      "Ended At": call.ended_at ? new Date(call.ended_at).toLocaleString() : "",
+      "End Reason": call.end_reason || "",
+      "Is Lead": call.is_lead ? "Yes" : "No",
+      "Bot Name": call.genie_bots?.name || "",
+      "Agent": call.agent || "",
+      "Call URL": call.call_url || "",
+      "Transcript": call.transcript || "",
+    }));
+    // Create workbook and worksheet
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Call Logs");
+
+    // Generate Excel buffer
+    const excelBuffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+
+    // Get campaign name if available
+    let campaignName = "Call Logs";
+    if (actualScheduledListId) {
+      const { data: campaign } = await executeWithTimeout(
+        supabase
+          .from("genie_scheduled_calls")
+          .select("id, genie_contact_lists (name)")
+          .eq("id", actualScheduledListId)
+          .single()
+      );
+      if (campaign?.genie_contact_lists?.name) {
+        campaignName = campaign.genie_contact_lists.name;
+      }
+    }
+
+    // Send email with Excel attachment
+    const { sendCallLogsReportEmail } = await import("../../services/emailService.js");
+    const emailResult = await sendCallLogsReportEmail({
+      email: userProfile.email,
+      full_name: userProfile.full_name || userProfile.email.split('@')[0],
+      campaign_name: campaignName,
+      call_count: callLogs.length,
+      excel_buffer: excelBuffer,
+      filename: `call-logs-${campaignName.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.xlsx`,
+    });
+
+    if (!emailResult?.success) {
+      console.error("❌ Error sending email:", emailResult?.error);
+      return res.status(500).json({
+        success: false,
+        error: "Email Error",
+        message: "Failed to send email with call logs report",
+        details: emailResult?.error,
+      });
+    }
+
+    console.log("✅ Call logs exported and email sent successfully");
+
+    res.json({
+      success: true,
+      message: "Call logs exported and email sent successfully",
+      data: {
+        email_sent_to: userProfile.email,
+        call_count: callLogs.length,
+        campaign_name: campaignName,
+      },
+    });
+  } catch (err) {
+    console.error("❌ Error exporting call logs and sending email:", err);
+    return handleApiError(err, res, "Failed to export call logs and send email");
+  }
+};
+
 // =====================================================
 // ANALYTICS ENDPOINTS
 // =====================================================
