@@ -1550,6 +1550,21 @@ export const getTicketStats = async (req, res) => {
       statusMap.set(t.status, (statusMap.get(t.status) || 0) + 1);
     });
 
+    // ========================================
+    // 2.1. GET COUNTS BY PRIORITY (with timeout, optimized)
+    // ========================================
+    const priorityCountsPromise = supabase
+      .from("support_tickets")
+      .select("priority", { count: "exact" });
+
+    const { data: priorityCounts } = await executeWithTimeout(priorityCountsPromise, 3000);
+
+    // Count by priority
+    const priorityMap = new Map();
+    (priorityCounts || []).forEach(t => {
+      priorityMap.set(t.priority, (priorityMap.get(t.priority) || 0) + 1);
+    });
+
     const stats = {
       total: statusCounts?.length || 0,
       open: statusMap.get("open") || 0,
@@ -1557,6 +1572,11 @@ export const getTicketStats = async (req, res) => {
       resolved: statusMap.get("resolved") || 0,
       closed: statusMap.get("closed") || 0,
       pending: statusMap.get("pending") || 0,
+      // Priority counts
+      priority_low: priorityMap.get("low") || 0,
+      priority_medium: priorityMap.get("medium") || 0,
+      priority_high: priorityMap.get("high") || 0,
+      priority_urgent: priorityMap.get("urgent") || 0,
     };
 
     // ========================================

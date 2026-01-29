@@ -53,7 +53,7 @@ const Customers = () => {
   const [searchInput, setSearchInput] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
-  const [dateFilter, setDateFilter] = useState('all'); // 'all', 'weekly', 'monthly', 'manual'
+  const [dateFilter, setDateFilter] = useState('weekly'); // 'all', 'weekly', 'monthly', 'manual' - Default to 7 days
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [exportingCSV, setExportingCSV] = useState(false);
@@ -1000,21 +1000,21 @@ const Customers = () => {
 
   const getStatusColor = (status) => {
     const colors = {
-      open: '#007bff',
-      in_progress: '#ffc107',
-      resolved: '#28a745',
-      closed: '#6c757d',
-      pending: '#17a2b8'
+      open: '#007bff',        // Blue
+      in_progress: '#ffc107', // Yellow/Orange
+      resolved: '#28a745',    // Green
+      closed: '#6c757d',      // Gray
+      pending: '#17a2b8'      // Cyan
     };
     return colors[status] || '#6c757d';
   };
 
   const getPriorityColor = (priority) => {
     const colors = {
-      low: '#6c757d',
-      medium: '#007bff',
-      high: '#ffc107',
-      urgent: '#dc3545'
+      low: '#6c757d',     // Gray
+      medium: '#007bff',  // Blue
+      high: '#ff9800',    // Orange
+      urgent: '#dc3545'   // Red
     };
     return colors[priority] || '#6c757d';
   };
@@ -1189,7 +1189,7 @@ const Customers = () => {
         marginBottom: '24px'
       }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
             <h1 style={{ fontSize: '28px', fontWeight: '700', color: '#2c3e50', margin: 0 }}>
               Customer Support
             </h1>
@@ -1218,35 +1218,168 @@ const Customers = () => {
             </span>
           </div>
           {stats && (
-            <div style={{ display: 'flex', gap: '16px', marginTop: '8px', fontSize: '14px', color: '#6c757d' }}>
-              <span>Total: {stats.total}</span>
-              <span>Open: {stats.open}</span>
-              <span>In Progress: {stats.in_progress}</span>
-              <span>Unread: {stats.unread_messages}</span>
+            <div style={{ 
+              display: 'flex', 
+              gap: '16px', 
+              marginTop: '0',
+              flexWrap: 'wrap'
+            }}>
+              <div style={{
+                backgroundColor: '#f8f9fa',
+                padding: '16px 20px',
+                borderRadius: '8px',
+                border: '1px solid #dee2e6',
+                minWidth: '140px',
+                flex: '1 1 auto',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+              }}>
+                <div style={{ fontSize: '12px', color: '#6c757d', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Total
+                </div>
+                <div style={{ fontSize: '28px', fontWeight: '700', color: '#2c3e50', lineHeight: '1.2' }}>
+                  {stats.total || 0} <span style={{ fontSize: '14px', fontWeight: '400', color: '#6c757d' }}>tickets</span>
+                </div>
+              </div>
+              <div style={{
+                backgroundColor: '#e7f3ff',
+                padding: '16px 20px',
+                borderRadius: '8px',
+                border: '1px solid #b3d9ff',
+                minWidth: '140px',
+                flex: '1 1 auto',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+              }}>
+                <div style={{ fontSize: '12px', color: '#0066cc', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Open
+                </div>
+                <div style={{ fontSize: '28px', fontWeight: '700', color: '#007bff', lineHeight: '1.2' }}>
+                  {stats.open || 0} <span style={{ fontSize: '14px', fontWeight: '400', color: '#0066cc' }}>tickets</span>
+                </div>
+              </div>
+              <div style={{
+                backgroundColor: '#fff3cd',
+                padding: '16px 20px',
+                borderRadius: '8px',
+                border: '1px solid #ffd700',
+                minWidth: '140px',
+                flex: '1 1 auto',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+              }}>
+                <div style={{ fontSize: '12px', color: '#856404', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  In Progress
+                </div>
+                <div style={{ fontSize: '28px', fontWeight: '700', color: '#ffc107', lineHeight: '1.2' }}>
+                  {stats.in_progress || 0} <span style={{ fontSize: '14px', fontWeight: '400', color: '#856404' }}>tickets</span>
+                </div>
+              </div>
+              <div style={{
+                backgroundColor: '#f8d7da',
+                padding: '16px 20px',
+                borderRadius: '8px',
+                border: '1px solid #f5c6cb',
+                minWidth: '140px',
+                flex: '1 1 auto',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+              }}>
+                <div style={{ fontSize: '12px', color: '#721c24', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Unread
+                </div>
+                <div style={{ fontSize: '28px', fontWeight: '700', color: '#dc3545', lineHeight: '1.2' }}>
+                  {stats.unread_messages || 0} <span style={{ fontSize: '14px', fontWeight: '400', color: '#721c24' }}>tickets</span>
+                </div>
+              </div>
+              
+              {/* Priority-based Stat Boxes */}
+              <div style={{
+                backgroundColor: '#e8f5e9',
+                padding: '16px 20px',
+                borderRadius: '8px',
+                border: '1px solid #c8e6c9',
+                minWidth: '140px',
+                flex: '1 1 auto',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+              }}>
+                <div style={{ fontSize: '12px', color: '#2e7d32', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Low Priority
+                </div>
+                <div style={{ fontSize: '28px', fontWeight: '700', color: '#4caf50', lineHeight: '1.2' }}>
+                  {stats.priority_low || 0} <span style={{ fontSize: '14px', fontWeight: '400', color: '#2e7d32' }}>tickets</span>
+                </div>
+              </div>
+              <div style={{
+                backgroundColor: '#fff9e6',
+                padding: '16px 20px',
+                borderRadius: '8px',
+                border: '1px solid #ffe082',
+                minWidth: '140px',
+                flex: '1 1 auto',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+              }}>
+                <div style={{ fontSize: '12px', color: '#f57c00', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Medium Priority
+                </div>
+                <div style={{ fontSize: '28px', fontWeight: '700', color: '#ff9800', lineHeight: '1.2' }}>
+                  {stats.priority_medium || 0} <span style={{ fontSize: '14px', fontWeight: '400', color: '#f57c00' }}>tickets</span>
+                </div>
+              </div>
+              <div style={{
+                backgroundColor: '#ffe0b2',
+                padding: '16px 20px',
+                borderRadius: '8px',
+                border: '1px solid #ffb74d',
+                minWidth: '140px',
+                flex: '1 1 auto',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+              }}>
+                <div style={{ fontSize: '12px', color: '#e65100', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  High Priority
+                </div>
+                <div style={{ fontSize: '28px', fontWeight: '700', color: '#ff6f00', lineHeight: '1.2' }}>
+                  {stats.priority_high || 0} <span style={{ fontSize: '14px', fontWeight: '400', color: '#e65100' }}>tickets</span>
+                </div>
+              </div>
+              <div style={{
+                backgroundColor: '#ffebee',
+                padding: '16px 20px',
+                borderRadius: '8px',
+                border: '1px solid #ef5350',
+                minWidth: '140px',
+                flex: '1 1 auto',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+              }}>
+                <div style={{ fontSize: '12px', color: '#c62828', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Urgent Priority
+                </div>
+                <div style={{ fontSize: '28px', fontWeight: '700', color: '#d32f2f', lineHeight: '1.2' }}>
+                  {stats.priority_urgent || 0} <span style={{ fontSize: '14px', fontWeight: '400', color: '#c62828' }}>tickets</span>
+                </div>
+              </div>
             </div>
           )}
         </div>
-        {!checkingPermissions && permissions.create && (
-          <button
-            onClick={() => setShowCreateModal(true)}
-            style={{
-              backgroundColor: '#8a3b9a',
-              color: 'white',
-              border: 'none',
-              padding: '10px 20px',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              fontWeight: '600',
-              fontSize: '14px'
-            }}
-          >
-            <Plus size={18} />
-            New Ticket
-          </button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {!checkingPermissions && permissions.create && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              style={{
+                backgroundColor: '#8a3b9a',
+                color: 'white',
+                border: 'none',
+                padding: '10px 20px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontWeight: '600',
+                fontSize: '14px'
+              }}
+            >
+              <Plus size={18} />
+              New Ticket
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filters */}
@@ -1499,26 +1632,34 @@ const Customers = () => {
                     </td>
                     <td style={{ padding: '12px' }}>
                       <span style={{
-                        padding: '4px 12px',
-                        borderRadius: '12px',
+                        padding: '6px 14px',
+                        borderRadius: '16px',
                         fontSize: '12px',
                         fontWeight: '600',
+                        display: 'inline-block',
                         backgroundColor: getStatusColor(ticket.status) + '20',
-                        color: getStatusColor(ticket.status)
+                        color: getStatusColor(ticket.status),
+                        border: `1px solid ${getStatusColor(ticket.status)}40`,
+                        textTransform: 'capitalize',
+                        letterSpacing: '0.3px'
                       }}>
-                        {ticket.status?.replace('_', ' ').toUpperCase()}
+                        {ticket.status?.replace('_', ' ')}
                       </span>
                     </td>
                     <td style={{ padding: '12px' }}>
                       <span style={{
-                        padding: '4px 12px',
-                        borderRadius: '12px',
+                        padding: '6px 14px',
+                        borderRadius: '16px',
                         fontSize: '12px',
                         fontWeight: '600',
+                        display: 'inline-block',
                         backgroundColor: getPriorityColor(ticket.priority) + '20',
-                        color: getPriorityColor(ticket.priority)
+                        color: getPriorityColor(ticket.priority),
+                        border: `1px solid ${getPriorityColor(ticket.priority)}40`,
+                        textTransform: 'capitalize',
+                        letterSpacing: '0.3px'
                       }}>
-                        {ticket.priority?.toUpperCase()}
+                        {ticket.priority}
                       </span>
                     </td>
                     <td style={{ padding: '12px', color: '#6c757d', fontSize: '13px' }}>
