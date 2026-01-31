@@ -1286,9 +1286,6 @@ export const CallLogsReportTemplate = ({
   call_count = 0,
   website_url = '#',
 } = {}) => {
-  const normalizedWebsiteUrl = website_url.replace(/\/+$/, '');
-  const dashboardUrl = normalizedWebsiteUrl;
-
   const content = `
     <p style="margin: 0 0 12px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
       Hello <strong style="color: #8a3b9a;">${full_name}</strong>,
@@ -1297,7 +1294,7 @@ export const CallLogsReportTemplate = ({
       Your dialer list <strong>"${campaign_name}"</strong> has been completed successfully!
     </p>
     <p style="margin: 0 0 12px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-      We've generated a comprehensive report with all call statuses and details. The Excel file is attached to this email.
+      We've generated a comprehensive report with all call information. The Excel file is attached to this email.
     </p>
     <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
       <tr>
@@ -1326,7 +1323,7 @@ export const CallLogsReportTemplate = ({
       </tr>
     </table>
     <p style="margin: 12px 0 0 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-      The attached Excel file contains detailed information about each call, including:
+      The attached Excel file contains all information about each call, including:
     </p>
     <ul style="margin: 8px 0 0 0; padding-left: 20px; color: #66698c; font-family: Verdana, Geneva, sans-serif;">
       <li>Contact name and phone number</li>
@@ -1342,8 +1339,6 @@ export const CallLogsReportTemplate = ({
     title: `Call Logs Report: ${campaign_name}`,
     subtitle: `Your dialer list has been completed`,
     content,
-    buttonText: 'View Dashboard',
-    buttonUrl: dashboardUrl,
     footerText: `Questions about your call logs? Contact us at info@duhanashrah.ai`
   });
 };
