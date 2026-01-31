@@ -1536,8 +1536,9 @@ function CampaignsTab() {
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 1000,
-            padding: '12px',
-            overflow: 'auto'
+            padding: '20px',
+            overflowY: 'auto',
+            overflowX: 'hidden'
           }}
           onClick={(e) => {
             if (e.target === e.currentTarget) {
@@ -1551,12 +1552,13 @@ function CampaignsTab() {
               borderRadius: '12px',
               width: '100%',
               maxWidth: '1400px',
-              maxHeight: '95vh',
+              maxHeight: '90vh',
               display: 'flex',
               flexDirection: 'column',
               boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
               overflow: 'hidden',
-              margin: 'auto'
+              margin: 'auto',
+              boxSizing: 'border-box'
             }}
             onClick={(e) => e.stopPropagation()}
           >
