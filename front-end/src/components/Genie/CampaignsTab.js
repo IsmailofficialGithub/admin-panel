@@ -51,12 +51,16 @@ function CampaignsTab() {
   const [campaignCalls, setCampaignCalls] = useState([]);
   const [callsLoading, setCallsLoading] = useState(false);
   const [selectedCampaignForCalls, setSelectedCampaignForCalls] = useState(null);
+  const [isModalJustOpened, setIsModalJustOpened] = useState(false);
   
   // Calls Modal Filters
   const [callsSearchQuery, setCallsSearchQuery] = useState("");
   const [callsStartDate, setCallsStartDate] = useState("");
   const [callsEndDate, setCallsEndDate] = useState("");
   const [callsMinDuration, setCallsMinDuration] = useState("");
+  
+  // Check if any filters are active
+  const hasActiveFilters = callsSearchQuery.trim() || callsStartDate || callsEndDate || callsMinDuration;
   
   // Calls Modal Pagination
   const [callsCurrentPage, setCallsCurrentPage] = useState(1);
@@ -521,8 +525,22 @@ function CampaignsTab() {
     setCallsStartDate("");
     setCallsEndDate("");
     setCallsMinDuration("");
+    setIsModalJustOpened(true);
     
     await fetchCampaignCalls(campaign, type, 1);
+    
+    // Reset flag after initial load
+    setTimeout(() => setIsModalJustOpened(false), 500);
+  };
+
+  // Convert datetime-local to ISO format
+  const convertToISO = (datetimeLocal) => {
+    if (!datetimeLocal) return undefined;
+    // datetime-local format: "2024-01-15T14:30:00"
+    // Convert to ISO: "2024-01-15T14:30:00.000Z"
+    const date = new Date(datetimeLocal);
+    if (isNaN(date.getTime())) return undefined;
+    return date.toISOString();
   };
 
   // Fetch campaign calls
@@ -533,9 +551,9 @@ function CampaignsTab() {
         page,
         limit: callsLimit,
         scheduledListId: campaign.id,
-        startDate: callsStartDate || undefined,
-        endDate: callsEndDate || undefined,
-        search: callsSearchQuery || undefined,
+        startDate: convertToISO(callsStartDate),
+        endDate: convertToISO(callsEndDate),
+        search: callsSearchQuery?.trim() || undefined,
         minDuration: callsMinDuration || undefined,
       };
 
@@ -573,6 +591,34 @@ function CampaignsTab() {
       fetchCampaignCalls(selectedCampaignForCalls, modalType, 1);
     }
   };
+
+  // Debounced filter change for search
+  useEffect(() => {
+    if (!showCallsModal || !selectedCampaignForCalls || !modalType) return;
+    
+    const debounceTimer = setTimeout(() => {
+      // Only auto-apply search filter, not date filters
+      if (callsSearchQuery !== undefined) {
+        setCallsCurrentPage(1);
+        fetchCampaignCalls(selectedCampaignForCalls, modalType, 1);
+      }
+    }, 500);
+
+    return () => clearTimeout(debounceTimer);
+  }, [callsSearchQuery, showCallsModal, selectedCampaignForCalls, modalType]);
+
+  // Auto-apply min duration filter when changed
+  useEffect(() => {
+    if (!showCallsModal || !selectedCampaignForCalls || !modalType || isModalJustOpened) return;
+    
+    // Auto-apply when min duration changes (but not on initial mount)
+    const timeoutId = setTimeout(() => {
+      setCallsCurrentPage(1);
+      fetchCampaignCalls(selectedCampaignForCalls, modalType, 1);
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [callsMinDuration, showCallsModal, selectedCampaignForCalls, modalType, isModalJustOpened]);
 
   // Close calls modal
   const closeCallsModal = () => {
@@ -1490,7 +1536,8 @@ function CampaignsTab() {
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 1000,
-            padding: '20px'
+            padding: '12px',
+            overflow: 'auto'
           }}
           onClick={(e) => {
             if (e.target === e.currentTarget) {
@@ -1504,10 +1551,12 @@ function CampaignsTab() {
               borderRadius: '12px',
               width: '100%',
               maxWidth: '1400px',
-              maxHeight: '90vh',
+              maxHeight: '95vh',
               display: 'flex',
               flexDirection: 'column',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+              overflow: 'hidden',
+              margin: 'auto'
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -1559,14 +1608,37 @@ function CampaignsTab() {
               borderBottom: '1px solid #e5e7eb',
               backgroundColor: '#f8fafc'
             }}>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'flex-end' }}>
-                <div style={{ flex: '1 1 200px', minWidth: '200px' }}>
+              <div 
+                className="filter-grid"
+                style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                  gap: '16px',
+                  alignItems: 'flex-end'
+                }}
+              >
+                <div style={{ gridColumn: 'span 2', minWidth: '200px' }}>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Search</label>
                   <div style={{ position: 'relative' }}>
-                    <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+                    <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', zIndex: 1 }} />
+                    {callsSearchQuery && (
+                      <X 
+                        size={14} 
+                        onClick={() => setCallsSearchQuery("")}
+                        style={{ 
+                          position: 'absolute', 
+                          right: '12px', 
+                          top: '50%', 
+                          transform: 'translateY(-50%)', 
+                          color: '#9ca3af',
+                          cursor: 'pointer',
+                          zIndex: 1
+                        }} 
+                      />
+                    )}
                     <input
                       type="text"
-                      placeholder="Name, phone..."
+                      placeholder="Search by name or phone..."
                       value={callsSearchQuery}
                       onChange={(e) => setCallsSearchQuery(e.target.value)}
                       onKeyPress={(e) => {
@@ -1576,65 +1648,81 @@ function CampaignsTab() {
                       }}
                       style={{
                         width: '100%',
-                        padding: '8px 12px 8px 36px',
+                        padding: '10px 12px 10px 40px',
+                        paddingRight: callsSearchQuery ? '36px' : '12px',
                         border: '1px solid #e2e8f0',
-                        borderRadius: '6px',
+                        borderRadius: '8px',
                         fontSize: '14px',
                         outline: 'none',
-                        boxSizing: 'border-box'
+                        boxSizing: 'border-box',
+                        transition: 'all 0.2s',
+                        backgroundColor: 'white'
                       }}
+                      onFocus={(e) => e.currentTarget.style.borderColor = '#74317e'}
+                      onBlur={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
                     />
                   </div>
                 </div>
-                <div style={{ flex: '0 1 140px' }}>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>From Date</label>
+                <div style={{ minWidth: '180px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>From Date & Time</label>
                   <input
-                    type="date"
+                    type="datetime-local"
                     value={callsStartDate}
                     onChange={(e) => setCallsStartDate(e.target.value)}
                     style={{
                       width: '100%',
-                      padding: '8px 12px',
+                      padding: '10px 12px',
                       border: '1px solid #e2e8f0',
-                      borderRadius: '6px',
+                      borderRadius: '8px',
                       fontSize: '14px',
                       outline: 'none',
-                      boxSizing: 'border-box'
+                      boxSizing: 'border-box',
+                      transition: 'all 0.2s',
+                      backgroundColor: 'white'
                     }}
+                    onFocus={(e) => e.currentTarget.style.borderColor = '#74317e'}
+                    onBlur={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
                   />
                 </div>
-                <div style={{ flex: '0 1 140px' }}>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>To Date</label>
+                <div style={{ minWidth: '180px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>To Date & Time</label>
                   <input
-                    type="date"
+                    type="datetime-local"
                     value={callsEndDate}
                     onChange={(e) => setCallsEndDate(e.target.value)}
                     style={{
                       width: '100%',
-                      padding: '8px 12px',
+                      padding: '10px 12px',
                       border: '1px solid #e2e8f0',
-                      borderRadius: '6px',
+                      borderRadius: '8px',
                       fontSize: '14px',
                       outline: 'none',
-                      boxSizing: 'border-box'
+                      boxSizing: 'border-box',
+                      transition: 'all 0.2s',
+                      backgroundColor: 'white'
                     }}
+                    onFocus={(e) => e.currentTarget.style.borderColor = '#74317e'}
+                    onBlur={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
                   />
                 </div>
-                <div style={{ flex: '0 1 160px' }}>
+                <div style={{ minWidth: '160px' }}>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Min Duration</label>
                   <select
                     value={callsMinDuration}
                     onChange={(e) => setCallsMinDuration(e.target.value)}
                     style={{
                       width: '100%',
-                      padding: '8px 12px',
+                      padding: '10px 12px',
                       border: '1px solid #e2e8f0',
-                      borderRadius: '6px',
+                      borderRadius: '8px',
                       fontSize: '14px',
                       outline: 'none',
                       backgroundColor: 'white',
-                      cursor: 'pointer'
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
                     }}
+                    onFocus={(e) => e.currentTarget.style.borderColor = '#74317e'}
+                    onBlur={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
                   >
                     <option value="">All Durations</option>
                     <option value="30">30+ seconds</option>
@@ -1643,49 +1731,81 @@ function CampaignsTab() {
                     <option value="600">10+ minutes</option>
                   </select>
                 </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCallsSearchQuery("");
-                      setCallsStartDate("");
-                      setCallsEndDate("");
-                      setCallsMinDuration("");
-                    }}
-                    style={{
-                      padding: '8px 16px',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '6px',
-                      backgroundColor: 'white',
-                      color: '#64748b',
-                      fontSize: '14px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}
-                  >
-                    <X size={14} /> Clear
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCallsFilterChange}
-                    style={{
-                      padding: '8px 16px',
-                      border: 'none',
-                      borderRadius: '6px',
-                      backgroundColor: '#74317e',
-                      color: 'white',
-                      fontSize: '14px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}
-                  >
-                    <Search size={14} /> Apply
-                  </button>
-                </div>
+                {hasActiveFilters && (
+                  <div style={{ display: 'flex', gap: '8px', minWidth: 'fit-content' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCallsSearchQuery("");
+                        setCallsStartDate("");
+                        setCallsEndDate("");
+                        setCallsMinDuration("");
+                        // Trigger filter refresh after clearing
+                        setTimeout(() => {
+                          if (selectedCampaignForCalls && modalType) {
+                            setCallsCurrentPage(1);
+                            fetchCampaignCalls(selectedCampaignForCalls, modalType, 1);
+                          }
+                        }, 100);
+                      }}
+                      style={{
+                        padding: '10px 16px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        backgroundColor: 'white',
+                        color: '#64748b',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        transition: 'all 0.2s',
+                        whiteSpace: 'nowrap'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#f1f5f9';
+                        e.currentTarget.style.borderColor = '#cbd5e1';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'white';
+                        e.currentTarget.style.borderColor = '#e2e8f0';
+                      }}
+                    >
+                      <X size={14} /> Clear
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCallsFilterChange}
+                      style={{
+                        padding: '10px 20px',
+                        border: 'none',
+                        borderRadius: '8px',
+                        backgroundColor: '#74317e',
+                        color: 'white',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        transition: 'all 0.2s',
+                        whiteSpace: 'nowrap',
+                        boxShadow: '0 2px 4px rgba(116, 49, 126, 0.2)'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#5a2570';
+                        e.currentTarget.style.boxShadow = '0 4px 8px rgba(116, 49, 126, 0.3)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = '#74317e';
+                        e.currentTarget.style.boxShadow = '0 2px 4px rgba(116, 49, 126, 0.2)';
+                      }}
+                    >
+                      <Search size={14} /> 
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1710,15 +1830,15 @@ function CampaignsTab() {
                 </div>
               ) : (
                 <>
-                  <div style={{ overflowX: 'auto' }}>
+                  <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxHeight: 'calc(90vh - 300px)' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
-                      <thead style={{ backgroundColor: '#f8fafc' }}>
+                      <thead style={{ backgroundColor: '#f8fafc', position: 'sticky', top: 0, zIndex: 10 }}>
                         <tr>
-                          <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Contact</th>
-                          <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Status</th>
-                          <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Duration</th>
-                          <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>Date</th>
-                          <th style={{ padding: '14px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0', width: '320px' }}>Recording</th>
+                          <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap', backgroundColor: '#f8fafc' }}>Contact</th>
+                          <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap', backgroundColor: '#f8fafc' }}>Status</th>
+                          <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap', backgroundColor: '#f8fafc' }}>Duration</th>
+                          <th style={{ padding: '14px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap', backgroundColor: '#f8fafc' }}>Date</th>
+                          <th style={{ padding: '14px 16px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0', width: '320px', whiteSpace: 'nowrap', backgroundColor: '#f8fafc' }}>Recording</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2077,6 +2197,16 @@ function CampaignsTab() {
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
+        }
+        @media (max-width: 768px) {
+          .filter-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        @media (max-width: 1024px) {
+          .filter-grid {
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important;
+          }
         }
         audio {
           width: 100%;
