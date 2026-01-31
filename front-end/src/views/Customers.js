@@ -1185,53 +1185,64 @@ const Customers = () => {
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '24px'
+        alignItems: 'flex-start',
+        marginBottom: '24px',
+        width: '100%',
+        gap: '16px'
       }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-            <h1 style={{ fontSize: '28px', fontWeight: '700', color: '#2c3e50', margin: 0 }}>
-              Customer Support
-            </h1>
-            {/* Realtime Connection Status */}
-            <span style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '6px 12px',
-              borderRadius: '20px',
-              fontSize: '12px',
-              fontWeight: '500',
-              backgroundColor: isRealtimeConnected ? '#d4edda' : '#f8d7da',
-              color: isRealtimeConnected ? '#28a745' : '#dc3545',
-              border: `1px solid ${isRealtimeConnected ? '#28a745' : '#dc3545'}20`
+          <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '12px', 
+              marginBottom: '16px', 
+              flexWrap: 'wrap'
             }}>
-              {isRealtimeConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
+              <h1 style={{ fontSize: '28px', fontWeight: '700', color: '#2c3e50', margin: 0 }}>
+                Customer Support
+              </h1>
+              {/* Realtime Connection Status */}
               <span style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                backgroundColor: isRealtimeConnected ? '#28a745' : '#dc3545',
-                animation: isRealtimeConnected ? 'pulse 2s infinite' : 'none'
-              }} />
-              {isRealtimeConnected ? 'Live' : 'Disconnected'}
-            </span>
-          </div>
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                borderRadius: '20px',
+                fontSize: '12px',
+                fontWeight: '500',
+                backgroundColor: isRealtimeConnected ? '#d4edda' : '#f8d7da',
+                color: isRealtimeConnected ? '#28a745' : '#dc3545',
+                border: `1px solid ${isRealtimeConnected ? '#28a745' : '#dc3545'}20`,
+                flexShrink: 0
+              }}>
+                {isRealtimeConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
+                <span style={{
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '50%',
+                  backgroundColor: isRealtimeConnected ? '#28a745' : '#dc3545',
+                  animation: isRealtimeConnected ? 'pulse 2s infinite' : 'none'
+                }} />
+                {isRealtimeConnected ? 'Live' : 'Disconnected'}
+              </span>
+            </div>
           {stats && (
             <div style={{ 
               display: 'flex', 
               gap: '16px', 
               marginTop: '0',
-              flexWrap: 'wrap'
+              flexWrap: 'wrap',
+              width: '100%'
             }}>
               <div style={{
                 backgroundColor: '#f8f9fa',
                 padding: '16px 20px',
                 borderRadius: '8px',
                 border: '1px solid #dee2e6',
+                width: 'calc(20% - 13px)',
                 minWidth: '140px',
-                flex: '1 1 auto',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                boxSizing: 'border-box'
               }}>
                 <div style={{ fontSize: '12px', color: '#6c757d', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Total
@@ -1245,9 +1256,10 @@ const Customers = () => {
                 padding: '16px 20px',
                 borderRadius: '8px',
                 border: '1px solid #b3d9ff',
+                width: 'calc(20% - 13px)',
                 minWidth: '140px',
-                flex: '1 1 auto',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                boxSizing: 'border-box'
               }}>
                 <div style={{ fontSize: '12px', color: '#0066cc', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Open
@@ -1261,9 +1273,10 @@ const Customers = () => {
                 padding: '16px 20px',
                 borderRadius: '8px',
                 border: '1px solid #ffd700',
+                width: 'calc(20% - 13px)',
                 minWidth: '140px',
-                flex: '1 1 auto',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                boxSizing: 'border-box'
               }}>
                 <div style={{ fontSize: '12px', color: '#856404', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   In Progress
@@ -1277,9 +1290,10 @@ const Customers = () => {
                 padding: '16px 20px',
                 borderRadius: '8px',
                 border: '1px solid #f5c6cb',
+                width: 'calc(20% - 13px)',
                 minWidth: '140px',
-                flex: '1 1 auto',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                boxSizing: 'border-box'
               }}>
                 <div style={{ fontSize: '12px', color: '#721c24', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Unread
@@ -1295,9 +1309,10 @@ const Customers = () => {
                 padding: '16px 20px',
                 borderRadius: '8px',
                 border: '1px solid #c8e6c9',
+                width: 'calc(20% - 13px)',
                 minWidth: '140px',
-                flex: '1 1 auto',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                boxSizing: 'border-box'
               }}>
                 <div style={{ fontSize: '12px', color: '#2e7d32', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Low Priority
@@ -1311,9 +1326,10 @@ const Customers = () => {
                 padding: '16px 20px',
                 borderRadius: '8px',
                 border: '1px solid #ffe082',
+                width: 'calc(20% - 13px)',
                 minWidth: '140px',
-                flex: '1 1 auto',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                boxSizing: 'border-box'
               }}>
                 <div style={{ fontSize: '12px', color: '#f57c00', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Medium Priority
@@ -1327,9 +1343,10 @@ const Customers = () => {
                 padding: '16px 20px',
                 borderRadius: '8px',
                 border: '1px solid #ffb74d',
+                width: 'calc(20% - 13px)',
                 minWidth: '140px',
-                flex: '1 1 auto',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                boxSizing: 'border-box'
               }}>
                 <div style={{ fontSize: '12px', color: '#e65100', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   High Priority
@@ -1343,9 +1360,10 @@ const Customers = () => {
                 padding: '16px 20px',
                 borderRadius: '8px',
                 border: '1px solid #ef5350',
+                width: 'calc(20% - 13px)',
                 minWidth: '140px',
-                flex: '1 1 auto',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                boxSizing: 'border-box'
               }}>
                 <div style={{ fontSize: '12px', color: '#c62828', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Urgent Priority
@@ -1357,8 +1375,9 @@ const Customers = () => {
             </div>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {!checkingPermissions && permissions.create && (
+        {/* New Ticket Button */}
+        {!checkingPermissions && permissions.create && (
+          <div style={{ flexShrink: 0, alignSelf: 'flex-start' }}>
             <button
               onClick={() => setShowCreateModal(true)}
               style={{
@@ -1372,14 +1391,15 @@ const Customers = () => {
                 alignItems: 'center',
                 gap: '8px',
                 fontWeight: '600',
-                fontSize: '14px'
+                fontSize: '14px',
+                whiteSpace: 'nowrap'
               }}
             >
               <Plus size={18} />
               New Ticket
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Filters */}
@@ -1390,7 +1410,7 @@ const Customers = () => {
         flexWrap: 'wrap',
         alignItems: 'center'
       }}>
-        <div style={{ position: 'relative', flex: '1', minWidth: '300px' }}>
+        <div style={{ position: 'relative', width: '40%', minWidth: '250px' }}>
           <Search 
             size={18} 
             style={{ 
@@ -1398,7 +1418,8 @@ const Customers = () => {
               left: '12px', 
               top: '50%', 
               transform: 'translateY(-50%)',
-              color: '#6c757d'
+              color: '#6c757d',
+              zIndex: 1
             }} 
           />
           <input
@@ -1412,7 +1433,8 @@ const Customers = () => {
               border: '1px solid #ddd',
               borderRadius: '8px',
               fontSize: '14px',
-              outline: 'none'
+              outline: 'none',
+              boxSizing: 'border-box'
             }}
           />
         </div>
@@ -1781,19 +1803,45 @@ const Customers = () => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          zIndex: 1000
-        }}>
+          zIndex: 1000,
+          padding: '12px',
+          overflow: 'auto',
+          WebkitOverflowScrolling: 'touch'
+        }}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            setShowCreateModal(false);
+          }
+        }}
+        >
           <div style={{
             backgroundColor: 'white',
             borderRadius: '12px',
-            padding: '24px',
-            width: '90%',
+            padding: '20px',
+            width: '100%',
             maxWidth: '600px',
-            maxHeight: '90vh',
-            overflow: 'auto'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-              <h2 style={{ margin: 0, fontSize: '24px', fontWeight: '700' }}>Create Support Ticket</h2>
+            maxHeight: '95vh',
+            overflow: 'auto',
+            margin: 'auto',
+            boxSizing: 'border-box'
+          }}
+          onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              marginBottom: '24px',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
+              <h2 style={{ 
+                margin: 0, 
+                fontSize: 'clamp(20px, 4vw, 24px)', 
+                fontWeight: '700',
+                flex: '1 1 auto',
+                minWidth: '200px'
+              }}>Create Support Ticket</h2>
               <button
                 onClick={() => {
                   setShowCreateModal(false);
@@ -1817,7 +1865,8 @@ const Customers = () => {
                   border: 'none',
                   cursor: 'pointer',
                   padding: '4px',
-                  color: '#6c757d'
+                  color: '#6c757d',
+                  flexShrink: 0
                 }}
               >
                 <X size={24} />
@@ -1863,7 +1912,12 @@ const Customers = () => {
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+              gap: '16px', 
+              marginBottom: '16px' 
+            }}>
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#495057' }}>
                   Category
@@ -2156,7 +2210,12 @@ const Customers = () => {
               )}
             </div>
 
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+            <div style={{ 
+              display: 'flex', 
+              gap: '12px', 
+              justifyContent: 'flex-end',
+              flexWrap: 'wrap'
+            }}>
               <button
                 onClick={() => {
                   setShowCreateModal(false);
@@ -2181,7 +2240,9 @@ const Customers = () => {
                   borderRadius: '8px',
                   backgroundColor: 'white',
                   cursor: 'pointer',
-                  fontWeight: '600'
+                  fontWeight: '600',
+                  flex: '1 1 auto',
+                  minWidth: '120px'
                 }}
               >
                 Cancel
@@ -2197,7 +2258,9 @@ const Customers = () => {
                   color: 'white',
                   cursor: creatingTicket || uploadingFiles ? 'not-allowed' : 'pointer',
                   fontWeight: '600',
-                  opacity: creatingTicket || uploadingFiles ? 0.6 : 1
+                  opacity: creatingTicket || uploadingFiles ? 0.6 : 1,
+                  flex: '1 1 auto',
+                  minWidth: '120px'
                 }}
               >
                 {creatingTicket || uploadingFiles ? 'Creating...' : 'Create Ticket'}
