@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useHistory } from "react-router-dom";
 import { Star, Search, RefreshCw, X, Download, MoreVertical, Eye, Play, Trash2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { getAllLeads, deleteLead, exportLeads, getAllBots } from "api/backend/genie";
@@ -58,6 +58,42 @@ function LeadsTab() {
 
   // Dropdown state
   const [openDropdown, setOpenDropdown] = useState(null);
+  const [dropdownPositions, setDropdownPositions] = useState({}); // Store position for each dropdown
+  const dropdownButtonRefs = useRef({});
+  
+  // Function to check if dropdown should open upward
+  const checkDropdownPosition = (leadId, buttonElement, isLastRow = false) => {
+    if (!buttonElement) return 'bottom';
+    
+    // Force upward for last row
+    if (isLastRow) return 'top';
+    
+    const rect = buttonElement.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const spaceBelow = viewportHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const dropdownHeight = 200; // Approximate dropdown height
+    
+    // Check if we're in the last few rows (within last 40% of viewport)
+    const isNearBottom = rect.bottom > viewportHeight * 0.6;
+    
+    // If near bottom or not enough space below but enough space above, open upward
+    if (isNearBottom || (spaceBelow < dropdownHeight && spaceAbove > dropdownHeight)) {
+      return 'top';
+    }
+    return 'bottom';
+  };
+  
+  // Handle dropdown toggle with position check
+  const handleDropdownToggle = (leadId, buttonElement, isLastRow = false) => {
+    if (openDropdown === leadId) {
+      setOpenDropdown(null);
+    } else {
+      const position = checkDropdownPosition(leadId, buttonElement, isLastRow);
+      setDropdownPositions(prev => ({ ...prev, [leadId]: position }));
+      setOpenDropdown(leadId);
+    }
+  };
 
   // Permissions
   const canRead = hasPermission('genie.leads.read');
@@ -494,8 +530,10 @@ function LeadsTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {leads.map((lead) => (
-                    <tr 
+                  {leads.map((lead, index) => {
+                    const isLastRow = index === leads.length - 1;
+                    return (
+                      <tr
                       key={lead.id}
                       style={{ borderBottom: '1px solid #f1f5f9', transition: 'background-color 0.2s' }}
                       onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
@@ -537,7 +575,10 @@ function LeadsTab() {
                       </td>
                       <td style={{ padding: '14px 16px', textAlign: 'center', position: 'relative' }}>
                         <button
-                          onClick={() => setOpenDropdown(openDropdown === lead.id ? null : lead.id)}
+                          ref={(el) => {
+                            if (el) dropdownButtonRefs.current[lead.id] = el;
+                          }}
+                          onClick={(e) => handleDropdownToggle(lead.id, e.currentTarget, isLastRow)}
                           style={{
                             width: '32px',
                             height: '32px',
@@ -554,21 +595,30 @@ function LeadsTab() {
                         >
                           <MoreVertical size={16} />
                         </button>
-                        {openDropdown === lead.id && (
-                          <div style={{
-                            position: 'absolute',
-                            right: '16px',
-                            top: '100%',
-                            backgroundColor: 'white',
-                            border: '1px solid #e0e0e0',
-                            borderRadius: '8px',
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                            zIndex: 100,
-                            minWidth: '160px'
-                          }}>
+                        {openDropdown === lead.id && (() => {
+                          const isTop = dropdownPositions[lead.id] === 'top';
+                          return (
+                            <div style={{
+                              position: 'absolute',
+                              right: '16px',
+                              ...(isTop ? { bottom: '100%', marginBottom: '4px' } : { top: '100%', marginTop: '4px' }),
+                              backgroundColor: 'white',
+                              border: '1px solid #e0e0e0',
+                              borderRadius: '8px',
+                              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                              zIndex: 9999,
+                              minWidth: '160px'
+                            }}>
                             {canRead && (
                               <button
-                                onClick={() => { history.push(`/admin/genie/leads/${lead.id}`); setOpenDropdown(null); }}
+                                onClick={(e) => { 
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  setOpenDropdown(null);
+                                  setTimeout(() => {
+                                    history.push(`/admin/genie/leads/${lead.id}`);
+                                  }, 0);
+                                }}
                                 style={{
                                   width: '100%',
                                   padding: '10px 16px',
@@ -633,11 +683,13 @@ function LeadsTab() {
                                 </button>
                               </>
                             )}
-                          </div>
-                        )}
+                            </div>
+                          );
+                        })()}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -647,7 +699,7 @@ function LeadsTab() {
               <span style={{ color: '#64748b', fontSize: '13px' }}>
                 Showing {leads.length} of {totalCount} leads (Page {currentPage} of {totalPages})
               </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <button 
                   onClick={() => setCurrentPage(1)} 
                   disabled={currentPage <= 1}
@@ -684,21 +736,109 @@ function LeadsTab() {
                 >
                   <ChevronLeft size={16} />
                 </button>
-                <button style={{
-                  width: '36px',
-                  height: '36px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  backgroundColor: '#74317e',
-                  color: 'white',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: '600',
-                  fontSize: '14px'
-                }}>
-                  {currentPage}
-                </button>
+                
+                {/* Page Numbers */}
+                {(() => {
+                  const pages = [];
+                  const maxVisible = 5;
+                  let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+                  let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+                  
+                  if (endPage - startPage < maxVisible - 1) {
+                    startPage = Math.max(1, endPage - maxVisible + 1);
+                  }
+                  
+                  if (startPage > 1) {
+                    pages.push(
+                      <button
+                        key={1}
+                        onClick={() => setCurrentPage(1)}
+                        style={{
+                          minWidth: '36px',
+                          height: '36px',
+                          padding: '0 12px',
+                          borderRadius: '8px',
+                          border: '1px solid #e2e8f0',
+                          backgroundColor: 'white',
+                          color: '#64748b',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          fontWeight: '500',
+                          fontSize: '14px'
+                        }}
+                      >
+                        1
+                      </button>
+                    );
+                    if (startPage > 2) {
+                      pages.push(
+                        <span key="ellipsis1" style={{ padding: '0 4px', color: '#64748b' }}>...</span>
+                      );
+                    }
+                  }
+                  
+                  for (let i = startPage; i <= endPage; i++) {
+                    pages.push(
+                      <button
+                        key={i}
+                        onClick={() => setCurrentPage(i)}
+                        style={{
+                          minWidth: '36px',
+                          height: '36px',
+                          padding: '0 12px',
+                          borderRadius: '8px',
+                          border: i === currentPage ? 'none' : '1px solid #e2e8f0',
+                          backgroundColor: i === currentPage ? '#74317e' : 'white',
+                          color: i === currentPage ? 'white' : '#64748b',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          fontWeight: i === currentPage ? '600' : '500',
+                          fontSize: '14px'
+                        }}
+                      >
+                        {i}
+                      </button>
+                    );
+                  }
+                  
+                  if (endPage < totalPages) {
+                    if (endPage < totalPages - 1) {
+                      pages.push(
+                        <span key="ellipsis2" style={{ padding: '0 4px', color: '#64748b' }}>...</span>
+                      );
+                    }
+                    pages.push(
+                      <button
+                        key={totalPages}
+                        onClick={() => setCurrentPage(totalPages)}
+                        style={{
+                          minWidth: '36px',
+                          height: '36px',
+                          padding: '0 12px',
+                          borderRadius: '8px',
+                          border: '1px solid #e2e8f0',
+                          backgroundColor: 'white',
+                          color: '#64748b',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          fontWeight: '500',
+                          fontSize: '14px'
+                        }}
+                      >
+                        {totalPages}
+                      </button>
+                    );
+                  }
+                  
+                  return pages;
+                })()}
+                
                 <button 
                   onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
                   disabled={currentPage >= totalPages || totalPages <= 1}
