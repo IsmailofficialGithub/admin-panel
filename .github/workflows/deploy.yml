@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ismail-admin-panel
+  workflow_dispatch:  # Add this to enable manual runs
 
 jobs:
   validate:
