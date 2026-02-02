@@ -31,6 +31,9 @@ function CampaignsTab() {
   const loadedFilterKeys = useRef(new Set());
   const allCampaignsRef = useRef([]);
   
+  // Track last loaded campaign and modal type to avoid unnecessary API calls
+  const lastLoadedCampaignRef = useRef({ campaignId: null, modalType: null });
+  
   // Create Modal
   const [showCreateModal, setShowCreateModal] = useState(false);
   
@@ -515,22 +518,43 @@ function CampaignsTab() {
 
   // Open campaign calls/contacts modal
   const openCallsModal = async (campaign, type) => {
-    setSelectedCampaignForCalls(campaign);
-    setModalType(type);
-    setShowCallsModal(true);
-    setCallsLoading(true);
-    setCampaignCalls([]);
+    const campaignId = campaign?.id;
+    const isSameCampaignAndType = 
+      lastLoadedCampaignRef.current.campaignId === campaignId && 
+      lastLoadedCampaignRef.current.modalType === type;
+    
+    // Set flag FIRST to prevent useEffect from triggering
+    setIsModalJustOpened(true);
+    
+    // Reset filters and pagination BEFORE setting modal states
     setCallsCurrentPage(1);
     setCallsSearchQuery("");
     setCallsStartDate("");
     setCallsEndDate("");
     setCallsMinDuration("");
-    setIsModalJustOpened(true);
     
-    await fetchCampaignCalls(campaign, type, 1);
+    // Now set modal states
+    setSelectedCampaignForCalls(campaign);
+    setModalType(type);
+    setShowCallsModal(true);
     
-    // Reset flag after initial load
-    setTimeout(() => setIsModalJustOpened(false), 500);
+    // Only fetch if it's a different campaign or type
+    if (!isSameCampaignAndType) {
+      setCallsLoading(true);
+      setCampaignCalls([]);
+      
+      await fetchCampaignCalls(campaign, type, 1);
+      
+      // Update the last loaded reference
+      lastLoadedCampaignRef.current = { campaignId, modalType: type };
+      
+      // Reset flag after initial load
+      setTimeout(() => setIsModalJustOpened(false), 500);
+    } else {
+      // Same campaign and type - just show the modal with existing data (no API call)
+      // Reset flag after a brief delay to prevent useEffect from triggering
+      setTimeout(() => setIsModalJustOpened(false), 500);
+    }
   };
 
   // Convert datetime-local to ISO format
@@ -550,12 +574,17 @@ function CampaignsTab() {
       const params = {
         page,
         limit: callsLimit,
+        // Use scheduledListId (campaign.id) - this should match scheduled_list_id in call_logs
+        // If calls are linked via list_id instead, we'll need to use listId
         scheduledListId: campaign.id,
         startDate: convertToISO(callsStartDate),
         endDate: convertToISO(callsEndDate),
         search: callsSearchQuery?.trim() || undefined,
         minDuration: callsMinDuration || undefined,
       };
+      
+      // If scheduledListId returns no results, try listId as fallback
+      // For now, we'll try scheduledListId first (campaign.id)
 
       // Set status filter based on type
       if (type === 'completed') {
@@ -565,7 +594,39 @@ function CampaignsTab() {
       }
       // For 'contacts', no status filter - show all calls
 
-      const response = await getAllCalls(params);
+      console.log('📞 Fetching campaign calls:', {
+        campaignId: campaign.id,
+        contactListId: campaign.genie_contact_lists?.id,
+        type,
+        scheduledListId: params.scheduledListId,
+        status: params.status
+      });
+
+      let response = await getAllCalls(params);
+      
+      console.log('📞 API Response (scheduledListId):', {
+        total: response?.total,
+        count: response?.count,
+        dataLength: response?.data?.length,
+        hasMore: response?.hasMore
+      });
+      
+      // If no results with scheduledListId, try listId as fallback
+      if ((!response?.total || response.total === 0) && campaign.genie_contact_lists?.id) {
+        console.log('📞 No results with scheduledListId, trying listId...');
+        const fallbackParams = {
+          ...params,
+          scheduledListId: undefined, // Remove scheduledListId
+          listId: campaign.genie_contact_lists.id // Use listId instead
+        };
+        response = await getAllCalls(fallbackParams);
+        console.log('📞 API Response (listId fallback):', {
+          total: response?.total,
+          count: response?.count,
+          dataLength: response?.data?.length,
+          hasMore: response?.hasMore
+        });
+      }
       if (response?.error) {
         toast.error(response.error);
         setCallsLoading(false);
@@ -594,22 +655,27 @@ function CampaignsTab() {
 
   // Debounced filter change for search
   useEffect(() => {
-    if (!showCallsModal || !selectedCampaignForCalls || !modalType) return;
+    if (!showCallsModal || !selectedCampaignForCalls || !modalType || isModalJustOpened) return;
     
     const debounceTimer = setTimeout(() => {
-      // Only auto-apply search filter, not date filters
-      if (callsSearchQuery !== undefined) {
+      // Only fetch if search query has a value (not empty string)
+      // This prevents fetching when filters are reset to empty on same campaign/type
+      if (callsSearchQuery && callsSearchQuery.trim()) {
         setCallsCurrentPage(1);
         fetchCampaignCalls(selectedCampaignForCalls, modalType, 1);
       }
     }, 500);
 
     return () => clearTimeout(debounceTimer);
-  }, [callsSearchQuery, showCallsModal, selectedCampaignForCalls, modalType]);
+  }, [callsSearchQuery, showCallsModal, selectedCampaignForCalls, modalType, isModalJustOpened]);
 
   // Auto-apply min duration filter when changed
   useEffect(() => {
     if (!showCallsModal || !selectedCampaignForCalls || !modalType || isModalJustOpened) return;
+    
+    // Only fetch if min duration has a value (not empty string)
+    // This prevents fetching when filters are reset to empty on modal open
+    if (!callsMinDuration || callsMinDuration.trim() === '') return;
     
     // Auto-apply when min duration changes (but not on initial mount)
     const timeoutId = setTimeout(() => {
@@ -625,7 +691,8 @@ function CampaignsTab() {
     setShowCallsModal(false);
     setSelectedCampaignForCalls(null);
     setModalType(null);
-    setCampaignCalls([]);
+    // Don't clear the data - keep it cached for next time
+    // setCampaignCalls([]);
     setCallsCurrentPage(1);
     setCallsSearchQuery("");
     setCallsStartDate("");
@@ -650,12 +717,13 @@ function CampaignsTab() {
   const formatLeadDate = (dateStr) => {
     if (!dateStr) return "-";
     const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { 
+    return date.toLocaleString('en-US', { 
       month: 'short', 
       day: 'numeric',
       year: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      second: '2-digit'
     });
   };
 
