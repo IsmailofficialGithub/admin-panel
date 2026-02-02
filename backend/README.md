@@ -227,6 +227,42 @@ npm install -g pm2
 pm2 start server.js --name admin-panel-backend
 ```
 
+## 📊 Database Triggers & Edge Functions
+
+### Campaign Completion Trigger
+
+The system includes an automated trigger that sends call logs reports via email when a campaign's status changes to `completed`.
+
+#### Setup Options
+
+**Option 1: Database Webhooks (Recommended)**
+- Go to Supabase Dashboard → Database → Webhooks
+- Create a webhook on `genie_scheduled_calls` table
+- Configure to trigger on `Update` events
+- Set filter: `new.status = 'completed' AND (old.status IS NULL OR old.status != 'completed')`
+- Point to your edge function: `https://YOUR_PROJECT_REF.supabase.co/functions/v1/send-call-logs-report`
+- Add Authorization header: `Bearer YOUR_SERVICE_ROLE_KEY`
+
+**Option 2: Database Trigger (Advanced)**
+- See `backend/migrations/020_add_campaign_completion_trigger.sql`
+- ⚠️ **Known Issue**: `pg_net.http_post` may not send Authorization headers correctly
+- If you encounter 401 errors, use Database Webhooks instead
+
+#### Related Files
+- Migration: `backend/migrations/020_add_campaign_completion_trigger.sql`
+- Edge Function: `supabase/functions/send-call-logs-report/index.ts`
+- Setup Guide: `Guide/SUPABASE_EDGE_FUNCTION_DEPLOYMENT.md`
+- Troubleshooting: `Guide/DATABASE_SETUP_INSTRUCTIONS.md`
+
+#### Troubleshooting
+
+If the trigger/webhook is not working:
+1. Check Edge Function logs in Supabase Dashboard
+2. Verify the edge function is deployed
+3. Check that environment variables are set (API_URL, API_KEY, API_SECRET)
+4. Ensure the webhook/trigger is active
+5. Test the edge function manually via the Supabase Dashboard
+
 ## 📄 License
 
 ISC

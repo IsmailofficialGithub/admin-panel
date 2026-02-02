@@ -192,7 +192,7 @@ Replace:
 
 ## Step 4: Set Up Database Trigger/Webhook
 
-Now you need to trigger the edge function when a campaign completes. You have two options:
+Now you need to trigger the edge function when a campaign's status changes to `completed`. You have two options:
 
 ### Option A: Database Webhook (Easiest - Recommended)
 
@@ -209,10 +209,10 @@ Now you need to trigger the edge function when a campaign completes. You have tw
      - **HTTP Headers**:
        - `Content-Type`: `application/json`
        - `Authorization`: `Bearer YOUR_SERVICE_ROLE_KEY`
-4. **Filter** (optional but recommended):
+4. **Filter** (required - triggers only when status changes to 'completed'):
    ```sql
-   (new.calls_completed >= new.contacts_count AND new.contacts_count > 0)
-   AND (old.calls_completed < old.contacts_count OR old.calls_completed IS NULL)
+   new.status = 'completed' 
+   AND (old.status IS NULL OR old.status != 'completed')
    ```
 5. Click **Create webhook**
 
@@ -235,9 +235,9 @@ DECLARE
   service_key TEXT := 'YOUR_SERVICE_ROLE_KEY';
   payload JSONB;
 BEGIN
-  -- Only trigger if campaign is completed
-  IF NEW.calls_completed >= NEW.contacts_count AND NEW.contacts_count > 0 
-     AND (OLD.calls_completed < OLD.contacts_count OR OLD.calls_completed IS NULL) THEN
+  -- Only trigger if status changed to 'completed'
+  IF NEW.status = 'completed' 
+     AND (OLD.status IS NULL OR OLD.status != 'completed') THEN
     
     -- Build payload
     payload := jsonb_build_object(
@@ -246,7 +246,7 @@ BEGIN
         'owner_user_id', NEW.owner_user_id,
         'contacts_count', NEW.contacts_count,
         'calls_completed', NEW.calls_completed,
-        'status', 'completed'
+        'status', NEW.status
       )
     );
     
@@ -260,7 +260,7 @@ BEGIN
       body := payload::text
     );
     
-    RAISE NOTICE 'Campaign % completed. Triggered call logs report.', NEW.id;
+    RAISE NOTICE 'Campaign % status changed to completed. Triggered call logs report.', NEW.id;
   END IF;
   
   RETURN NEW;
@@ -273,8 +273,8 @@ CREATE TRIGGER trigger_campaign_completion
   BEFORE UPDATE ON genie_scheduled_calls
   FOR EACH ROW
   WHEN (
-    (NEW.calls_completed >= NEW.contacts_count AND NEW.contacts_count > 0)
-    AND (OLD.calls_completed < OLD.contacts_count OR OLD.calls_completed IS NULL)
+    NEW.status = 'completed' 
+    AND (OLD.status IS NULL OR OLD.status != 'completed')
   )
   EXECUTE FUNCTION notify_campaign_completion();
 ```
@@ -283,14 +283,25 @@ CREATE TRIGGER trigger_campaign_completion
 - `YOUR_PROJECT_REF` with your actual project reference
 - `YOUR_SERVICE_ROLE_KEY` with your service role key
 
+**Known Issues with Database Triggers:**
+- `pg_net.http_post` may not send Authorization headers correctly
+- You may get 401 Unauthorized errors
+- Data may be sent in query string instead of POST body
+- If you encounter these issues, **use Database Webhooks (Option A) instead**
+
+See `Guide/DATABASE_SETUP_INSTRUCTIONS.md` and `Guide/QUICK_FIX_net_http_post_ERROR.md` for troubleshooting.
+
 ---
 
 ## Step 5: Test End-to-End
 
 1. Create a test campaign with a small contact list (e.g., 2-3 contacts)
-2. Wait for all calls to complete
-3. Check the campaign owner's email for the Excel report
-4. Check Edge Function logs in Supabase Dashboard for any errors
+2. Update the campaign's `status` field to `'completed'` in the `genie_scheduled_calls` table
+3. The edge function should trigger automatically when the status changes to `'completed'`
+4. Check the campaign owner's email for the Excel report
+5. Check Edge Function logs in Supabase Dashboard for any errors
+
+**Note**: The trigger will only fire when the status changes FROM something else TO `'completed'`. If you update other fields but keep the status as `'completed'`, it won't trigger again.
 
 ---
 

@@ -1239,7 +1239,7 @@ const Customers = () => {
                 padding: '16px 20px',
                 borderRadius: '8px',
                 border: '1px solid #dee2e6',
-                width: 'calc(20% - 13px)',
+                width: 'calc(25% - 12px)',
                 minWidth: '140px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                 boxSizing: 'border-box'
@@ -1256,7 +1256,7 @@ const Customers = () => {
                 padding: '16px 20px',
                 borderRadius: '8px',
                 border: '1px solid #b3d9ff',
-                width: 'calc(20% - 13px)',
+                width: 'calc(25% - 12px)',
                 minWidth: '140px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                 boxSizing: 'border-box'
@@ -1273,7 +1273,7 @@ const Customers = () => {
                 padding: '16px 20px',
                 borderRadius: '8px',
                 border: '1px solid #ffd700',
-                width: 'calc(20% - 13px)',
+                width: 'calc(25% - 12px)',
                 minWidth: '140px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                 boxSizing: 'border-box'
@@ -1290,7 +1290,7 @@ const Customers = () => {
                 padding: '16px 20px',
                 borderRadius: '8px',
                 border: '1px solid #f5c6cb',
-                width: 'calc(20% - 13px)',
+                width: 'calc(25% - 12px)',
                 minWidth: '140px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                 boxSizing: 'border-box'
@@ -1309,7 +1309,7 @@ const Customers = () => {
                 padding: '16px 20px',
                 borderRadius: '8px',
                 border: '1px solid #c8e6c9',
-                width: 'calc(20% - 13px)',
+                width: 'calc(25% - 12px)',
                 minWidth: '140px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                 boxSizing: 'border-box'
@@ -1326,7 +1326,7 @@ const Customers = () => {
                 padding: '16px 20px',
                 borderRadius: '8px',
                 border: '1px solid #ffe082',
-                width: 'calc(20% - 13px)',
+                width: 'calc(25% - 12px)',
                 minWidth: '140px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                 boxSizing: 'border-box'
@@ -1343,7 +1343,7 @@ const Customers = () => {
                 padding: '16px 20px',
                 borderRadius: '8px',
                 border: '1px solid #ffb74d',
-                width: 'calc(20% - 13px)',
+                width: 'calc(25% - 12px)',
                 minWidth: '140px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                 boxSizing: 'border-box'
@@ -1360,7 +1360,7 @@ const Customers = () => {
                 padding: '16px 20px',
                 borderRadius: '8px',
                 border: '1px solid #ef5350',
-                width: 'calc(20% - 13px)',
+                width: 'calc(25% - 12px)',
                 minWidth: '140px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                 boxSizing: 'border-box'
@@ -1375,42 +1375,20 @@ const Customers = () => {
             </div>
           )}
         </div>
-        {/* New Ticket Button */}
-        {!checkingPermissions && permissions.create && (
-          <div style={{ flexShrink: 0, alignSelf: 'flex-start' }}>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              style={{
-                backgroundColor: '#8a3b9a',
-                color: 'white',
-                border: 'none',
-                padding: '10px 20px',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                fontWeight: '600',
-                fontSize: '14px',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              <Plus size={18} />
-              New Ticket
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Filters */}
       <div style={{ 
         display: 'flex', 
         gap: '16px', 
+        marginTop: '24px',
         marginBottom: '24px',
         flexWrap: 'wrap',
-        alignItems: 'center'
+        alignItems: 'center',
+        justifyContent: 'space-between'
       }}>
-        <div style={{ position: 'relative', width: '40%', minWidth: '250px' }}>
+        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center', flex: 1 }}>
+          <div style={{ position: 'relative', width: '40%', minWidth: '250px' }}>
           <Search 
             size={18} 
             style={{ 
@@ -1437,7 +1415,7 @@ const Customers = () => {
               boxSizing: 'border-box'
             }}
           />
-        </div>
+          </div>
         <select
           value={statusFilter}
           onChange={(e) => {
@@ -1537,23 +1515,57 @@ const Customers = () => {
             />
           </div>
         )}
-        <button
-          onClick={() => setShowExportModal(true)}
-          style={{
-            backgroundColor: '#8a3b9a',
-            color: 'white',
-            border: 'none',
-            padding: '12px 24px',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            fontWeight: '600',
-            fontSize: '14px',
-            boxShadow: '0 2px 4px rgba(138, 59, 154, 0.2)',
-            transition: 'all 0.2s ease',
-          }}
+        </div>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexShrink: 0 }}>
+          {!checkingPermissions && permissions.create && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              style={{
+                backgroundColor: '#8a3b9a',
+                color: 'white',
+                border: 'none',
+                padding: '12px 24px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontWeight: '600',
+                fontSize: '14px',
+                whiteSpace: 'nowrap',
+                boxShadow: '0 2px 4px rgba(138, 59, 154, 0.2)',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#74317e';
+                e.currentTarget.style.boxShadow = '0 4px 8px rgba(138, 59, 154, 0.3)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#8a3b9a';
+                e.currentTarget.style.boxShadow = '0 2px 4px rgba(138, 59, 154, 0.2)';
+              }}
+            >
+              <Plus size={18} />
+              New Ticket
+            </button>
+          )}
+          <button
+            onClick={() => setShowExportModal(true)}
+            style={{
+              backgroundColor: '#8a3b9a',
+              color: 'white',
+              border: 'none',
+              padding: '12px 24px',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontWeight: '600',
+              fontSize: '14px',
+              boxShadow: '0 2px 4px rgba(138, 59, 154, 0.2)',
+              transition: 'all 0.2s ease',
+            }}
           onMouseEnter={(e) => {
             e.currentTarget.style.backgroundColor = '#74317e';
             e.currentTarget.style.boxShadow = '0 4px 8px rgba(138, 59, 154, 0.3)';
@@ -1567,6 +1579,7 @@ const Customers = () => {
           <Download size={18} />
           Export CSV
         </button>
+        </div>
       </div>
 
       {/* Tickets Table */}
