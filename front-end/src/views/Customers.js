@@ -1226,154 +1226,184 @@ const Customers = () => {
                 {isRealtimeConnected ? 'Live' : 'Disconnected'}
               </span>
             </div>
-          {stats && (
-            <div style={{ 
-              display: 'flex', 
-              gap: '16px', 
-              marginTop: '0',
-              flexWrap: 'wrap',
-              width: '100%'
+          <div style={{ 
+            display: 'flex', 
+            gap: '16px', 
+            marginTop: '0',
+            flexWrap: 'wrap',
+            width: '100%'
+          }}>
+            <div style={{
+              backgroundColor: '#f8f9fa',
+              padding: '16px 20px',
+              borderRadius: '8px',
+              border: '1px solid #dee2e6',
+              width: 'calc(25% - 12px)',
+              minWidth: '140px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+              boxSizing: 'border-box'
             }}>
-              <div style={{
-                backgroundColor: '#f8f9fa',
-                padding: '16px 20px',
-                borderRadius: '8px',
-                border: '1px solid #dee2e6',
-                width: 'calc(25% - 12px)',
-                minWidth: '140px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                boxSizing: 'border-box'
-              }}>
-                <div style={{ fontSize: '12px', color: '#6c757d', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Total
-                </div>
-                <div style={{ fontSize: '28px', fontWeight: '700', color: '#2c3e50', lineHeight: '1.2' }}>
-                  {stats.total || 0} <span style={{ fontSize: '14px', fontWeight: '400', color: '#6c757d' }}>tickets</span>
-                </div>
+              <div style={{ fontSize: '12px', color: '#6c757d', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Total
               </div>
-              <div style={{
-                backgroundColor: '#e7f3ff',
-                padding: '16px 20px',
-                borderRadius: '8px',
-                border: '1px solid #b3d9ff',
-                width: 'calc(25% - 12px)',
-                minWidth: '140px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                boxSizing: 'border-box'
-              }}>
-                <div style={{ fontSize: '12px', color: '#0066cc', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Open
-                </div>
-                <div style={{ fontSize: '28px', fontWeight: '700', color: '#007bff', lineHeight: '1.2' }}>
-                  {stats.open || 0} <span style={{ fontSize: '14px', fontWeight: '400', color: '#0066cc' }}>tickets</span>
-                </div>
-              </div>
-              <div style={{
-                backgroundColor: '#fff3cd',
-                padding: '16px 20px',
-                borderRadius: '8px',
-                border: '1px solid #ffd700',
-                width: 'calc(25% - 12px)',
-                minWidth: '140px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                boxSizing: 'border-box'
-              }}>
-                <div style={{ fontSize: '12px', color: '#856404', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  In Progress
-                </div>
-                <div style={{ fontSize: '28px', fontWeight: '700', color: '#ffc107', lineHeight: '1.2' }}>
-                  {stats.in_progress || 0} <span style={{ fontSize: '14px', fontWeight: '400', color: '#856404' }}>tickets</span>
-                </div>
-              </div>
-              <div style={{
-                backgroundColor: '#f8d7da',
-                padding: '16px 20px',
-                borderRadius: '8px',
-                border: '1px solid #f5c6cb',
-                width: 'calc(25% - 12px)',
-                minWidth: '140px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                boxSizing: 'border-box'
-              }}>
-                <div style={{ fontSize: '12px', color: '#721c24', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Unread
-                </div>
-                <div style={{ fontSize: '28px', fontWeight: '700', color: '#dc3545', lineHeight: '1.2' }}>
-                  {stats.unread_messages || 0} <span style={{ fontSize: '14px', fontWeight: '400', color: '#721c24' }}>tickets</span>
-                </div>
-              </div>
-              
-              {/* Priority-based Stat Boxes */}
-              <div style={{
-                backgroundColor: '#e8f5e9',
-                padding: '16px 20px',
-                borderRadius: '8px',
-                border: '1px solid #c8e6c9',
-                width: 'calc(25% - 12px)',
-                minWidth: '140px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                boxSizing: 'border-box'
-              }}>
-                <div style={{ fontSize: '12px', color: '#2e7d32', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Low Priority
-                </div>
-                <div style={{ fontSize: '28px', fontWeight: '700', color: '#4caf50', lineHeight: '1.2' }}>
-                  {stats.priority_low || 0} <span style={{ fontSize: '14px', fontWeight: '400', color: '#2e7d32' }}>tickets</span>
-                </div>
-              </div>
-              <div style={{
-                backgroundColor: '#fff9e6',
-                padding: '16px 20px',
-                borderRadius: '8px',
-                border: '1px solid #ffe082',
-                width: 'calc(25% - 12px)',
-                minWidth: '140px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                boxSizing: 'border-box'
-              }}>
-                <div style={{ fontSize: '12px', color: '#f57c00', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Medium Priority
-                </div>
-                <div style={{ fontSize: '28px', fontWeight: '700', color: '#ff9800', lineHeight: '1.2' }}>
-                  {stats.priority_medium || 0} <span style={{ fontSize: '14px', fontWeight: '400', color: '#f57c00' }}>tickets</span>
-                </div>
-              </div>
-              <div style={{
-                backgroundColor: '#ffe0b2',
-                padding: '16px 20px',
-                borderRadius: '8px',
-                border: '1px solid #ffb74d',
-                width: 'calc(25% - 12px)',
-                minWidth: '140px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                boxSizing: 'border-box'
-              }}>
-                <div style={{ fontSize: '12px', color: '#e65100', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  High Priority
-                </div>
-                <div style={{ fontSize: '28px', fontWeight: '700', color: '#ff6f00', lineHeight: '1.2' }}>
-                  {stats.priority_high || 0} <span style={{ fontSize: '14px', fontWeight: '400', color: '#e65100' }}>tickets</span>
-                </div>
-              </div>
-              <div style={{
-                backgroundColor: '#ffebee',
-                padding: '16px 20px',
-                borderRadius: '8px',
-                border: '1px solid #ef5350',
-                width: 'calc(25% - 12px)',
-                minWidth: '140px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                boxSizing: 'border-box'
-              }}>
-                <div style={{ fontSize: '12px', color: '#c62828', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Urgent Priority
-                </div>
-                <div style={{ fontSize: '28px', fontWeight: '700', color: '#d32f2f', lineHeight: '1.2' }}>
-                  {stats.priority_urgent || 0} <span style={{ fontSize: '14px', fontWeight: '400', color: '#c62828' }}>tickets</span>
-                </div>
+              <div style={{ fontSize: '28px', fontWeight: '700', color: '#2c3e50', lineHeight: '1.2' }}>
+                {stats === null ? (
+                  <span style={{ fontSize: '16px', color: '#6c757d' }}>Loading...</span>
+                ) : (
+                  <>{(stats?.total || 0)} <span style={{ fontSize: '14px', fontWeight: '400', color: '#6c757d' }}>tickets</span></>
+                )}
               </div>
             </div>
-          )}
+            <div style={{
+              backgroundColor: '#e7f3ff',
+              padding: '16px 20px',
+              borderRadius: '8px',
+              border: '1px solid #b3d9ff',
+              width: 'calc(25% - 12px)',
+              minWidth: '140px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+              boxSizing: 'border-box'
+            }}>
+              <div style={{ fontSize: '12px', color: '#0066cc', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Open
+              </div>
+              <div style={{ fontSize: '28px', fontWeight: '700', color: '#007bff', lineHeight: '1.2' }}>
+                {stats === null ? (
+                  <span style={{ fontSize: '16px', color: '#0066cc' }}>Loading...</span>
+                ) : (
+                  <>{(stats?.open || 0)} <span style={{ fontSize: '14px', fontWeight: '400', color: '#0066cc' }}>tickets</span></>
+                )}
+              </div>
+            </div>
+            <div style={{
+              backgroundColor: '#fff3cd',
+              padding: '16px 20px',
+              borderRadius: '8px',
+              border: '1px solid #ffd700',
+              width: 'calc(25% - 12px)',
+              minWidth: '140px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+              boxSizing: 'border-box'
+            }}>
+              <div style={{ fontSize: '12px', color: '#856404', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                In Progress
+              </div>
+              <div style={{ fontSize: '28px', fontWeight: '700', color: '#ffc107', lineHeight: '1.2' }}>
+                {stats === null ? (
+                  <span style={{ fontSize: '16px', color: '#856404' }}>Loading...</span>
+                ) : (
+                  <>{(stats?.in_progress || 0)} <span style={{ fontSize: '14px', fontWeight: '400', color: '#856404' }}>tickets</span></>
+                )}
+              </div>
+            </div>
+            <div style={{
+              backgroundColor: '#f8d7da',
+              padding: '16px 20px',
+              borderRadius: '8px',
+              border: '1px solid #f5c6cb',
+              width: 'calc(25% - 12px)',
+              minWidth: '140px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+              boxSizing: 'border-box'
+            }}>
+              <div style={{ fontSize: '12px', color: '#721c24', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Unread
+              </div>
+              <div style={{ fontSize: '28px', fontWeight: '700', color: '#dc3545', lineHeight: '1.2' }}>
+                {stats === null ? (
+                  <span style={{ fontSize: '16px', color: '#721c24' }}>Loading...</span>
+                ) : (
+                  <>{(stats?.unread_messages || 0)} <span style={{ fontSize: '14px', fontWeight: '400', color: '#721c24' }}>tickets</span></>
+                )}
+              </div>
+            </div>
+            
+            {/* Priority-based Stat Boxes */}
+            <div style={{
+              backgroundColor: '#e8f5e9',
+              padding: '16px 20px',
+              borderRadius: '8px',
+              border: '1px solid #c8e6c9',
+              width: 'calc(25% - 12px)',
+              minWidth: '140px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+              boxSizing: 'border-box'
+            }}>
+              <div style={{ fontSize: '12px', color: '#2e7d32', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Low Priority
+              </div>
+              <div style={{ fontSize: '28px', fontWeight: '700', color: '#4caf50', lineHeight: '1.2' }}>
+                {stats === null ? (
+                  <span style={{ fontSize: '16px', color: '#2e7d32' }}>Loading...</span>
+                ) : (
+                  <>{(stats?.priority_low || 0)} <span style={{ fontSize: '14px', fontWeight: '400', color: '#2e7d32' }}>tickets</span></>
+                )}
+              </div>
+            </div>
+            <div style={{
+              backgroundColor: '#fff9e6',
+              padding: '16px 20px',
+              borderRadius: '8px',
+              border: '1px solid #ffe082',
+              width: 'calc(25% - 12px)',
+              minWidth: '140px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+              boxSizing: 'border-box'
+            }}>
+              <div style={{ fontSize: '12px', color: '#f57c00', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Medium Priority
+              </div>
+              <div style={{ fontSize: '28px', fontWeight: '700', color: '#ff9800', lineHeight: '1.2' }}>
+                {stats === null ? (
+                  <span style={{ fontSize: '16px', color: '#f57c00' }}>Loading...</span>
+                ) : (
+                  <>{(stats?.priority_medium || 0)} <span style={{ fontSize: '14px', fontWeight: '400', color: '#f57c00' }}>tickets</span></>
+                )}
+              </div>
+            </div>
+            <div style={{
+              backgroundColor: '#ffe0b2',
+              padding: '16px 20px',
+              borderRadius: '8px',
+              border: '1px solid #ffb74d',
+              width: 'calc(25% - 12px)',
+              minWidth: '140px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+              boxSizing: 'border-box'
+            }}>
+              <div style={{ fontSize: '12px', color: '#e65100', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                High Priority
+              </div>
+              <div style={{ fontSize: '28px', fontWeight: '700', color: '#ff6f00', lineHeight: '1.2' }}>
+                {stats === null ? (
+                  <span style={{ fontSize: '16px', color: '#e65100' }}>Loading...</span>
+                ) : (
+                  <>{(stats?.priority_high || 0)} <span style={{ fontSize: '14px', fontWeight: '400', color: '#e65100' }}>tickets</span></>
+                )}
+              </div>
+            </div>
+            <div style={{
+              backgroundColor: '#ffebee',
+              padding: '16px 20px',
+              borderRadius: '8px',
+              border: '1px solid #ef5350',
+              width: 'calc(25% - 12px)',
+              minWidth: '140px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+              boxSizing: 'border-box'
+            }}>
+              <div style={{ fontSize: '12px', color: '#c62828', marginBottom: '6px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Urgent Priority
+              </div>
+              <div style={{ fontSize: '28px', fontWeight: '700', color: '#d32f2f', lineHeight: '1.2' }}>
+                {stats === null ? (
+                  <span style={{ fontSize: '16px', color: '#c62828' }}>Loading...</span>
+                ) : (
+                  <>{(stats?.priority_urgent || 0)} <span style={{ fontSize: '14px', fontWeight: '400', color: '#c62828' }}>tickets</span></>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
