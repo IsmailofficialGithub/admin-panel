@@ -74,7 +74,7 @@ const AdminSettings = () => {
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'features', label: 'Features', icon: Key },
     { id: 'product-databases', label: 'Product Databases', icon: Database },
-    { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare }
+    // { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare }
   ];
 
   // Check settings.view permission first (required to access the page)
