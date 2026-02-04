@@ -37,7 +37,7 @@ function Genie() {
   const location = useLocation();
   const { hasPermission, isLoading: permissionsLoading } = usePermissions();
   const { isConnected, lastCallEvent, lastCampaignEvent } = useGenieWebSocket();
-  
+
   // Get initial tab from URL or default to 'calls'
   const getInitialTab = () => {
     const params = new URLSearchParams(location.search);
@@ -50,9 +50,9 @@ function Genie() {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [newCallsCount, setNewCallsCount] = useState(0);
   const [activeCampaigns, setActiveCampaigns] = useState(0);
-  
+
   // Track which tabs have been loaded (for keeping them mounted after first load)
-  const [loadedTabs, setLoadedTabs] = useState({ 
+  const [loadedTabs, setLoadedTabs] = useState({
     calls: initialTab === 'calls',
     campaigns: initialTab === 'campaigns',
     leads: initialTab === 'leads',
@@ -74,10 +74,11 @@ function Genie() {
     if (!loadedTabs[tab]) {
       setLoadedTabs(prev => ({ ...prev, [tab]: true }));
     }
-    
+
     // Update URL without full page reload
     const params = new URLSearchParams(location.search);
     params.set('tab', tab);
+    params.delete('page'); // Reset page when switching tabs
     history.replace({ pathname: location.pathname, search: params.toString() });
   };
 
@@ -86,7 +87,7 @@ function Genie() {
     const params = new URLSearchParams(location.search);
     const tabFromUrl = params.get('tab');
     const validTabs = ['calls', 'campaigns', 'leads', 'analytics', 'agents'];
-    
+
     if (tabFromUrl && validTabs.includes(tabFromUrl) && tabFromUrl !== activeTab) {
       setActiveTab(tabFromUrl);
       setLoadedTabs(prev => ({ ...prev, [tabFromUrl]: true }));
@@ -118,16 +119,16 @@ function Genie() {
 
   if (permissionsLoading) {
     return (
-      <div style={{ 
-        backgroundColor: '#f8f9fa', 
+      <div style={{
+        backgroundColor: '#f8f9fa',
         minHeight: '100vh',
         padding: '20px',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
       }}>
-        <div style={{ 
-          display: 'flex', 
+        <div style={{
+          display: 'flex',
           flexDirection: 'column',
-          justifyContent: 'center', 
+          justifyContent: 'center',
           alignItems: 'center',
           minHeight: '400px'
         }}>
@@ -153,8 +154,8 @@ function Genie() {
 
   if (!hasPermission('genie.view')) {
     return (
-      <div style={{ 
-        backgroundColor: '#f8f9fa', 
+      <div style={{
+        backgroundColor: '#f8f9fa',
         minHeight: '100vh',
         padding: '20px',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
@@ -222,14 +223,14 @@ function Genie() {
   };
 
   return (
-    <div style={{ 
-      backgroundColor: '#f8f9fa', 
+    <div style={{
+      backgroundColor: '#f8f9fa',
       minHeight: '100vh',
       padding: '20px',
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
     }}>
-      <div style={{ 
-        maxWidth: '1400px', 
+      <div style={{
+        maxWidth: '1400px',
         margin: '0 auto'
       }}>
         {/* Header */}
@@ -242,10 +243,10 @@ function Genie() {
           gap: '16px'
         }}>
           <div>
-            <h3 style={{ 
-              margin: '0 0 8px 0', 
-              color: '#333', 
-              fontWeight: '600', 
+            <h3 style={{
+              margin: '0 0 8px 0',
+              color: '#333',
+              fontWeight: '600',
               fontSize: '24px',
               display: 'flex',
               alignItems: 'center',

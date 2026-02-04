@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useHistory } from "react-router-dom";
+﻿import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useHistory, useLocation } from "react-router-dom";
 import { Star, Search, RefreshCw, X, Download, MoreVertical, Eye, Play, Trash2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { getAllLeads, deleteLead, exportLeads, getAllBots } from "api/backend/genie";
 import { usePermissions } from "hooks/usePermissions";
@@ -9,28 +9,36 @@ import toast from "react-hot-toast";
 
 function LeadsTab() {
   const history = useHistory();
+  const location = useLocation();
   const { hasPermission } = usePermissions();
   const { lastLeadEvent } = useGenieWebSocket();
-  
+
+  // Get initial page from URL
+  const getInitialPage = () => {
+    const params = new URLSearchParams(location.search);
+    const pageFromUrl = parseInt(params.get('page'), 10);
+    return pageFromUrl && pageFromUrl > 0 ? pageFromUrl : 1;
+  };
+
   // State
   const [leads, setLeads] = useState([]);
   const [bots, setBots] = useState([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
-  
+
   // Calculate default dates (last 2 days)
   const getDefaultDates = () => {
     const today = new Date();
     const twoDaysAgo = new Date();
     twoDaysAgo.setDate(today.getDate() - 2);
-    
+
     const formatDate = (date) => {
       const year = date.getFullYear();
       const month = String(date.getMonth() + 1).padStart(2, '0');
       const day = String(date.getDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     };
-    
+
     return {
       start: formatDate(twoDaysAgo),
       end: formatDate(today)
@@ -44,12 +52,34 @@ function LeadsTab() {
   const [selectedBot, setSelectedBot] = useState("");
   const [startDate, setStartDate] = useState(defaultDates.start);
   const [endDate, setEndDate] = useState(defaultDates.end);
-  
+
   // Pagination
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(getInitialPage());
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const limit = 10;
+
+  // Update URL with current page
+  const updateUrlWithPage = useCallback((page) => {
+    const params = new URLSearchParams(location.search);
+    if (page > 1) {
+      params.set('page', page.toString());
+    } else {
+      params.delete('page'); // Remove page param if it's page 1
+    }
+    history.push({ pathname: location.pathname, search: params.toString() });
+  }, [history, location.pathname, location.search]);
+
+  // Sync page from URL when browser back/forward is used
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const pageFromUrl = parseInt(params.get('page'), 10);
+    const validPage = pageFromUrl && pageFromUrl > 0 ? pageFromUrl : 1;
+
+    if (validPage !== currentPage) {
+      setCurrentPage(validPage);
+    }
+  }, [location.search]);
 
   // Delete Modal State
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -60,30 +90,30 @@ function LeadsTab() {
   const [openDropdown, setOpenDropdown] = useState(null);
   const [dropdownPositions, setDropdownPositions] = useState({}); // Store position for each dropdown
   const dropdownButtonRefs = useRef({});
-  
+
   // Function to check if dropdown should open upward
   const checkDropdownPosition = (leadId, buttonElement, isLastRow = false) => {
     if (!buttonElement) return 'bottom';
-    
+
     // Force upward for last row
     if (isLastRow) return 'top';
-    
+
     const rect = buttonElement.getBoundingClientRect();
     const viewportHeight = window.innerHeight;
     const spaceBelow = viewportHeight - rect.bottom;
     const spaceAbove = rect.top;
     const dropdownHeight = 200; // Approximate dropdown height
-    
+
     // Check if we're in the last few rows (within last 40% of viewport)
     const isNearBottom = rect.bottom > viewportHeight * 0.6;
-    
+
     // If near bottom or not enough space below but enough space above, open upward
     if (isNearBottom || (spaceBelow < dropdownHeight && spaceAbove > dropdownHeight)) {
       return 'top';
     }
     return 'bottom';
   };
-  
+
   // Handle dropdown toggle with position check
   const handleDropdownToggle = (leadId, buttonElement, isLastRow = false) => {
     if (openDropdown === leadId) {
@@ -213,9 +243,9 @@ function LeadsTab() {
       };
 
       const response = await exportLeads(params);
-      
-      console.log('Export response:', { 
-        hasError: !!response?.error, 
+
+      console.log('Export response:', {
+        hasError: !!response?.error,
         dataType: typeof response?.data,
         isBlob: response?.data instanceof Blob,
         dataSize: response?.data?.size || response?.data?.length
@@ -239,7 +269,7 @@ function LeadsTab() {
         toast.error("No data received from server");
         return;
       }
-      
+
       // Check if blob has content (more than just headers ~50 bytes)
       if (blob.size < 50) {
         toast.error("No leads to export");
@@ -254,11 +284,11 @@ function LeadsTab() {
       link.style.display = 'none';
       document.body.appendChild(link);
       link.click();
-      
+
       // Cleanup
       setTimeout(() => {
         document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+        window.URL.revokeObjectURL(url);
       }, 100);
 
       toast.success("Leads exported successfully");
@@ -274,6 +304,7 @@ function LeadsTab() {
   const handleSearch = (e) => {
     e.preventDefault();
     setCurrentPage(1);
+    updateUrlWithPage(1);
     fetchLeads();
   };
 
@@ -284,14 +315,15 @@ function LeadsTab() {
     setStartDate("");
     setEndDate("");
     setCurrentPage(1);
+    updateUrlWithPage(1);
   };
 
   // Format date
   const formatDate = (dateStr) => {
     if (!dateStr) return "-";
     const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit'
@@ -331,10 +363,10 @@ function LeadsTab() {
           </p>
         </div>
         {canExport && (
-          <button 
+          <button
             onClick={handleExport}
             disabled={exporting}
-            style={{ 
+            style={{
               background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
               border: 'none',
               borderRadius: '8px',
@@ -379,10 +411,10 @@ function LeadsTab() {
               <div style={{ position: 'relative' }}>
                 <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
                 <input
-                    type="text"
-                    placeholder="Name, phone, email..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                  type="text"
+                  placeholder="Name, phone, email..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                   style={{
                     width: '100%',
                     padding: '10px 12px 10px 40px',
@@ -394,12 +426,12 @@ function LeadsTab() {
                   }}
                 />
               </div>
-                </div>
+            </div>
             <div style={{ flex: '0 1 150px' }}>
               <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>Bot</label>
               <select
-                  value={selectedBot}
-                onChange={(e) => { setSelectedBot(e.target.value); setCurrentPage(1); }}
+                value={selectedBot}
+                onChange={(e) => { setSelectedBot(e.target.value); setCurrentPage(1); updateUrlWithPage(1); }}
                 style={{
                   width: '100%',
                   padding: '10px 12px',
@@ -409,22 +441,22 @@ function LeadsTab() {
                   outline: 'none',
                   backgroundColor: 'white',
                   cursor: 'pointer'
-                  }}
-                >
-                  <option value="">All Bots</option>
-                  {bots.map((bot) => (
-                    <option key={bot.id} value={bot.id}>
-                      {bot.name}{bot.owner_name ? ` -    (${bot.owner_name})` : ''}
-                    </option>
-                  ))}
+                }}
+              >
+                <option value="">All Bots</option>
+                {bots.map((bot) => (
+                  <option key={bot.id} value={bot.id}>
+                    {bot.name}{bot.owner_name ? ` -    (${bot.owner_name})` : ''}
+                  </option>
+                ))}
               </select>
             </div>
             <div style={{ flex: '0 1 150px' }}>
               <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>From</label>
               <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                type="date"
+                value={startDate}
+                onChange={(e) => { setStartDate(e.target.value); setCurrentPage(1); updateUrlWithPage(1); }}
                 style={{
                   width: '100%',
                   padding: '10px 12px',
@@ -434,14 +466,14 @@ function LeadsTab() {
                   outline: 'none',
                   boxSizing: 'border-box'
                 }}
-                />
+              />
             </div>
             <div style={{ flex: '0 1 150px' }}>
               <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>To</label>
               <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
+                type="date"
+                value={endDate}
+                onChange={(e) => { setEndDate(e.target.value); setCurrentPage(1); updateUrlWithPage(1); }}
                 style={{
                   width: '100%',
                   padding: '10px 12px',
@@ -534,160 +566,160 @@ function LeadsTab() {
                     const isLastRow = index === leads.length - 1;
                     return (
                       <tr
-                      key={lead.id}
-                      style={{ borderBottom: '1px solid #f1f5f9', transition: 'background-color 0.2s' }}
-                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                    >
-                      <td style={{ padding: '14px 16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                          <div style={{
-                            width: '40px',
-                            height: '40px',
-                            borderRadius: '10px',
-                            background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: 'white',
-                            fontWeight: '600',
-                            fontSize: '14px'
-                          }}>
-                            {getInitials(lead.name)}
-                          </div>
-                          <div>
-                            <div style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>{lead.name || "Unknown"}</div>
-                            <div style={{ color: '#64748b', fontSize: '13px' }}>{lead.phone || "-"}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '14px' }}>
-                        {lead.email || "-"}
-                      </td>
-                      <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '14px' }}>
-                        {lead.genie_bots?.name || "-"}
-                      </td>
-                      <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '13px' }}>
-                          {truncateText(lead.summary, 40)}
-                      </td>
-                      <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '14px' }}>
-                        {formatDate(lead.created_at)}
-                      </td>
-                      <td style={{ padding: '14px 16px', textAlign: 'center', position: 'relative' }}>
-                        <button
-                          ref={(el) => {
-                            if (el) dropdownButtonRefs.current[lead.id] = el;
-                          }}
-                          onClick={(e) => handleDropdownToggle(lead.id, e.currentTarget, isLastRow)}
-                          style={{
-                            width: '32px',
-                            height: '32px',
-                            borderRadius: '8px',
-                            border: 'none',
-                            backgroundColor: '#f1f5f9',
-                            color: '#64748b',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s'
-                          }}
-                        >
-                          <MoreVertical size={16} />
-                        </button>
-                        {openDropdown === lead.id && (() => {
-                          const isTop = dropdownPositions[lead.id] === 'top';
-                          return (
+                        key={lead.id}
+                        style={{ borderBottom: '1px solid #f1f5f9', transition: 'background-color 0.2s' }}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                      >
+                        <td style={{ padding: '14px 16px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                             <div style={{
-                              position: 'absolute',
-                              right: '16px',
-                              ...(isTop ? { bottom: '100%', marginBottom: '4px' } : { top: '100%', marginTop: '4px' }),
-                              backgroundColor: 'white',
-                              border: '1px solid #e0e0e0',
-                              borderRadius: '8px',
-                              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                              zIndex: 9999,
-                              minWidth: '160px'
+                              width: '40px',
+                              height: '40px',
+                              borderRadius: '10px',
+                              background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: 'white',
+                              fontWeight: '600',
+                              fontSize: '14px'
                             }}>
-                            {canRead && (
-                              <button
-                                onClick={(e) => { 
-                                  e.stopPropagation();
-                                  e.preventDefault();
-                                  setOpenDropdown(null);
-                                  setTimeout(() => {
-                                    history.push(`/admin/genie/leads/${lead.id}`);
-                                  }, 0);
-                                }}
-                                style={{
-                                  width: '100%',
-                                  padding: '10px 16px',
-                                  border: 'none',
-                                  backgroundColor: 'transparent',
-                                  textAlign: 'left',
-                                  cursor: 'pointer',
-                                  fontSize: '14px',
-                                  color: '#333',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '8px'
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
-                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                              >
-                                <Eye size={16} /> View Details
-                              </button>
-                            )}
-                            {lead.recording_url && (
-                              <a
-                                href={lead.recording_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '8px',
-                                  padding: '10px 16px',
-                                  textDecoration: 'none',
-                                  fontSize: '14px',
-                                  color: '#333'
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
-                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                              >
-                                <Play size={16} /> Play Recording
-                              </a>
-                            )}
-                            {canDelete && (
-                              <>
-                                <div style={{ height: '1px', backgroundColor: '#e5e7eb', margin: '4px 0' }} />
-                                <button
-                                  onClick={() => openDeleteModal(lead)}
-                                  style={{
-                                    width: '100%',
-                                    padding: '10px 16px',
-                                    border: 'none',
-                                    backgroundColor: 'transparent',
-                                    textAlign: 'left',
-                                    cursor: 'pointer',
-                                    fontSize: '14px',
-                                    color: '#dc3545',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px'
-                                  }}
-                                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
-                                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                                >
-                                  <Trash2 size={16} /> Delete
-                                </button>
-                              </>
-                            )}
+                              {getInitials(lead.name)}
                             </div>
-                          );
-                        })()}
-                      </td>
-                    </tr>
+                            <div>
+                              <div style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>{lead.name || "Unknown"}</div>
+                              <div style={{ color: '#64748b', fontSize: '13px' }}>{lead.phone || "-"}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '14px' }}>
+                          {lead.email || "-"}
+                        </td>
+                        <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '14px' }}>
+                          {lead.genie_bots?.name || "-"}
+                        </td>
+                        <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '13px' }}>
+                          {truncateText(lead.summary, 40)}
+                        </td>
+                        <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '14px' }}>
+                          {formatDate(lead.created_at)}
+                        </td>
+                        <td style={{ padding: '14px 16px', textAlign: 'center', position: 'relative' }}>
+                          <button
+                            ref={(el) => {
+                              if (el) dropdownButtonRefs.current[lead.id] = el;
+                            }}
+                            onClick={(e) => handleDropdownToggle(lead.id, e.currentTarget, isLastRow)}
+                            style={{
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '8px',
+                              border: 'none',
+                              backgroundColor: '#f1f5f9',
+                              color: '#64748b',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            <MoreVertical size={16} />
+                          </button>
+                          {openDropdown === lead.id && (() => {
+                            const isTop = dropdownPositions[lead.id] === 'top';
+                            return (
+                              <div style={{
+                                position: 'absolute',
+                                right: '16px',
+                                ...(isTop ? { bottom: '100%', marginBottom: '4px' } : { top: '100%', marginTop: '4px' }),
+                                backgroundColor: 'white',
+                                border: '1px solid #e0e0e0',
+                                borderRadius: '8px',
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                zIndex: 9999,
+                                minWidth: '160px'
+                              }}>
+                                {canRead && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                      setOpenDropdown(null);
+                                      setTimeout(() => {
+                                        history.push(`/admin/genie/leads/${lead.id}`);
+                                      }, 0);
+                                    }}
+                                    style={{
+                                      width: '100%',
+                                      padding: '10px 16px',
+                                      border: 'none',
+                                      backgroundColor: 'transparent',
+                                      textAlign: 'left',
+                                      cursor: 'pointer',
+                                      fontSize: '14px',
+                                      color: '#333',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '8px'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                                  >
+                                    <Eye size={16} /> View Details
+                                  </button>
+                                )}
+                                {lead.recording_url && (
+                                  <a
+                                    href={lead.recording_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '8px',
+                                      padding: '10px 16px',
+                                      textDecoration: 'none',
+                                      fontSize: '14px',
+                                      color: '#333'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                                  >
+                                    <Play size={16} /> Play Recording
+                                  </a>
+                                )}
+                                {canDelete && (
+                                  <>
+                                    <div style={{ height: '1px', backgroundColor: '#e5e7eb', margin: '4px 0' }} />
+                                    <button
+                                      onClick={() => openDeleteModal(lead)}
+                                      style={{
+                                        width: '100%',
+                                        padding: '10px 16px',
+                                        border: 'none',
+                                        backgroundColor: 'transparent',
+                                        textAlign: 'left',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        color: '#dc3545',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px'
+                                      }}
+                                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
+                                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                                    >
+                                      <Trash2 size={16} /> Delete
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </td>
+                      </tr>
                     );
                   })}
                 </tbody>
@@ -700,8 +732,8 @@ function LeadsTab() {
                 Showing {leads.length} of {totalCount} leads (Page {currentPage} of {totalPages})
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <button 
-                  onClick={() => setCurrentPage(1)} 
+                <button
+                  onClick={() => { setCurrentPage(1); updateUrlWithPage(1); }}
                   disabled={currentPage <= 1}
                   style={{
                     width: '36px',
@@ -718,8 +750,8 @@ function LeadsTab() {
                 >
                   <ChevronsLeft size={16} />
                 </button>
-                <button 
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+                <button
+                  onClick={() => { const newPage = Math.max(1, currentPage - 1); setCurrentPage(newPage); updateUrlWithPage(newPage); }}
                   disabled={currentPage <= 1}
                   style={{
                     width: '36px',
@@ -736,23 +768,23 @@ function LeadsTab() {
                 >
                   <ChevronLeft size={16} />
                 </button>
-                
+
                 {/* Page Numbers */}
                 {(() => {
                   const pages = [];
                   const maxVisible = 5;
                   let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
                   let endPage = Math.min(totalPages, startPage + maxVisible - 1);
-                  
+
                   if (endPage - startPage < maxVisible - 1) {
                     startPage = Math.max(1, endPage - maxVisible + 1);
                   }
-                  
+
                   if (startPage > 1) {
                     pages.push(
                       <button
                         key={1}
-                        onClick={() => setCurrentPage(1)}
+                        onClick={() => { setCurrentPage(1); updateUrlWithPage(1); }}
                         style={{
                           minWidth: '36px',
                           height: '36px',
@@ -778,12 +810,12 @@ function LeadsTab() {
                       );
                     }
                   }
-                  
+
                   for (let i = startPage; i <= endPage; i++) {
                     pages.push(
                       <button
                         key={i}
-                        onClick={() => setCurrentPage(i)}
+                        onClick={() => { setCurrentPage(i); updateUrlWithPage(i); }}
                         style={{
                           minWidth: '36px',
                           height: '36px',
@@ -804,7 +836,7 @@ function LeadsTab() {
                       </button>
                     );
                   }
-                  
+
                   if (endPage < totalPages) {
                     if (endPage < totalPages - 1) {
                       pages.push(
@@ -814,7 +846,7 @@ function LeadsTab() {
                     pages.push(
                       <button
                         key={totalPages}
-                        onClick={() => setCurrentPage(totalPages)}
+                        onClick={() => { setCurrentPage(totalPages); updateUrlWithPage(totalPages); }}
                         style={{
                           minWidth: '36px',
                           height: '36px',
@@ -835,12 +867,12 @@ function LeadsTab() {
                       </button>
                     );
                   }
-                  
+
                   return pages;
                 })()}
-                
-                <button 
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
+
+                <button
+                  onClick={() => { const newPage = Math.min(totalPages, currentPage + 1); setCurrentPage(newPage); updateUrlWithPage(newPage); }}
                   disabled={currentPage >= totalPages || totalPages <= 1}
                   style={{
                     width: '36px',
@@ -857,8 +889,8 @@ function LeadsTab() {
                 >
                   <ChevronRight size={16} />
                 </button>
-                <button 
-                  onClick={() => setCurrentPage(totalPages)} 
+                <button
+                  onClick={() => { setCurrentPage(totalPages); updateUrlWithPage(totalPages); }}
                   disabled={currentPage >= totalPages || totalPages <= 1}
                   style={{
                     width: '36px',
@@ -923,3 +955,4 @@ function LeadsTab() {
 }
 
 export default LeadsTab;
+

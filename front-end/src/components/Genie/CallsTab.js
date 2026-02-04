@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useHistory } from "react-router-dom";
+import { useHistory, useLocation } from "react-router-dom";
 import { Phone, CheckCircle, Clock, Users, Search, RefreshCw, X, MoreVertical, Eye, Play, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { getAllCalls, getCallStats, updateCallLeadStatus, getAllBots } from "api/backend/genie";
 import { usePermissions } from "hooks/usePermissions";
@@ -8,57 +8,87 @@ import toast from "react-hot-toast";
 
 function CallsTab() {
   const history = useHistory();
+  const location = useLocation();
   const { hasPermission } = usePermissions();
   const { lastCallEvent } = useGenieWebSocket();
-  
+
+  // Get initial page from URL
+  const getInitialPage = () => {
+    const params = new URLSearchParams(location.search);
+    const pageFromUrl = parseInt(params.get('page'), 10);
+    return pageFromUrl && pageFromUrl > 0 ? pageFromUrl : 1;
+  };
+
   // State
   const [calls, setCalls] = useState([]);
   const [stats, setStats] = useState(null);
   const [bots, setBots] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
-  
+
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedBot, setSelectedBot] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("");
   const [selectedLeadFilter, setSelectedLeadFilter] = useState("");
   const [statsPeriod, setStatsPeriod] = useState("today");
-  
+
   // Pagination
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(getInitialPage());
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const limit = 10;
+
+  // Update URL with current page
+  const updateUrlWithPage = useCallback((page) => {
+    const params = new URLSearchParams(location.search);
+    if (page > 1) {
+      params.set('page', page.toString());
+    } else {
+      params.delete('page'); // Remove page param if it's page 1
+    }
+    history.push({ pathname: location.pathname, search: params.toString() });
+  }, [history, location.pathname, location.search]);
+
+  // Sync page from URL when browser back/forward is used
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const pageFromUrl = parseInt(params.get('page'), 10);
+    const validPage = pageFromUrl && pageFromUrl > 0 ? pageFromUrl : 1;
+
+    if (validPage !== currentPage) {
+      setCurrentPage(validPage);
+    }
+  }, [location.search]);
 
   // Dropdown state
   const [openDropdown, setOpenDropdown] = useState(null);
   const [dropdownPositions, setDropdownPositions] = useState({}); // Store position for each dropdown
   const dropdownButtonRefs = useRef({});
-  
+
   // Function to check if dropdown should open upward
   const checkDropdownPosition = (callId, buttonElement, isLastRow = false) => {
     if (!buttonElement) return 'bottom';
-    
+
     // Force upward for last row
     if (isLastRow) return 'top';
-    
+
     const rect = buttonElement.getBoundingClientRect();
     const viewportHeight = window.innerHeight;
     const spaceBelow = viewportHeight - rect.bottom;
     const spaceAbove = rect.top;
     const dropdownHeight = 200; // Approximate dropdown height
-    
+
     // Check if we're in the last few rows (within last 40% of viewport)
     const isNearBottom = rect.bottom > viewportHeight * 0.6;
-    
+
     // If near bottom or not enough space below but enough space above, open upward
     if (isNearBottom || (spaceBelow < dropdownHeight && spaceAbove > dropdownHeight)) {
       return 'top';
     }
     return 'bottom';
   };
-  
+
   // Handle dropdown toggle with position check
   const handleDropdownToggle = (callId, buttonElement, isLastRow = false) => {
     if (openDropdown === callId) {
@@ -180,6 +210,7 @@ function CallsTab() {
   const handleSearch = (e) => {
     e.preventDefault();
     setCurrentPage(1);
+    updateUrlWithPage(1);
     fetchCalls();
   };
 
@@ -190,19 +221,20 @@ function CallsTab() {
     setSelectedStatus("");
     setSelectedLeadFilter("");
     setCurrentPage(1);
+    updateUrlWithPage(1);
   };
 
   // Format duration (stored as decimal minutes like 1.4118333333333333)
   const formatDuration = (decimalMinutes) => {
     if (!decimalMinutes) return "0:00";
-    
+
     // Convert decimal minutes to total seconds
     const totalSeconds = Math.round(decimalMinutes * 60);
-    
+
     const hrs = Math.floor(totalSeconds / 3600);
     const mins = Math.floor((totalSeconds % 3600) / 60);
     const secs = totalSeconds % 60;
-    
+
     if (hrs > 0) {
       return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
@@ -213,8 +245,8 @@ function CallsTab() {
   const formatDate = (dateStr) => {
     if (!dateStr) return "-";
     const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit'
@@ -249,19 +281,19 @@ function CallsTab() {
           color: 'white'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
+            <div>
               <p style={{ margin: '0 0 4px 0', fontSize: '13px', opacity: 0.9 }}>Total Calls</p>
-                {statsLoading ? (
+              {statsLoading ? (
                 <div style={{ width: '24px', height: '24px', border: '2px solid white', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                ) : (
+              ) : (
                 <h3 style={{ margin: 0, fontSize: '28px', fontWeight: '700' }}>{stats?.totalCalls || 0}</h3>
-                )}
-              </div>
+              )}
+            </div>
             <div style={{ width: '50px', height: '50px', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Phone size={24} />
             </div>
           </div>
-              </div>
+        </div>
 
         <div style={{
           background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
@@ -270,19 +302,19 @@ function CallsTab() {
           color: 'white'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
+            <div>
               <p style={{ margin: '0 0 4px 0', fontSize: '13px', opacity: 0.9 }}>Success Rate</p>
-                {statsLoading ? (
+              {statsLoading ? (
                 <div style={{ width: '24px', height: '24px', border: '2px solid white', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                ) : (
+              ) : (
                 <h3 style={{ margin: 0, fontSize: '28px', fontWeight: '700' }}>{stats?.successRate || 0}%</h3>
-                )}
-              </div>
+              )}
+            </div>
             <div style={{ width: '50px', height: '50px', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <CheckCircle size={24} />
             </div>
           </div>
-              </div>
+        </div>
 
         <div style={{
           background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
@@ -291,19 +323,19 @@ function CallsTab() {
           color: 'white'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
+            <div>
               <p style={{ margin: '0 0 4px 0', fontSize: '13px', opacity: 0.9 }}>Avg Duration</p>
-                {statsLoading ? (
+              {statsLoading ? (
                 <div style={{ width: '24px', height: '24px', border: '2px solid white', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                ) : (
+              ) : (
                 <h3 style={{ margin: 0, fontSize: '28px', fontWeight: '700' }}>{formatDuration(stats?.avgDuration)}</h3>
-                )}
-              </div>
+              )}
+            </div>
             <div style={{ width: '50px', height: '50px', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Clock size={24} />
             </div>
           </div>
-              </div>
+        </div>
 
         <div style={{
           background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
@@ -312,20 +344,20 @@ function CallsTab() {
           color: 'white'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
+            <div>
               <p style={{ margin: '0 0 4px 0', fontSize: '13px', opacity: 0.9 }}>Leads</p>
-                {statsLoading ? (
+              {statsLoading ? (
                 <div style={{ width: '24px', height: '24px', border: '2px solid white', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                ) : (
+              ) : (
                 <h3 style={{ margin: 0, fontSize: '28px', fontWeight: '700' }}>{stats?.leadsGenerated || 0}</h3>
-                )}
-              </div>
+              )}
+            </div>
             <div style={{ width: '50px', height: '50px', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Users size={24} />
             </div>
           </div>
         </div>
-              </div>
+      </div>
 
       {/* Period Selector */}
       <div style={{ marginBottom: '16px' }}>
@@ -367,10 +399,10 @@ function CallsTab() {
               <div style={{ position: 'relative' }}>
                 <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
                 <input
-                    type="text"
-                    placeholder="Name or phone..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                  type="text"
+                  placeholder="Name or phone..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                   style={{
                     width: '100%',
                     padding: '10px 12px 10px 40px',
@@ -382,12 +414,12 @@ function CallsTab() {
                   }}
                 />
               </div>
-                </div>
+            </div>
             <div style={{ flex: '0 1 150px' }}>
               <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>Bot</label>
               <select
-                  value={selectedBot}
-                onChange={(e) => { setSelectedBot(e.target.value); setCurrentPage(1); }}
+                value={selectedBot}
+                onChange={(e) => { setSelectedBot(e.target.value); setCurrentPage(1); updateUrlWithPage(1); }}
                 style={{
                   width: '100%',
                   padding: '10px 12px',
@@ -397,19 +429,19 @@ function CallsTab() {
                   outline: 'none',
                   backgroundColor: 'white',
                   cursor: 'pointer'
-                  }}
-                >
-                  <option value="">All Bots</option>
-                  {bots.map((bot) => (
-                    <option key={bot.id} value={bot.id}>{bot.name}</option>
-                  ))}
+                }}
+              >
+                <option value="">All Bots</option>
+                {bots.map((bot) => (
+                  <option key={bot.id} value={bot.id}>{bot.name}</option>
+                ))}
               </select>
             </div>
             <div style={{ flex: '0 1 130px' }}>
               <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>Status</label>
               <select
-                  value={selectedStatus}
-                onChange={(e) => { setSelectedStatus(e.target.value); setCurrentPage(1); }}
+                value={selectedStatus}
+                onChange={(e) => { setSelectedStatus(e.target.value); setCurrentPage(1); updateUrlWithPage(1); }}
                 style={{
                   width: '100%',
                   padding: '10px 12px',
@@ -419,20 +451,20 @@ function CallsTab() {
                   outline: 'none',
                   backgroundColor: 'white',
                   cursor: 'pointer'
-                  }}
-                >
-                  <option value="">All</option>
-                  <option value="pending">Pending</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="completed">Completed</option>
-                  <option value="failed">Failed</option>
+                }}
+              >
+                <option value="">All</option>
+                <option value="pending">Pending</option>
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
               </select>
             </div>
             <div style={{ flex: '0 1 130px' }}>
               <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>Lead</label>
               <select
-                  value={selectedLeadFilter}
-                onChange={(e) => { setSelectedLeadFilter(e.target.value); setCurrentPage(1); }}
+                value={selectedLeadFilter}
+                onChange={(e) => { setSelectedLeadFilter(e.target.value); setCurrentPage(1); updateUrlWithPage(1); }}
                 style={{
                   width: '100%',
                   padding: '10px 12px',
@@ -442,11 +474,11 @@ function CallsTab() {
                   outline: 'none',
                   backgroundColor: 'white',
                   cursor: 'pointer'
-                  }}
-                >
-                  <option value="">All</option>
-                  <option value="true">Leads Only</option>
-                  <option value="false">Non-Leads</option>
+                }}
+              >
+                <option value="">All</option>
+                <option value="true">Leads Only</option>
+                <option value="false">Non-Leads</option>
               </select>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
@@ -532,7 +564,7 @@ function CallsTab() {
                     const statusStyle = getStatusStyle(call.call_status);
                     const isLastRow = index === calls.length - 1;
                     return (
-                      <tr 
+                      <tr
                         key={call.id}
                         style={{ borderBottom: '1px solid #f1f5f9', transition: 'background-color 0.2s' }}
                         onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
@@ -552,14 +584,14 @@ function CallsTab() {
                               fontWeight: '600',
                               fontSize: '14px'
                             }}>
-                            {getInitials(call.name)}
-                          </div>
+                              {getInitials(call.name)}
+                            </div>
                             <div>
                               <div style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>{call.name || "Unknown"}</div>
                               <div style={{ color: '#64748b', fontSize: '13px' }}>{call.phone || "-"}</div>
+                            </div>
                           </div>
-                        </div>
-                      </td>
+                        </td>
                         <td style={{ padding: '14px 16px' }}>
                           {call.consumer_name || call.consumer_email ? (
                             <div>
@@ -569,10 +601,10 @@ function CallsTab() {
                           ) : (
                             <span style={{ color: '#64748b', fontSize: '14px' }}>-</span>
                           )}
-                      </td>
+                        </td>
                         <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '14px' }}>
                           {call.genie_bots?.name || "-"}
-                      </td>
+                        </td>
                         <td style={{ padding: '14px 16px' }}>
                           <span style={{
                             padding: '6px 12px',
@@ -583,23 +615,23 @@ function CallsTab() {
                             color: statusStyle.color
                           }}>
                             {statusStyle.text}
-                        </span>
-                      </td>
+                          </span>
+                        </td>
                         <td style={{ padding: '14px 16px', fontWeight: '600', fontSize: '14px', color: '#1e293b' }}>
                           {formatDuration(call.duration)}
-                      </td>
+                        </td>
                         <td style={{ padding: '14px 16px', color: '#64748b', fontSize: '14px' }}>
                           {formatDate(call.created_at)}
-                      </td>
+                        </td>
                         <td style={{ padding: '14px 16px' }}>
-                        {canUpdate ? (
+                          {canUpdate ? (
                             <label style={{ position: 'relative', width: '44px', height: '24px', display: 'inline-block' }}>
-                            <input
-                              type="checkbox"
-                              checked={call.is_lead || false}
-                              onChange={() => handleToggleLead(call.id, call.is_lead)}
+                              <input
+                                type="checkbox"
+                                checked={call.is_lead || false}
+                                onChange={() => handleToggleLead(call.id, call.is_lead)}
                                 style={{ opacity: 0, width: 0, height: 0 }}
-                            />
+                              />
                               <span style={{
                                 position: 'absolute',
                                 cursor: 'pointer',
@@ -623,9 +655,9 @@ function CallsTab() {
                                   borderRadius: '50%'
                                 }} />
                               </span>
-                          </label>
-                        ) : (
-                          call.is_lead ? (
+                            </label>
+                          ) : (
+                            call.is_lead ? (
                               <span style={{
                                 padding: '6px 12px',
                                 borderRadius: '20px',
@@ -636,11 +668,11 @@ function CallsTab() {
                               }}>
                                 Lead
                               </span>
-                          ) : (
+                            ) : (
                               <span style={{ color: '#64748b' }}>-</span>
-                          )
-                        )}
-                      </td>
+                            )
+                          )}
+                        </td>
                         <td style={{ padding: '14px 16px', textAlign: 'center', position: 'relative' }}>
                           <button
                             ref={(el) => {
@@ -677,60 +709,60 @@ function CallsTab() {
                                 zIndex: 9999,
                                 minWidth: '160px'
                               }}>
-                            {canRead && (
-                                <button
-                                  onClick={(e) => { 
-                                    e.stopPropagation();
-                                    e.preventDefault();
-                                    setOpenDropdown(null);
-                                    setTimeout(() => {
-                                      history.push(`/admin/genie/calls/${call.id}`);
-                                    }, 0);
-                                  }}
-                                  style={{
-                                    width: '100%',
-                                    padding: '10px 16px',
-                                    border: 'none',
-                                    backgroundColor: 'transparent',
-                                    textAlign: 'left',
-                                    cursor: 'pointer',
-                                    fontSize: '14px',
-                                    color: '#333',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px'
-                                  }}
-                                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
-                                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                                >
-                                  <Eye size={16} /> View Details
-                                </button>
-                            )}
-                            {call.call_url && (
-                                <a
-                                  href={call.call_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    padding: '10px 16px',
-                                    textDecoration: 'none',
-                                    fontSize: '14px',
-                                    color: '#333'
-                                  }}
-                                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
-                                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                                >
-                                  <Play size={16} /> Play Recording
-                                </a>
-                            )}
+                                {canRead && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                      setOpenDropdown(null);
+                                      setTimeout(() => {
+                                        history.push(`/admin/genie/calls/${call.id}`);
+                                      }, 0);
+                                    }}
+                                    style={{
+                                      width: '100%',
+                                      padding: '10px 16px',
+                                      border: 'none',
+                                      backgroundColor: 'transparent',
+                                      textAlign: 'left',
+                                      cursor: 'pointer',
+                                      fontSize: '14px',
+                                      color: '#333',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '8px'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                                  >
+                                    <Eye size={16} /> View Details
+                                  </button>
+                                )}
+                                {call.call_url && (
+                                  <a
+                                    href={call.call_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '8px',
+                                      padding: '10px 16px',
+                                      textDecoration: 'none',
+                                      fontSize: '14px',
+                                      color: '#333'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                                  >
+                                    <Play size={16} /> Play Recording
+                                  </a>
+                                )}
                               </div>
                             );
                           })()}
-                      </td>
-                    </tr>
+                        </td>
+                      </tr>
                     );
                   })}
                 </tbody>
@@ -743,8 +775,8 @@ function CallsTab() {
                 Showing {calls.length} of {totalCount} calls (Page {currentPage} of {totalPages})
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <button 
-                  onClick={() => setCurrentPage(1)} 
+                <button
+                  onClick={() => { setCurrentPage(1); updateUrlWithPage(1); }}
                   disabled={currentPage <= 1}
                   style={{
                     width: '36px',
@@ -761,8 +793,8 @@ function CallsTab() {
                 >
                   <ChevronsLeft size={16} />
                 </button>
-                <button 
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+                <button
+                  onClick={() => { const newPage = Math.max(1, currentPage - 1); setCurrentPage(newPage); updateUrlWithPage(newPage); }}
                   disabled={currentPage <= 1}
                   style={{
                     width: '36px',
@@ -779,23 +811,23 @@ function CallsTab() {
                 >
                   <ChevronLeft size={16} />
                 </button>
-                
+
                 {/* Page Numbers */}
                 {(() => {
                   const pages = [];
                   const maxVisible = 5;
                   let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
                   let endPage = Math.min(totalPages, startPage + maxVisible - 1);
-                  
+
                   if (endPage - startPage < maxVisible - 1) {
                     startPage = Math.max(1, endPage - maxVisible + 1);
                   }
-                  
+
                   if (startPage > 1) {
                     pages.push(
                       <button
                         key={1}
-                        onClick={() => setCurrentPage(1)}
+                        onClick={() => { setCurrentPage(1); updateUrlWithPage(1); }}
                         style={{
                           minWidth: '36px',
                           height: '36px',
@@ -821,12 +853,12 @@ function CallsTab() {
                       );
                     }
                   }
-                  
+
                   for (let i = startPage; i <= endPage; i++) {
                     pages.push(
                       <button
                         key={i}
-                        onClick={() => setCurrentPage(i)}
+                        onClick={() => { setCurrentPage(i); updateUrlWithPage(i); }}
                         style={{
                           minWidth: '36px',
                           height: '36px',
@@ -847,7 +879,7 @@ function CallsTab() {
                       </button>
                     );
                   }
-                  
+
                   if (endPage < totalPages) {
                     if (endPage < totalPages - 1) {
                       pages.push(
@@ -857,7 +889,7 @@ function CallsTab() {
                     pages.push(
                       <button
                         key={totalPages}
-                        onClick={() => setCurrentPage(totalPages)}
+                        onClick={() => { setCurrentPage(totalPages); updateUrlWithPage(totalPages); }}
                         style={{
                           minWidth: '36px',
                           height: '36px',
@@ -878,12 +910,12 @@ function CallsTab() {
                       </button>
                     );
                   }
-                  
+
                   return pages;
                 })()}
-                
-                <button 
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
+
+                <button
+                  onClick={() => { const newPage = Math.min(totalPages, currentPage + 1); setCurrentPage(newPage); updateUrlWithPage(newPage); }}
                   disabled={currentPage >= totalPages || totalPages <= 1}
                   style={{
                     width: '36px',
@@ -900,8 +932,8 @@ function CallsTab() {
                 >
                   <ChevronRight size={16} />
                 </button>
-                <button 
-                  onClick={() => setCurrentPage(totalPages)} 
+                <button
+                  onClick={() => { setCurrentPage(totalPages); updateUrlWithPage(totalPages); }}
                   disabled={currentPage >= totalPages || totalPages <= 1}
                   style={{
                     width: '36px',

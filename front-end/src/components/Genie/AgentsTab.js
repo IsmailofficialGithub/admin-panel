@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useHistory, useLocation } from 'react-router-dom';
 import { Bot, Eye, Search, RefreshCw, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Check, X, ArrowUp, ArrowDown, Filter, User } from 'lucide-react';
 import { getAllBots } from 'api/backend/genie';
 import { usePermissions } from 'hooks/usePermissions';
@@ -7,16 +8,25 @@ import BotDetailsModal from '../ConsumerGenie/BotDetailsModal';
 import { supabase } from '../../lib/supabase/Production/client';
 
 function AgentsTab() {
+  const history = useHistory();
+  const location = useLocation();
   const { hasPermission } = usePermissions();
   const canRead = hasPermission('genie.agents.view') || hasPermission('genie.bots.view');
-  
+
+  // Get initial page from URL
+  const getInitialPage = () => {
+    const params = new URLSearchParams(location.search);
+    const pageFromUrl = parseInt(params.get('page'), 10);
+    return pageFromUrl && pageFromUrl > 0 ? pageFromUrl : 1;
+  };
+
   // State
   const [allAgents, setAllAgents] = useState([]); // Store all agents before filtering
   const [agents, setAgents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [showModal, setShowModal] = useState(false);
-  
+
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -24,12 +34,34 @@ function AgentsTab() {
   const [ownerSearchInput, setOwnerSearchInput] = useState(''); // Owner search input
   const [ownerSearchQuery, setOwnerSearchQuery] = useState(''); // Owner search query
   const [ownerProfiles, setOwnerProfiles] = useState(new Map()); // Map of owner_user_id to profile
-  
+
   // Pagination
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(getInitialPage());
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const limit = 20;
+
+  // Update URL with current page
+  const updateUrlWithPage = useCallback((page) => {
+    const params = new URLSearchParams(location.search);
+    if (page > 1) {
+      params.set('page', page.toString());
+    } else {
+      params.delete('page'); // Remove page param if it's page 1
+    }
+    history.push({ pathname: location.pathname, search: params.toString() });
+  }, [history, location.pathname, location.search]);
+
+  // Sync page from URL when browser back/forward is used
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const pageFromUrl = parseInt(params.get('page'), 10);
+    const validPage = pageFromUrl && pageFromUrl > 0 ? pageFromUrl : 1;
+
+    if (validPage !== currentPage) {
+      setCurrentPage(validPage);
+    }
+  }, [location.search]);
 
   // Track which owner IDs we've already fetched
   const fetchedOwnerIdsRef = useRef(new Set());
@@ -50,7 +82,7 @@ function AgentsTab() {
 
       // Find missing owner IDs that we haven't fetched yet
       const missingIds = ownerIds.filter(id => !fetchedOwnerIdsRef.current.has(id));
-      
+
       if (missingIds.length === 0) return; // All profiles already loaded or being loaded
 
       // Mark these IDs as being fetched
@@ -123,11 +155,11 @@ function AgentsTab() {
     }
 
     let filteredData = [...allAgents]; // Work with a copy
-    
+
     // Apply search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      filteredData = filteredData.filter(agent => 
+      filteredData = filteredData.filter(agent =>
         agent.name?.toLowerCase().includes(query) ||
         agent.company_name?.toLowerCase().includes(query) ||
         agent.goal?.toLowerCase().includes(query) ||
@@ -141,18 +173,18 @@ function AgentsTab() {
       filteredData = filteredData.filter(agent => {
         const ownerId = agent.owner_user_id;
         if (!ownerId) return false;
-        
+
         // If owner profiles are loaded, use them for filtering
         if (ownerProfiles.size > 0) {
           const owner = ownerProfiles.get(ownerId);
           if (!owner) return false;
-          
+
           const ownerName = (owner.name || '').toLowerCase();
           const ownerEmail = (owner.email || '').toLowerCase();
-          
+
           return ownerName.includes(query) || ownerEmail.includes(query);
         }
-        
+
         // If profiles not loaded yet, allow filtering by owner_user_id (partial match)
         // This provides immediate feedback while profiles are loading
         return ownerId.toLowerCase().includes(query);
@@ -187,6 +219,7 @@ function AgentsTab() {
   const handleSearch = () => {
     setSearchQuery(searchInput);
     setCurrentPage(1); // Reset to first page on search
+    updateUrlWithPage(1);
   };
 
   // Handle clear search
@@ -194,12 +227,14 @@ function AgentsTab() {
     setSearchInput('');
     setSearchQuery('');
     setCurrentPage(1);
+    updateUrlWithPage(1);
   };
 
   // Handle sort toggle
   const handleSortToggle = () => {
     setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
     setCurrentPage(1);
+    updateUrlWithPage(1);
   };
 
   // Handle owner search
@@ -210,6 +245,7 @@ function AgentsTab() {
     }
     setOwnerSearchQuery(ownerSearchInput);
     setCurrentPage(1);
+    updateUrlWithPage(1);
   };
 
   // Handle clear owner search
@@ -217,11 +253,13 @@ function AgentsTab() {
     setOwnerSearchInput('');
     setOwnerSearchQuery('');
     setCurrentPage(1);
+    updateUrlWithPage(1);
   };
 
   // Handle pagination
   const handlePageChange = (page) => {
     setCurrentPage(page);
+    updateUrlWithPage(page);
   };
 
   // Handle view agent
@@ -522,7 +560,7 @@ function AgentsTab() {
             }}
           >
             <Search size={16} />
-           
+
           </button>
         </div>
       </div>
