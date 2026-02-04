@@ -27,6 +27,7 @@ jobs:
           ref: staging-ismail-admin-panel
           fetch-depth: 0
           token: ${{ secrets.PAT_TOKEN || github.token }}
+          persist-credentials: true
       
       - name: Configure Git
         run: |
@@ -105,20 +106,47 @@ jobs:
       - name: Push changes
         if: steps.revert.outcome == 'success'
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || github.token }}
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
+          # Determine which token to use (PAT takes priority)
+          if [ -n "$PAT_TOKEN" ]; then
+            echo "🔑 Using Personal Access Token (PAT_TOKEN) for authentication"
+            TOKEN="$PAT_TOKEN"
+          else
+            echo "⚠️ Using GITHUB_TOKEN (may have limited permissions)"
+            echo "💡 For better reliability, consider adding a PAT_TOKEN secret with 'repo' scope"
+            TOKEN="$GITHUB_TOKEN"
+          fi
+          
           # Configure remote URL with token for authentication
-          git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
+          git remote set-url origin https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git
           
           if [ "${{ github.event.inputs.create_revert_commit }}" = "true" ]; then
             echo "📤 Pushing revert commit to staging..."
-            git push origin "HEAD:staging-ismail-admin-panel"
+            if git push origin "HEAD:staging-ismail-admin-panel"; then
+              echo "✅ Staging revert completed successfully!"
+            else
+              echo "❌ Push failed. This usually means:"
+              echo "   1. The GITHUB_TOKEN doesn't have write permissions"
+              echo "   2. Repository workflow permissions are set to read-only"
+              echo "   3. You need to add a PAT_TOKEN secret with 'repo' scope"
+              echo ""
+              echo "To fix:"
+              echo "   1. Go to Settings → Secrets and variables → Actions"
+              echo "   2. Add a new secret named 'PAT_TOKEN'"
+              echo "   3. Use a Personal Access Token with 'repo' scope"
+              exit 1
+            fi
           else
             echo "📤 Force pushing reset to staging..."
-            git push origin "HEAD:staging-ismail-admin-panel" --force
+            if git push origin "HEAD:staging-ismail-admin-panel" --force; then
+              echo "✅ Staging revert completed successfully!"
+            else
+              echo "❌ Force push failed. See error message above for details."
+              exit 1
+            fi
           fi
-          
-          echo "✅ Staging revert completed successfully!"
       
       - name: Create summary
         if: always()
