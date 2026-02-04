@@ -47,7 +47,7 @@ jobs:
         with:
           ref: staging-ismail-admin-panel
           fetch-depth: 0
-          token: ${{ secrets.PAT_TOKEN }}
+          token: ${{ secrets.PAT_TOKEN2 }}
           persist-credentials: true
       
       - name: Configure Git
@@ -127,13 +127,13 @@ jobs:
       - name: Push changes
         if: steps.revert.outcome == 'success'
         env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN2 }}
         run: |
           # Use PAT_TOKEN for authentication (verified in earlier step)
-          echo "🔑 Using Personal Access Token (PAT_TOKEN) for authentication"
+          echo "🔑 Using Personal Access Token (PAT_TOKEN2) for authentication"
           
           # Configure remote URL with token for authentication
-          git remote set-url origin https://x-access-token:${PAT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
+          git remote set-url origin https://x-access-token:${PAT_TOKEN2}@github.com/${GITHUB_REPOSITORY}.git
           
           if [ "${{ github.event.inputs.create_revert_commit }}" = "true" ]; then
             echo "📤 Pushing revert commit to staging..."
