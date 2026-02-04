@@ -21,12 +21,33 @@ jobs:
       contents: write
     
     steps:
+      - name: Verify PAT_TOKEN exists
+        run: |
+          if [ -z "${{ secrets.PAT_TOKEN }}" ]; then
+            echo "❌ PAT_TOKEN secret is not configured!"
+            echo ""
+            echo "This workflow requires a Personal Access Token (PAT) to push changes."
+            echo "The default GITHUB_TOKEN doesn't have write permissions for this repository."
+            echo ""
+            echo "To fix this:"
+            echo "1. Go to: https://github.com/settings/tokens"
+            echo "2. Click 'Generate new token (classic)'"
+            echo "3. Select the 'repo' scope (full control of private repositories)"
+            echo "4. Copy the generated token"
+            echo "5. Go to your repository: Settings → Secrets and variables → Actions"
+            echo "6. Add a new secret named 'PAT_TOKEN' with the token value"
+            echo ""
+            exit 1
+          else
+            echo "✅ PAT_TOKEN is configured"
+          fi
+      
       - name: Checkout code
         uses: actions/checkout@v3
         with:
           ref: staging-ismail-admin-panel
           fetch-depth: 0
-          token: ${{ secrets.PAT_TOKEN || github.token }}
+          token: ${{ secrets.PAT_TOKEN }}
           persist-credentials: true
       
       - name: Configure Git
@@ -107,20 +128,12 @@ jobs:
         if: steps.revert.outcome == 'success'
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          # Determine which token to use (PAT takes priority)
-          if [ -n "$PAT_TOKEN" ]; then
-            echo "🔑 Using Personal Access Token (PAT_TOKEN) for authentication"
-            TOKEN="$PAT_TOKEN"
-          else
-            echo "⚠️ Using GITHUB_TOKEN (may have limited permissions)"
-            echo "💡 For better reliability, consider adding a PAT_TOKEN secret with 'repo' scope"
-            TOKEN="$GITHUB_TOKEN"
-          fi
+          # Use PAT_TOKEN for authentication (verified in earlier step)
+          echo "🔑 Using Personal Access Token (PAT_TOKEN) for authentication"
           
           # Configure remote URL with token for authentication
-          git remote set-url origin https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git
+          git remote set-url origin https://x-access-token:${PAT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
           
           if [ "${{ github.event.inputs.create_revert_commit }}" = "true" ]; then
             echo "📤 Pushing revert commit to staging..."
