@@ -48,7 +48,7 @@ jobs:
           ref: staging-ismail-admin-panel
           fetch-depth: 0
           token: ${{ secrets.PAT_TOKEN }}
-          persist-credentials: true
+          persist-credentials: false
       
       - name: Configure Git
         run: |
@@ -138,16 +138,36 @@ jobs:
             exit 1
           fi
           
-          # Configure remote URL with token for authentication
+          # Clear any existing credentials that might interfere
+          echo "🧹 Clearing existing git credentials..."
+          git config --local --unset credential.helper || true
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          
+          # Remove any stored credentials
+          rm -f ~/.git-credentials 2>/dev/null || true
+          
+          # Configure remote URL with PAT token for authentication
+          echo "🔧 Configuring git remote with PAT token..."
           git remote set-url origin https://x-access-token:${PAT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
           
-          # Debug: Show which user the token belongs to (without exposing the token)
+          # Verify the remote is configured correctly (without exposing token)
+          REMOTE_URL=$(git remote get-url origin)
+          if [[ "$REMOTE_URL" == *"x-access-token"* ]]; then
+            echo "✅ Remote URL configured with token authentication"
+          else
+            echo "⚠️ Warning: Remote URL doesn't appear to use token authentication"
+            echo "   Remote URL: ${REMOTE_URL/x-access-token:*/x-access-token:***}"
+          fi
+          
+          # Debug: Test token authentication
           echo "🔍 Verifying token permissions..."
-          git ls-remote --heads origin staging-ismail-admin-panel > /dev/null 2>&1 || {
+          if git ls-remote --heads origin staging-ismail-admin-panel > /dev/null 2>&1; then
+            echo "✅ Token authentication successful"
+          else
             echo "❌ Token authentication failed - cannot access repository"
+            echo "   This usually means the PAT_TOKEN doesn't have 'repo' scope"
             exit 1
-          }
-          echo "✅ Token authentication successful"
+          fi
           
           if [ "${{ github.event.inputs.create_revert_commit }}" = "true" ]; then
             echo "📤 Pushing revert commit to staging..."
