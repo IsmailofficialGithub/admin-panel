@@ -47,7 +47,7 @@ jobs:
         with:
           ref: staging-ismail-admin-panel
           fetch-depth: 0
-          token: ${{ secrets.PAT_TOKEN2 }}
+          token: ${{ secrets.PAT_TOKEN }}
           persist-credentials: true
       
       - name: Configure Git
@@ -127,13 +127,27 @@ jobs:
       - name: Push changes
         if: steps.revert.outcome == 'success'
         env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN2 }}
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           # Use PAT_TOKEN for authentication (verified in earlier step)
-          echo "🔑 Using Personal Access Token (PAT_TOKEN2) for authentication"
+          echo "🔑 Using Personal Access Token (PAT_TOKEN) for authentication"
+          
+          # Verify token is set
+          if [ -z "$PAT_TOKEN" ]; then
+            echo "❌ PAT_TOKEN environment variable is empty!"
+            exit 1
+          fi
           
           # Configure remote URL with token for authentication
-          git remote set-url origin https://x-access-token:${PAT_TOKEN2}@github.com/${GITHUB_REPOSITORY}.git
+          git remote set-url origin https://x-access-token:${PAT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
+          
+          # Debug: Show which user the token belongs to (without exposing the token)
+          echo "🔍 Verifying token permissions..."
+          git ls-remote --heads origin staging-ismail-admin-panel > /dev/null 2>&1 || {
+            echo "❌ Token authentication failed - cannot access repository"
+            exit 1
+          }
+          echo "✅ Token authentication successful"
           
           if [ "${{ github.event.inputs.create_revert_commit }}" = "true" ]; then
             echo "📤 Pushing revert commit to staging..."
@@ -141,14 +155,18 @@ jobs:
               echo "✅ Staging revert completed successfully!"
             else
               echo "❌ Push failed. This usually means:"
-              echo "   1. The GITHUB_TOKEN doesn't have write permissions"
-              echo "   2. Repository workflow permissions are set to read-only"
-              echo "   3. You need to add a PAT_TOKEN secret with 'repo' scope"
+              echo "   1. The PAT_TOKEN doesn't have 'repo' scope"
+              echo "   2. The PAT_TOKEN is invalid or expired"
+              echo "   3. The PAT_TOKEN doesn't have write access to this repository"
               echo ""
               echo "To fix:"
-              echo "   1. Go to Settings → Secrets and variables → Actions"
-              echo "   2. Add a new secret named 'PAT_TOKEN'"
-              echo "   3. Use a Personal Access Token with 'repo' scope"
+              echo "   1. Verify PAT_TOKEN secret exists: Settings → Secrets and variables → Actions"
+              echo "   2. Check token has 'repo' scope: https://github.com/settings/tokens"
+              echo "   3. Regenerate token if needed and update the PAT_TOKEN secret"
+              echo ""
+              echo "Debug info:"
+              echo "  Repository: ${GITHUB_REPOSITORY}"
+              echo "  Branch: staging-ismail-admin-panel"
               exit 1
             fi
           else
