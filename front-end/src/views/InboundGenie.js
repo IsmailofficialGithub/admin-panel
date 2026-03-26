@@ -998,6 +998,87 @@ function InboundGenie() {
     setAudioProgress(percentage * 100);
   };
 
+  // Export data to CSV
+  const exportToCSV = (data, type) => {
+    if (!data || data.length === 0) {
+      toast.error('No data to export');
+      return;
+    }
+
+    try {
+      let headers = [];
+      let rows = [];
+
+      if (type === 'numbers') {
+        headers = ['Phone Number', 'Label', 'Provider', 'Status', 'Health Status', 'Webhook Status', 'Agent', 'Created At'];
+        rows = data.map(item => [
+          item.phone_number || '',
+          item.phone_label || '',
+          item.provider || '',
+          item.status || '',
+          item.health_status || 'unknown',
+          item.webhook_status || 'unknown',
+          item.assigned_to_agent_id ? 'Assigned' : 'Unassigned',
+          item.created_at ? new Date(item.created_at).toLocaleString() : ''
+        ]);
+      } else if (type === 'calls') {
+        headers = ['Date', 'Caller', 'Called', 'Status', 'Duration', 'Cost', 'Number'];
+        rows = data.map(item => [
+          item.call_start_time ? new Date(item.call_start_time).toLocaleString() : '',
+          item.caller_number || '',
+          item.called_number || '',
+          item.call_status || '',
+          item.call_duration ? `${Math.floor(item.call_duration / 60)}m ${Math.floor(item.call_duration % 60)}s` : '0s',
+          item.call_cost ? `$${item.call_cost.toFixed(2)}` : '$0.00',
+          item.inbound_numbers?.phone_number || ''
+        ]);
+      } else if (type === 'agents') {
+        headers = ['Name', 'Company', 'Type', 'Status', 'Phone', 'Voice', 'Model', 'User Email', 'Created At'];
+        rows = data.map(item => [
+          item.name || '',
+          item.company_name || '',
+          item.agent_type || '',
+          item.status || '',
+          item.phone_number || '',
+          item.voice || '',
+          item.model || 'gpt-4o',
+          item.user_email || item.user_full_name || item.user_id?.substring(0, 8) || '',
+          item.created_at ? new Date(item.created_at).toLocaleString() : ''
+        ]);
+      }
+
+      // Create CSV content
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => {
+          // Escape commas and quotes in cell values
+          const cellStr = String(cell || '');
+          if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
+            return `"${cellStr.replace(/"/g, '""')}"`;
+          }
+          return cellStr;
+        }).join(','))
+      ].join('\n');
+
+      // Create blob and download
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `inbound_${type}_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast.success(`Exported ${data.length} ${type} to CSV`);
+    } catch (error) {
+      console.error('Error exporting to CSV:', error);
+      toast.error('Failed to export data to CSV');
+    }
+  };
+
   // Format time helper
   const formatTime = (seconds) => {
     if (!seconds || isNaN(seconds)) return '0:00';

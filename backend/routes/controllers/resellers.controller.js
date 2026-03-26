@@ -3,6 +3,7 @@ import { sendWelcomeEmail, sendPasswordResetEmail } from '../../services/emailSe
 import { generatePassword } from '../../utils/helpers.js';
 import { logActivity, getActorInfo, getClientIp, getUserAgent } from '../../services/activityLogger.js';
 import { cacheService } from '../../config/redis.js';
+import { performFullUserCleanup } from '../../utils/databaseCleanup.js';
 import {
   sanitizeString,
   isValidUUID,
@@ -315,12 +316,11 @@ export const getResellerById = async (req, res) => {
     // ========================================
     // 2. OPTIMIZED DATABASE QUERY
     // ========================================
-    const queryPromise = supabase
+    const queryPromise = supabaseAdmin
       .from('auth_role_with_profiles')
       .select(RESELLER_SELECT_FIELDS)
       .eq('user_id', id)
-      .contains('role', ['reseller']) // Check if role array contains 'reseller'
-      .single();
+      .maybeSingle();
 
     const { data: reseller, error } = await executeWithTimeout(queryPromise);
 
@@ -993,21 +993,15 @@ export const deleteReseller = async (req, res) => {
     });
 
     // ========================================
-    // 4. DELETE FROM PROFILES (with timeout)
+    // 4. ROBUST DATA CLEANUP (FOREIGN KEY HELL)
     // ========================================
-    const deleteProfilePromise = supabase
-      .from('profiles')
-      .delete()
-      .eq('user_id', id);
-
-    const { error: profileError } = await executeWithTimeout(deleteProfilePromise);
-
-    if (profileError) {
-      console.error('❌ Error deleting profile:', profileError);
+    const cleanupSuccess = await performFullUserCleanup(id);
+    
+    if (!cleanupSuccess) {
       return res.status(500).json({
         success: false,
-        error: 'Internal Server Error',
-        message: 'Failed to delete reseller. Please try again.'
+        error: 'CLEANUP_FAILED',
+        message: 'Failed to clean up reseller data. The deletion was aborted to prevent data corruption.'
       });
     }
 
@@ -1916,22 +1910,15 @@ export const deleteMyConsumer = async (req, res) => {
       console.warn('⚠️ Failed to log activity:', logError?.message);
     });
 
+    // 5. ROBUST DATA CLEANUP (FOREIGN KEY HELL)
     // ========================================
-    // 5. DELETE FROM PROFILES (with timeout)
-    // ========================================
-    const deleteProfilePromise = supabase
-      .from('profiles')
-      .delete()
-      .eq('user_id', id);
-
-    const { error: deleteProfileError } = await executeWithTimeout(deleteProfilePromise);
-
-    if (deleteProfileError) {
-      console.error('❌ Error deleting profile:', deleteProfileError);
+    const cleanupSuccess = await performFullUserCleanup(id);
+    
+    if (!cleanupSuccess) {
       return res.status(500).json({
         success: false,
-        error: 'Internal Server Error',
-        message: 'Failed to delete consumer. Please try again.'
+        error: 'CLEANUP_FAILED',
+        message: 'Failed to clean up consumer data. The deletion was aborted to prevent data corruption.'
       });
     }
 
@@ -2496,12 +2483,11 @@ export const updateResellerAccountStatus = async (req, res) => {
     // ========================================
     // 2. CHECK IF RESELLER EXISTS (with timeout)
     // ========================================
-    const checkPromise = supabase
+    const checkPromise = supabaseAdmin
       .from('auth_role_with_profiles')
       .select('role, account_status')
       .eq('user_id', id)
-      .contains('role', ['reseller']) // Check if role array contains 'reseller'
-      .single();
+      .maybeSingle();
 
     const { data: resellerProfile, error: fetchError } = await executeWithTimeout(checkPromise);
 
@@ -2517,16 +2503,15 @@ export const updateResellerAccountStatus = async (req, res) => {
     // ========================================
     // 3. UPDATE ACCOUNT STATUS (with timeout)
     // ========================================
-    const updatePromise = supabase
+    const updatePromise = supabaseAdmin
       .from('profiles')
-      .update({
+      .upsert({ 
+        user_id: id,
         account_status: account_status,
         updated_at: new Date().toISOString()
       })
-      .eq('user_id', id)
-      .contains('role', ['reseller']) // Use contains for array role column
       .select()
-      .single();
+      .maybeSingle();
 
     const { data: updatedReseller, error: updateError } = await executeWithTimeout(updatePromise);
 
@@ -2594,11 +2579,11 @@ export const getAllReferredResellers = async (req, res) => {
     // ========================================
     // 2. GET USER PROFILE (with timeout)
     // ========================================
-    const profilePromise = supabase
+    const profilePromise = supabaseAdmin
       .from('auth_role_with_profiles')
       .select('role')
       .eq('user_id', currentUserId)
-      .single();
+      .maybeSingle();
 
     const { data: currentUserProfile } = await executeWithTimeout(profilePromise, 3000);
 
@@ -2943,13 +2928,11 @@ export const updateMyReseller = async (req, res) => {
     // ========================================
     // 4. UPDATE RESELLER (with timeout)
     // ========================================
-    const updatePromise = supabase
+    const updatePromise = supabaseAdmin
       .from('profiles')
-      .update(updateData)
-      .eq('user_id', id)
-      .contains('role', ['reseller']) // Use contains for array role column
+      .upsert({ user_id: id, ...updateData, updated_at: new Date().toISOString() })
       .select()
-      .single();
+      .maybeSingle();
 
     const { data: updatedReseller, error } = await executeWithTimeout(updatePromise);
 

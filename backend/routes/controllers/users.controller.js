@@ -3,6 +3,7 @@ import { sendWelcomeEmail, sendPasswordResetEmail } from '../../services/emailSe
 import { generatePassword } from '../../utils/helpers.js';
 import { logActivity, getActorInfo, getClientIp, getUserAgent } from '../../services/activityLogger.js';
 import { cacheService } from '../../config/redis.js';
+import { performFullUserCleanup } from '../../utils/databaseCleanup.js';
 import {
   sanitizeString,
   isValidEmail,
@@ -69,7 +70,7 @@ export const getAllUsers = async (req, res) => {
     let searchTerm = '';
     if (search) {
       searchTerm = sanitizeString(search, 100);
-      
+
       // Validate search term contains only safe characters
       if (!isValidSearchTerm(searchTerm)) {
         return res.status(400).json({
@@ -84,10 +85,10 @@ export const getAllUsers = async (req, res) => {
     const { pageNum, limitNum } = validatePagination(page, limit);
     const offset = (pageNum - 1) * limitNum;
 
-    console.log('🔍 Searching users with:', { 
-      search: searchTerm, 
-      page: pageNum, 
-      limit: limitNum 
+    console.log('🔍 Searching users with:', {
+      search: searchTerm,
+      page: pageNum,
+      limit: limitNum
     });
 
     // ========================================
@@ -124,7 +125,7 @@ export const getAllUsers = async (req, res) => {
 
     // Order (but don't paginate yet - we'll do that after filtering)
     query = query.order('created_at', { ascending: false });
-    
+
     // Fetch a larger batch to account for filtering (fetch up to 10x the limit)
     // This ensures we have enough results after filtering
     const fetchLimit = limitNum * 10;
@@ -132,7 +133,7 @@ export const getAllUsers = async (req, res) => {
 
     // Execute query with timeout protection
     const queryPromise = query;
-    const timeoutPromise = new Promise((_, reject) => 
+    const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('Query timeout')), QUERY_TIMEOUT)
     );
 
@@ -242,7 +243,7 @@ export const searchAllUsers = async (req, res) => {
 
     // Sanitize search input
     let searchTerm = sanitizeString(q.trim(), 100);
-    
+
     // Validate search term contains only safe characters
     if (!isValidSearchTerm(searchTerm)) {
       return res.status(400).json({
@@ -368,7 +369,7 @@ export const getUserById = async (req, res) => {
       .eq('user_id', id)
       .single();
 
-    const timeoutPromise = new Promise((_, reject) => 
+    const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('Query timeout')), QUERY_TIMEOUT)
     );
 
@@ -443,7 +444,7 @@ export const createUser = async (req, res) => {
     let { email, password, full_name, role, roles, phone, country, city, referred_by, subscribed_products, trial_expiry_date, nickname } = req.body;
 
     // Validate required fields
-    if (!email || !password || !full_name || !country ) {
+    if (!email || !password || !full_name || !country) {
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
@@ -490,7 +491,7 @@ export const createUser = async (req, res) => {
     // Validate roles - support both single role (backward compatibility) and roles array
     const validRoles = ['user', 'admin', 'consumer', 'reseller', 'viewer', 'support'];
     let userRoles = [];
-    
+
     // If roles array is provided, use it; otherwise check for single role (backward compatibility)
     if (roles && Array.isArray(roles)) {
       userRoles = roles.map(r => r.toLowerCase()).filter(r => validRoles.includes(r));
@@ -516,7 +517,7 @@ export const createUser = async (req, res) => {
       // Default to 'user' if no roles provided
       userRoles = ['user'];
     }
-    
+
     // Remove duplicates
     userRoles = [...new Set(userRoles)];
 
@@ -543,7 +544,7 @@ export const createUser = async (req, res) => {
       email,
       password,
       email_confirm: true,
-      user_metadata: { 
+      user_metadata: {
         full_name: full_name || "",
         country: country || "",
         city: city || "",
@@ -561,10 +562,10 @@ export const createUser = async (req, res) => {
 
     if (createError) {
       console.error('❌ Error creating user:', createError);
-      
+
       // Check for specific error types and provide better error messages
       let errorMessage = 'Failed to create user. Please check your input and try again.';
-      
+
       // Check error code first (most reliable) - Supabase uses code field
       if (createError.code === 'email_exists') {
         errorMessage = `A user with the email "${email}" already exists. Please use a different email address.`;
@@ -577,13 +578,13 @@ export const createUser = async (req, res) => {
       } else if (createError.message) {
         // Fallback to message-based detection
         const errorMsgLower = createError.message.toLowerCase();
-        
+
         // Check for duplicate email error in message
-        if (errorMsgLower.includes('already registered') || 
-            errorMsgLower.includes('already exists') || 
-            errorMsgLower.includes('duplicate') ||
-            errorMsgLower.includes('email') && errorMsgLower.includes('taken') ||
-            errorMsgLower.includes('email_exists')) {
+        if (errorMsgLower.includes('already registered') ||
+          errorMsgLower.includes('already exists') ||
+          errorMsgLower.includes('duplicate') ||
+          errorMsgLower.includes('email') && errorMsgLower.includes('taken') ||
+          errorMsgLower.includes('email_exists')) {
           errorMessage = `A user with the email "${email}" already exists. Please use a different email address.`;
         } else if (errorMsgLower.includes('invalid email') || errorMsgLower.includes('email format')) {
           errorMessage = 'Please enter a valid email address.';
@@ -591,7 +592,7 @@ export const createUser = async (req, res) => {
           errorMessage = 'Password does not meet requirements. Password must be at least 8 characters long.';
         }
       }
-      
+
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
@@ -601,7 +602,7 @@ export const createUser = async (req, res) => {
 
     // Get the user ID of who created this user (from token) - use as fallback if referred_by not provided
     const adminId = req.user && req.user.id ? req.user.id : null;
-    
+
     // For consumer role: use provided referred_by, otherwise use admin creating the user
     // For other roles: use admin creating the user
     let finalReferredBy = adminId;
@@ -670,7 +671,7 @@ export const createUser = async (req, res) => {
       try {
         // Validate all product IDs are valid UUIDs
         const validProductIds = subscribed_products.filter(productId => isValidUUID(productId));
-        
+
         if (validProductIds.length > 0) {
           const productAccessRecords = validProductIds.map(productId => ({
             user_id: newUser.user.id,
@@ -681,7 +682,7 @@ export const createUser = async (req, res) => {
             .from('user_product_access')
             .insert(productAccessRecords);
 
-          const timeoutPromise = new Promise((_, reject) => 
+          const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Product access insert timeout')), 5000)
           );
 
@@ -770,7 +771,7 @@ export const updateUser = async (req, res) => {
     // 1. INPUT VALIDATION
     // ========================================
     const { id } = req.params;
-    
+
     if (!id || !isValidUUID(id)) {
       return res.status(400).json({
         success: false,
@@ -780,29 +781,28 @@ export const updateUser = async (req, res) => {
     }
 
     let { full_name, role, roles, phone, country, city, nickname } = req.body;
-    
-    console.log('📝 Update user - received data:', { 
-      roles, 
+
+    console.log('📝 Update user - received data:', {
+      roles,
       role,
-      rolesType: typeof roles, 
+      rolesType: typeof roles,
       roleType: typeof role,
       isArray: Array.isArray(roles)
     });
 
-    // Validate required fields for update
-    if (!country || !city || !phone) {
-      return res.status(400).json({
-        success: false,
-        error: 'Bad Request',
-        message: 'Country, city, and phone are required'
-      });
+    // Validate required fields for update (optional if not provided)
+    if (country && !sanitizeString(country)) {
+      // Empty string check after sanitization
     }
+
+    // Country, city, and phone are no longer strictly required for all updates
+    // to allow for partial updates or fixing profiles with missing data.
 
     // ========================================
     // 2. SANITIZATION & VALIDATION
     // ========================================
     const updateData = {};
-    
+
     if (full_name) {
       full_name = sanitizeString(full_name, 255);
       if (full_name.length < 2) {
@@ -814,7 +814,7 @@ export const updateUser = async (req, res) => {
       }
       updateData.full_name = full_name;
     }
-    
+
     // Handle roles - support both single role (backward compatibility) and roles array
     if (roles !== undefined) {
       // Normalize roles to array
@@ -828,23 +828,23 @@ export const updateUser = async (req, res) => {
           // Fall through to check single role field
         }
       }
-      
+
       if (Array.isArray(rolesArray)) {
-      const validRoles = ['user', 'admin', 'consumer', 'reseller', 'viewer', 'support'];
+        const validRoles = ['user', 'admin', 'consumer', 'reseller', 'viewer', 'support'];
         const userRoles = rolesArray.map(r => String(r).toLowerCase()).filter(r => validRoles.includes(r));
-      if (userRoles.length === 0) {
-        return res.status(400).json({
-          success: false,
-          error: 'Bad Request',
-          message: `At least one valid role is required. Valid roles: ${validRoles.join(', ')}`
-        });
-      }
+        if (userRoles.length === 0) {
+          return res.status(400).json({
+            success: false,
+            error: 'Bad Request',
+            message: `At least one valid role is required. Valid roles: ${validRoles.join(', ')}`
+          });
+        }
         // Remove duplicates and set as array
-      updateData.role = [...new Set(userRoles)];
+        updateData.role = [...new Set(userRoles)];
         console.log('✅ Roles processed and set in updateData:', updateData.role);
       }
     }
-    
+
     // Backward compatibility: single role field
     if (role && !updateData.role) {
       const validRoles = ['user', 'admin', 'consumer', 'reseller', 'viewer', 'support'];
@@ -859,26 +859,28 @@ export const updateUser = async (req, res) => {
       updateData.role = [singleRole];
       console.log('✅ Single role processed and set in updateData:', updateData.role);
     }
-    
+
     if (!updateData.role) {
       console.log('ℹ️ No roles provided in update request, keeping existing roles');
     }
-    
-    // Validate and sanitize phone
-    phone = phone.trim();
-    if (!isValidPhone(phone)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Bad Request',
-        message: 'Invalid phone number format'
-      });
+
+    // Validate and sanitize phone only if provided
+    if (phone !== undefined && phone !== null) {
+      phone = String(phone).trim();
+      if (phone && !isValidPhone(phone)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: 'Invalid phone number format'
+        });
+      }
+      updateData.phone = phone || null;
     }
-    updateData.phone = phone;
-    
-    // Sanitize country and city
-    updateData.country = sanitizeString(country, 100);
-    updateData.city = sanitizeString(city, 100);
-    
+
+    // Sanitize country and city only if provided
+    if (country !== undefined) updateData.country = sanitizeString(country, 100) || null;
+    if (city !== undefined) updateData.city = sanitizeString(city, 100) || null;
+
     // Handle nickname (optional)
     if (nickname !== undefined) {
       updateData.nickname = nickname ? sanitizeString(nickname, 100) : null;
@@ -888,37 +890,41 @@ export const updateUser = async (req, res) => {
     // 3. DATABASE QUERY WITH TIMEOUT
     // ========================================
     // Get old data for logging changed fields
-    const oldUserPromise = supabase
+    const oldUserPromise = supabaseAdmin
       .from('profiles')
       .select('*')
-      .eq('user_id', id)
-      .single();
+      .eq('user_id', id);
 
-    const timeoutPromise = new Promise((_, reject) => 
+    const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('Query timeout')), QUERY_TIMEOUT)
     );
 
-    const { data: oldUser } = await Promise.race([oldUserPromise, timeoutPromise]);
+    const { data: oldUserResult } = await Promise.race([oldUserPromise, timeoutPromise]);
+    const oldUser = Array.isArray(oldUserResult) ? oldUserResult[0] : null;
 
-    const updatePromise = supabase
+    if (!oldUser) {
+      console.warn(`ℹ️ No existing profile found for user_id ${id}. Attempting to create one.`);
+    }
+
+    const updatePromise = supabaseAdmin
       .from('profiles')
-      .update(updateData)
-      .eq('user_id', id)
-      .select()
-      .single();
+      .upsert({ user_id: id, ...updateData, updated_at: new Date().toISOString() })
+      .select();
 
-    const { data: updatedUser, error } = await Promise.race([
+    const { data: updatedUserResult, error } = await Promise.race([
       updatePromise,
       timeoutPromise
     ]);
 
-    if (error) {
-      console.error('❌ Error updating user:', error);
+    const updatedUser = Array.isArray(updatedUserResult) ? updatedUserResult[0] : null;
+
+    if (error || !updatedUser) {
+      console.error('❌ Error updating/upserting user:', error || 'Result was empty');
       // Don't expose internal error details
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
-        message: 'Failed to update user. Please try again.'
+        message: error?.code === 'PGRST116' ? 'User profile not found.' : 'Failed to update user. Please try again.'
       });
     }
 
@@ -950,7 +956,7 @@ export const updateUser = async (req, res) => {
     await cacheService.delByPattern('users:list:*');
     await cacheService.delByPattern('resellers:*');
     await cacheService.delByPattern('consumers:*');
-    
+
     // If roles were updated, also clear permission caches since permissions are role-based
     if (updateData.role) {
       const { clearPermissionCaches } = await import('../controllers/permissions.controller.js');
@@ -959,7 +965,7 @@ export const updateUser = async (req, res) => {
       await cacheService.delByPattern('permissions:*');
       console.log('✅ Also cleared permission caches due to role update');
     }
-    
+
     console.log('✅ Cache invalidated for user update');
 
     // ========================================
@@ -1025,44 +1031,50 @@ export const deleteUser = async (req, res) => {
       .eq('user_id', id)
       .single();
 
-    const timeoutPromise = new Promise((_, reject) => 
+    const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('Query timeout')), QUERY_TIMEOUT)
     );
 
     const { data: deletedUser } = await Promise.race([getUserPromise, timeoutPromise]);
 
-    // Log activity BEFORE deletion to avoid foreign key constraint violation
+    // ========================================
+    // 3. COMPREHENSIVE CLEANUP (Multi-Schema)
+    // Deleting/Nullifying related data across all schemas to avoid FK violations
+    // ========================================
+    const cleanupSuccess = await performFullUserCleanup(id);
+    
+    if (!cleanupSuccess) {
+      return res.status(500).json({
+        success: false,
+        error: 'CLEANUP_FAILED',
+        message: 'Failed to clean up user data. The deletion was aborted to prevent data corruption.'
+      });
+    }
+
+    // 4. DELETE USER FROM AUTH
+    const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(id);
+
+    if (authError) {
+      console.error('❌ Auth error deleting user:', authError);
+      return res.status(400).json({
+        success: false,
+        error: 'AUTH_ERROR',
+        message: `Error deleting user from auth: ${authError.message}`
+      });
+    }
+
+    // Log the deletion activity (after auth deletion is successful)
     const { actorId, actorRole } = await getActorInfo(req);
     await logActivity({
       actorId,
       actorRole,
       targetId: id,
       actionType: 'delete',
-      tableName: 'profiles',
-      changedFields: deletedUser || null,
+      tableName: 'users',
+      changedFields: deletedUser || { id: id },
       ipAddress: getClientIp(req),
       userAgent: getUserAgent(req)
     });
-
-    // ========================================
-    // 3. DELETE USER WITH TIMEOUT
-    // ========================================
-    const deletePromise = supabaseAdmin.auth.admin.deleteUser(id);
-    const deleteTimeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Delete operation timeout')), QUERY_TIMEOUT)
-    );
-
-    const { error } = await Promise.race([deletePromise, deleteTimeoutPromise]);
-
-    if (error) {
-      console.error('❌ Error deleting user:', error);
-      // Don't expose internal error details
-      return res.status(400).json({
-        success: false,
-        error: 'Bad Request',
-        message: 'Failed to delete user. Please try again.'
-      });
-    }
 
     // Invalidate cache - clear all users, resellers, and consumers cache
     await cacheService.del(CACHE_KEYS.USER_BY_ID(id));
@@ -1126,7 +1138,7 @@ export const resetUserPassword = async (req, res) => {
     // 2. GET USER WITH TIMEOUT
     // ========================================
     const getUserPromise = supabaseAdmin.auth.admin.getUserById(id);
-    const timeoutPromise = new Promise((_, reject) => 
+    const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('Query timeout')), QUERY_TIMEOUT)
     );
 
@@ -1290,7 +1302,7 @@ export const createReseller = async (req, res) => {
     // Check if admin approval is required for new resellers
     const { getResellerSettings } = await import('../../utils/resellerSettings.js');
     const resellerSettings = await getResellerSettings();
-    
+
     // If admin approval is required, set account_status to 'pending' instead of 'active'
     const accountStatus = resellerSettings.requireResellerApproval ? 'pending' : 'active';
 
@@ -1473,20 +1485,21 @@ export const updateUserAccountStatus = async (req, res) => {
     // ========================================
     // 2. CHECK USER WITH TIMEOUT
     // ========================================
-    const getUserPromise = supabase
+    const getUserPromise = supabaseAdmin
       .from('profiles')
       .select('role, account_status')
-      .eq('user_id', id)
-      .single();
+      .eq('user_id', id);
 
-    const timeoutPromise = new Promise((_, reject) => 
+    const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('Query timeout')), QUERY_TIMEOUT)
     );
 
-    const { data: userProfile, error: fetchError } = await Promise.race([
+    const { data: userProfiles, error: fetchError } = await Promise.race([
       getUserPromise,
       timeoutPromise
     ]);
+
+    const userProfile = Array.isArray(userProfiles) ? userProfiles[0] : null;
 
     if (fetchError || !userProfile) {
       console.error('❌ Error fetching user profile:', fetchError);
@@ -1509,22 +1522,23 @@ export const updateUserAccountStatus = async (req, res) => {
     // ========================================
     // 3. UPDATE STATUS WITH TIMEOUT
     // ========================================
-    const updatePromise = supabase
+    const updatePromise = supabaseAdmin
       .from('profiles')
       .update({
         account_status: account_status,
         updated_at: new Date().toISOString()
       })
       .eq('user_id', id)
-      .select()
-      .single();
+      .select();
 
-    const { data: updatedUser, error: updateError } = await Promise.race([
+    const { data: updatedUserResult, error: updateError } = await Promise.race([
       updatePromise,
       timeoutPromise
     ]);
 
-    if (updateError) {
+    const updatedUser = Array.isArray(updatedUserResult) ? updatedUserResult[0] : null;
+
+    if (updateError || !updatedUser) {
       console.error('❌ Error updating user account status:', updateError);
       // Don't expose internal error details
       return res.status(400).json({
@@ -1578,7 +1592,7 @@ export const rateLimitMiddleware = async (req, res, next) => {
 
     const rateLimitKey = `rate_limit:users:${userId}`;
     const requests = await cacheService.get(rateLimitKey) || 0;
-    
+
     if (requests >= 100) { // 100 requests per minute
       return res.status(429).json({
         success: false,
