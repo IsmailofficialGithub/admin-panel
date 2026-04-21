@@ -540,7 +540,7 @@ export const updateConsumer = async (req, res) => {
     console.log("updatedConsumer", updatedConsumer);
 
     if (error) {
-      console.error('❌ Error updating consumer:', error);
+      console.error(' Error updating consumer:', error);
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
@@ -1114,7 +1114,7 @@ export const deleteConsumer = async (req, res) => {
     // 3. ROBUST DATA CLEANUP (FOREIGN KEY HELL)
     // ========================================
     const cleanupSuccess = await performFullUserCleanup(id);
-    
+
     if (!cleanupSuccess) {
       return res.status(500).json({
         success: false,
