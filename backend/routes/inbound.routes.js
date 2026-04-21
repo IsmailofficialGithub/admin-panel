@@ -29,6 +29,7 @@ import {
   deleteInboundAgent,
   // Supporting
   getAvailableAgents,
+  assignNumberToAgent,
   // Middleware
   rateLimitMiddleware,
   sanitizeInputMiddleware
@@ -114,6 +115,22 @@ router.delete(
   sanitizeInputMiddleware,
   deleteInboundNumber
 );
+
+/**
+ * @route   POST /api/inbound/numbers/:id/assign
+ * @desc    Assign number to agent
+ * @access  Private (genie.inbound.update)
+ */
+router.post(
+  '/numbers/:id/assign',
+  authenticate,
+  loadUserProfile,
+  requirePermission('genie.inbound.update'),
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
+  assignNumberToAgent
+);
+
 
 // =====================================================
 // CALL HISTORY ROUTES

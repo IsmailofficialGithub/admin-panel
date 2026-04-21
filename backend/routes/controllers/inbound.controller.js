@@ -52,33 +52,33 @@ const queryInboundSchema = async (tableName, operation = 'select', data = null, 
   try {
     // Use inboundSupabaseAdmin with RPC to execute SQL queries
     // Create a helper RPC function or use direct SQL
-    
+
     // For now, we'll query through the public VIEWs that were created
     // But join with outbound schema tables manually
-    
+
     let query = inboundSupabaseAdmin.from(tableName);
-    
+
     // Apply filters
     if (filters.select) {
       query = query.select(filters.select);
     } else {
       query = query.select('*');
     }
-    
+
     if (filters.eq) {
       Object.entries(filters.eq).forEach(([key, value]) => {
         query = query.eq(key, value);
       });
     }
-    
+
     if (filters.order) {
       query = query.order(filters.order.column, { ascending: filters.order.ascending !== false });
     }
-    
+
     if (filters.limit) {
       query = query.limit(filters.limit);
     }
-    
+
     if (filters.offset) {
       query = query.range(filters.offset, filters.offset + (filters.limit || 50) - 1);
     }
@@ -282,8 +282,23 @@ export const createInboundNumber = async (req, res) => {
       twilio_auth_token,
       vonage_api_key,
       vonage_api_secret,
-      telnyx_api_key
+      vonage_application_id,
+      telnyx_api_key,
+      termination_uri,
+      notes,
+      provider_account_id,
+      callhippo_account_id,
+      provider_api_key,
+      provider_api_secret,
+      provider_webhook_url,
+      provider_config,
+      webhook_url,
+      number_id,
+      tool_id,
+      metadata
     } = req.body;
+
+    const userId = req.user.id;
 
     // Validation
     if (!phone_number) {
@@ -301,6 +316,7 @@ export const createInboundNumber = async (req, res) => {
     }
 
     const insertData = {
+      user_id: userId,
       phone_number: sanitizeString(phone_number),
       country_code: country_code || '+1',
       phone_label: phone_label ? sanitizeString(phone_label) : null,
@@ -313,7 +329,21 @@ export const createInboundNumber = async (req, res) => {
       twilio_auth_token: twilio_auth_token ? sanitizeString(twilio_auth_token) : null,
       vonage_api_key: vonage_api_key ? sanitizeString(vonage_api_key) : null,
       vonage_api_secret: vonage_api_secret ? sanitizeString(vonage_api_secret) : null,
-      telnyx_api_key: telnyx_api_key ? sanitizeString(telnyx_api_key) : null
+      vonage_application_id: vonage_application_id ? sanitizeString(vonage_application_id) : null,
+      telnyx_api_key: telnyx_api_key ? sanitizeString(telnyx_api_key) : null,
+      termination_uri: termination_uri ? sanitizeString(termination_uri) : null,
+      notes: notes ? sanitizeString(notes) : null,
+      provider_account_id: provider_account_id ? sanitizeString(provider_account_id) : null,
+      callhippo_account_id: callhippo_account_id ? sanitizeString(callhippo_account_id) : null,
+      provider_api_key: provider_api_key ? sanitizeString(provider_api_key) : null,
+      provider_api_secret: provider_api_secret ? sanitizeString(provider_api_secret) : null,
+      provider_webhook_url: provider_webhook_url ? sanitizeString(provider_webhook_url) : null,
+      provider_config: provider_config || {},
+      webhook_url: webhook_url ? sanitizeString(webhook_url) : null,
+      number_id: number_id ? sanitizeString(number_id) : null,
+      tool_id: tool_id || null,
+      metadata: metadata || {},
+      is_in_use: !!assigned_to_agent_id
     };
 
     const { data, error } = await inboundSupabaseAdmin
@@ -324,54 +354,30 @@ export const createInboundNumber = async (req, res) => {
 
     if (error) throw error;
 
-    // Call webhook to actually create/configure number (if webhook URL is configured)
-    const phoneWebhookUrl = process.env.PHONE_NUMBER_WEBHOOK_URL || process.env.REACT_APP_PHONE_NUMBER_WEBHOOK_URL;
-    if (phoneWebhookUrl) {
+    // Call webhook to actually create/configure number
+    const importWebhookUrl = process.env.INBOUND_IMPORT_NUMBER || process.env.REACT_APP_PHONE_NUMBER_WEBHOOK_URL;
+    if (importWebhookUrl) {
       try {
         const webhookPayload = {
           id: data.id,
-          user_id: req.user.id,
+          provider: data.provider,
           phone_number: data.phone_number,
           country_code: data.country_code,
-          phone_label: data.phone_label,
-          call_forwarding_number: data.call_forwarding_number,
-          provider: data.provider,
-          status: data.status,
-          assigned_to_agent_id: data.assigned_to_agent_id,
-          sms_enabled: data.sms_enabled,
-          twilio_account_sid: data.twilio_account_sid || data.twilio_sid,
-          twilio_auth_token: data.twilio_auth_token,
-          vonage_api_key: data.vonage_api_key,
-          vonage_api_secret: data.vonage_api_secret,
-          telnyx_api_key: data.telnyx_api_key,
-          is_update: false,
+          label: data.phone_label || '',
+          termination_uri: data.termination_uri || '',
+          user_id: data.user_id
         };
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-        const webhookResponse = await fetch(phoneWebhookUrl, {
+        await fetch(importWebhookUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Accept': 'application/json',
           },
           body: JSON.stringify(webhookPayload),
-          signal: controller.signal,
         });
-
-        clearTimeout(timeoutId);
-
-        if (!webhookResponse.ok) {
-          const errorText = await webhookResponse.text().catch(() => 'No error details available');
-          console.error(`❌ Phone number creation webhook failed: ${webhookResponse.status} ${webhookResponse.statusText} - ${errorText}`);
-          // Don't fail the request if webhook fails, just log it
-        } else {
-          console.log('✅ Phone number creation webhook called successfully');
-        }
+        console.log('✅ Inbound import webhook called successfully');
       } catch (webhookError) {
-        console.error('❌ Error calling phone number creation webhook:', webhookError);
-        // Don't fail the request if webhook fails, just log it
+        console.error('❌ Error calling inbound import webhook:', webhookError);
       }
     }
 
@@ -384,6 +390,7 @@ export const createInboundNumber = async (req, res) => {
     return handleApiError(error, res, 'Failed to create inbound number');
   }
 };
+
 
 /**
  * Update inbound number
@@ -497,12 +504,70 @@ export const deleteInboundNumber = async (req, res) => {
       });
     }
 
-    const { error } = await inboundSupabaseAdmin
+    // 1. Fetch the number details before deleting to use as webhook payload
+    const { data: numberData, error: fetchError } = await inboundSupabaseAdmin
+      .from('inbound_numbers')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !numberData) {
+      // If not found in DB, we still want to return 404
+      return res.status(404).json({
+        success: false,
+        error: 'Inbound number not found or already deleted'
+      });
+    }
+
+    // 2. Delete from database
+    const { error: deleteError } = await inboundSupabaseAdmin
       .from('inbound_numbers')
       .delete()
       .eq('id', id);
 
-    if (error) throw error;
+    if (deleteError) throw deleteError;
+
+    // 3. Trigger external webhook if configured
+    const deleteWebhookUrl = process.env.INBOUND_DELETE_NUMBER;
+    if (deleteWebhookUrl) {
+      try {
+        // Prepare payload with the full data as requested
+        const payload = {
+          ...numberData,
+          deleted_at: new Date().toISOString()
+        };
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+        fetch(deleteWebhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        }).then(async (webhookResponse) => {
+          if (!webhookResponse.ok) {
+            const errorText = await webhookResponse.text().catch(() => 'No error details');
+            console.error(`❌ Inbound delete webhook failed: ${webhookResponse.status} - ${errorText}`);
+          } else {
+            console.log('✅ Inbound delete webhook called successfully');
+          }
+          console.log('✅ Inbound delete webhook called successfully');
+        }).catch(err => {
+          if (err.name === 'AbortError') {
+            console.error('❌ Inbound delete webhook timed out');
+          } else {
+            console.error('❌ Error calling inbound delete webhook:', err);
+          }
+        }).finally(() => clearTimeout(timeoutId));
+
+      } catch (webhookError) {
+        console.error('❌ Error setting up inbound delete webhook:', webhookError);
+      }
+    }
 
     return res.json({
       success: true,
@@ -928,7 +993,7 @@ const calculateAnalyticsForPeriod = async (startDate, endDate, userId = null, nu
   if (error) throw error;
 
   const calls = data || [];
-  
+
   return {
     total_calls: calls.length,
     answered_calls: calls.filter(c => c.call_status === 'answered').length,
@@ -937,7 +1002,7 @@ const calculateAnalyticsForPeriod = async (startDate, endDate, userId = null, nu
     busy_calls: calls.filter(c => c.call_status === 'busy').length,
     failed_calls: calls.filter(c => c.call_status === 'failed').length,
     total_duration: calls.reduce((sum, c) => sum + (c.call_duration || 0), 0),
-    average_duration: calls.length > 0 
+    average_duration: calls.length > 0
       ? Math.round(calls.reduce((sum, c) => sum + (c.call_duration || 0), 0) / calls.length)
       : 0,
     total_cost: calls.reduce((sum, c) => sum + (parseFloat(c.call_cost) || 0), 0),
@@ -1038,7 +1103,7 @@ export const getAllInboundAnalytics = async (req, res) => {
       hint: error?.hint,
       error: error
     });
-    
+
     return handleApiError(error, res, `Failed to fetch analytics: ${error?.message || 'Unknown error'}`);
   }
 };
@@ -1095,7 +1160,7 @@ export const getInboundAnalyticsByNumberId = async (req, res) => {
       hint: error?.hint,
       error: error
     });
-    
+
     return handleApiError(error, res, `Failed to fetch analytics: ${error?.message || 'Unknown error'}`);
   }
 };
@@ -1162,7 +1227,7 @@ export const getAllInboundAgents = async (req, res) => {
       try {
         // Get unique user_ids from agents
         const userIds = [...new Set(enrichedData.map(agent => agent.user_id).filter(Boolean))];
-        
+
         if (userIds.length > 0) {
           // Fetch user emails from main database
           const { data: users, error: usersError } = await supabaseAdmin
@@ -1213,7 +1278,7 @@ export const getAllInboundAgents = async (req, res) => {
       hint: error?.hint,
       error: error
     });
-    
+
     if (error?.code === 'PGRST204' || error?.message?.includes('does not exist')) {
       return res.status(404).json({
         success: false,
@@ -1222,7 +1287,7 @@ export const getAllInboundAgents = async (req, res) => {
         details: error?.message
       });
     }
-    
+
     return handleApiError(error, res, `Failed to fetch inbound agents: ${error?.message || 'Unknown error'}`);
   }
 };
@@ -1398,7 +1463,7 @@ export const createInboundAgent = async (req, res) => {
               .select('*')
               .eq('knowledge_base_id', data.knowledge_base_id)
               .is('deleted_at', null);
-            
+
             const { data: docsData } = await inboundSupabaseAdmin
               .from('knowledge_base_documents')
               .select('*')
@@ -1448,6 +1513,7 @@ export const createInboundAgent = async (req, res) => {
         });
 
         clearTimeout(timeoutId);
+        console.log('✅ Agent creation webhook called successfully');
 
         if (!webhookResponse.ok) {
           const errorText = await webhookResponse.text().catch(() => 'No error details available');
@@ -1545,7 +1611,7 @@ export const updateInboundAgent = async (req, res) => {
               .select('*')
               .eq('knowledge_base_id', data.knowledge_base_id)
               .is('deleted_at', null);
-            
+
             const { data: docsData } = await inboundSupabaseAdmin
               .from('knowledge_base_documents')
               .select('*')
@@ -1748,3 +1814,99 @@ export const getAvailableAgents = async (req, res) => {
     return handleApiError(error, res, 'Failed to fetch agents');
   }
 };
+
+/**
+ * Assign an inbound number to an agent
+ */
+export const assignNumberToAgent = async (req, res) => {
+  try {
+    const { id } = req.params; // Inbound number ID
+    const { agent_id } = req.body; // Voice agent ID (optional, null to unassign)
+
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ success: false, error: 'Invalid number ID format' });
+    }
+
+    if (agent_id && !isValidUUID(agent_id)) {
+      return res.status(400).json({ success: false, error: 'Invalid agent ID format' });
+    }
+
+    // 1. Fetch current number details
+    const { data: number, error: numberError } = await inboundSupabaseAdmin
+      .from('inbound_numbers')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (numberError || !number) {
+      return res.status(404).json({ success: false, error: 'Inbound number not found' });
+    }
+
+    const previousAgentId = number.assigned_to_agent_id;
+
+    // 2. Update the number with new agent
+    const { data: updatedNumber, error: updateError } = await inboundSupabaseAdmin
+      .from('inbound_numbers')
+      .update({
+        assigned_to_agent_id: agent_id || null,
+        is_in_use: !!agent_id,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+
+    // 3. Call Webhooks (Bind / Unbind)
+    const bindWebhookUrl = process.env.REACT_APP_BIND_WEBHOOK_URL;
+    const unbindWebhookUrl = process.env.REACT_APP_UN_BIND_WEBHOOK_URL;
+
+    // If switching agents or unassigning, unbind previous agent first
+    if (previousAgentId && previousAgentId !== agent_id) {
+      if (unbindWebhookUrl) {
+        try {
+          await fetch(unbindWebhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              agent_id: previousAgentId,
+              phone_number: number.phone_number,
+              number_id: id
+            }),
+          });
+        } catch (err) {
+          console.error('Unbind webhook failed:', err);
+        }
+      }
+    }
+
+    // If assigning a new agent, bind it
+    if (agent_id && previousAgentId !== agent_id) {
+      if (bindWebhookUrl) {
+        try {
+          await fetch(bindWebhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              agent_id: agent_id,
+              phone_number: number.phone_number,
+              number_id: id
+            }),
+          });
+        } catch (err) {
+          console.error('Bind webhook failed:', err);
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: updatedNumber,
+      message: agent_id ? 'Number assigned to agent successfully' : 'Number unassigned successfully'
+    });
+  } catch (error) {
+    return handleApiError(error, res, 'Failed to assign number to agent');
+  }
+};
+

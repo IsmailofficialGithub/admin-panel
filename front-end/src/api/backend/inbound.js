@@ -179,4 +179,15 @@ export const inboundApi = {
   getAvailableAgents: () => {
     return axiosInstance.get('/inbound/agents/available');
   },
+
+  /**
+   * Assign number to agent
+   * @param {string} id - Number ID
+   * @param {string} agentId - Agent ID
+   * @returns {Promise} API response
+   */
+  assignNumberToAgent: (id, agentId) => {
+    return axiosInstance.post(`/inbound/numbers/${id}/assign`, { agent_id: agentId });
+  },
 };
+

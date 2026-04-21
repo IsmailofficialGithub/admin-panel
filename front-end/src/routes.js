@@ -27,6 +27,8 @@ import Genie from "views/Genie.js";
 import CallDetail from "views/CallDetail.js";
 import LeadDetail from "views/LeadDetail.js";
 import ApiKeys from "views/ApiKeys.js";
+import InboundGenie from "views/InboundGenie.js";
+
 
 const dashboardRoutes = [
   // Hidden routes (not shown in sidebar)
@@ -194,8 +196,30 @@ const dashboardRoutes = [
     icon: "nc-icon nc-headphones-2",
     component: Genie,
     layout: "/admin",
-    permission: "genie.view" // Permission-based visibility
+    permission: "genie.view",
+    submenus: [
+      {
+        path: "/genie",
+        layout: "/admin",
+        name: "Outbound Genie"
+      },
+      {
+        path: "/inbound",
+        layout: "/admin",
+        name: "Inbound Genie"
+      }
+    ]
   },
+  {
+    path: "/inbound",
+    name: "Genie Inbound",
+    icon: "nc-icon nc-mobile",
+    component: InboundGenie,
+    layout: "/admin",
+    invisible: true // Hide from main sidebar list since it's a submenu
+  },
+
+
   {
     path: "/activity-logs",
     name: "Activity Logs",

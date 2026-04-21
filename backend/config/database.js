@@ -48,9 +48,32 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 });
 
-// Create Supabase admin client (for admin operations)
 export const supabaseAdmin = supabaseServiceKey 
   ? createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    })
+  : null;
+
+// Create Supabase client for "inbound" schema
+export const inboundSupabase = createClient(supabaseUrl, supabaseAnonKey, {
+  db: {
+    schema: 'inbound'
+  },
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+});
+
+// Create Supabase admin client for "inbound" schema
+export const inboundSupabaseAdmin = supabaseServiceKey 
+  ? createClient(supabaseUrl, supabaseServiceKey, {
+      db: {
+        schema: 'inbound'
+      },
       auth: {
         autoRefreshToken: false,
         persistSession: false

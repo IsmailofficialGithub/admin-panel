@@ -17,7 +17,7 @@ function InboundGenie() {
   const [inboundAgents, setInboundAgents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  
+
   // Statistics state
   const [statistics, setStatistics] = useState({
     totalNumbers: 0,
@@ -29,7 +29,7 @@ function InboundGenie() {
     totalSchedules: 0,
     activeSchedules: 0
   });
-  
+
   // Advanced filters
   const [filters, setFilters] = useState({
     status: 'all',
@@ -37,7 +37,7 @@ function InboundGenie() {
     dateRange: 'all',
     agentId: 'all'
   });
-  
+
   // Track which tabs have been loaded to avoid refetching on tab switch
   const [loadedTabs, setLoadedTabs] = useState({
     numbers: false,
@@ -45,7 +45,7 @@ function InboundGenie() {
     schedules: false,
     agents: false
   });
-  
+
   // Modal states
   const [selectedNumber, setSelectedNumber] = useState(null);
   const [selectedCall, setSelectedCall] = useState(null);
@@ -59,22 +59,26 @@ function InboundGenie() {
   const [showAgentModal, setShowAgentModal] = useState(false);
   const [showAgentEditModal, setShowAgentEditModal] = useState(false);
   const [showAgentCreateModal, setShowAgentCreateModal] = useState(false);
+  const [showAssignModal, setShowAssignModal] = useState(false);
   const [itemToDelete, setItemToDelete] = useState(null);
   const [deleteType, setDeleteType] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [saving, setSaving] = useState(false);
-  
+  const [assigningLoading, setAssigningLoading] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+
   // Number calls and analytics
   const [numberCalls, setNumberCalls] = useState([]);
   const [numberAnalytics, setNumberAnalytics] = useState([]);
   const [loadingCalls, setLoadingCalls] = useState(false);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [numberModalTab, setNumberModalTab] = useState('details');
-  
+
   // Available agents for assignment
   const [availableAgents, setAvailableAgents] = useState([]);
   const [agentsLoaded, setAgentsLoaded] = useState(false);
-  
+
   // Users for agent assignment
   const [users, setUsers] = useState([]);
   const [usersLoaded, setUsersLoaded] = useState(false);
@@ -84,14 +88,14 @@ function InboundGenie() {
   const [showUserSuggestions, setShowUserSuggestions] = useState(false);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [selectedUserDisplay, setSelectedUserDisplay] = useState('');
-  
+
   // Audio playback state
   const [playingAudioId, setPlayingAudioId] = useState(null);
   const [audioElement, setAudioElement] = useState(null);
   const [audioProgress, setAudioProgress] = useState(0);
   const [audioDuration, setAudioDuration] = useState(0);
   const [audioCurrentTime, setAudioCurrentTime] = useState(0);
-  
+
   // Edit/Create form state for numbers
   const [formData, setFormData] = useState({
     phone_number: '',
@@ -102,12 +106,18 @@ function InboundGenie() {
     status: 'active',
     assigned_to_agent_id: '',
     sms_enabled: false,
+    twilio_sid: '',
     twilio_account_sid: '',
     twilio_auth_token: '',
     vonage_api_key: '',
     vonage_api_secret: '',
-    telnyx_api_key: ''
+    vonage_application_id: '',
+    telnyx_api_key: '',
+    provider_api_key: '',
+    callhippo_api_key: '',
+    termination_uri: ''
   });
+
 
   // Edit/Create form state for agents
   const [agentFormData, setAgentFormData] = useState({
@@ -164,11 +174,11 @@ function InboundGenie() {
     if (!force && loadedTabs.numbers && inboundNumbers.length > 0) {
       return;
     }
-    
+
     try {
       setLoading(true);
       const response = await inboundApi.getNumbers({ page: 1, limit: 50 });
-      
+
       if (response.success && response.data) {
         // API returns paginated response: { success: true, data: [...], total, page, limit, ... }
         const numbers = Array.isArray(response.data) ? response.data : response.data;
@@ -194,11 +204,11 @@ function InboundGenie() {
     if (!force && loadedTabs.calls && callHistory.length > 0) {
       return;
     }
-    
+
     try {
       setLoading(true);
       const response = await inboundApi.getCallHistory({ page: 1, limit: 50 });
-      
+
       if (response.success && response.data) {
         // API returns paginated response: { success: true, data: [...], total, page, limit, ... }
         const calls = Array.isArray(response.data) ? response.data : response.data;
@@ -224,11 +234,11 @@ function InboundGenie() {
     if (!force && loadedTabs.schedules && schedules.length > 0) {
       return;
     }
-    
+
     try {
       setLoading(true);
       const response = await inboundApi.getSchedules({ page: 1, limit: 50 });
-      
+
       if (response.success && response.data) {
         // API returns paginated response: { success: true, data: [...], total, page, limit, ... }
         const schedulesData = Array.isArray(response.data) ? response.data : response.data;
@@ -255,7 +265,7 @@ function InboundGenie() {
     if (!force && agentsLoaded) {
       return;
     }
-    
+
     try {
       const response = await inboundApi.getAvailableAgents();
       if (response.success && response.data) {
@@ -277,19 +287,19 @@ function InboundGenie() {
     try {
       setLoadingCalls(true);
       const response = await inboundApi.getCallsByNumberId(numberId, { page: 1, limit: 50 });
-      
+
       console.log('Number calls API response:', response);
-      
+
       // API returns paginated response: { success: true, data: [...], total, page, limit, ... }
       // axios interceptor already unwraps response.data, so response is the actual API response
       if (response) {
         // Check if response has data property (paginated response)
-        const calls = response.data && Array.isArray(response.data) 
-          ? response.data 
-          : Array.isArray(response) 
-            ? response 
+        const calls = response.data && Array.isArray(response.data)
+          ? response.data
+          : Array.isArray(response)
+            ? response
             : [];
-        
+
         console.log('Extracted calls:', calls, 'Total:', response.total || calls.length);
         setNumberCalls(calls);
       } else {
@@ -310,19 +320,19 @@ function InboundGenie() {
     try {
       setLoadingAnalytics(true);
       const response = await inboundApi.getAnalyticsByNumberId(numberId, { page: 1, limit: 30 });
-      
+
       console.log('Number analytics API response:', response);
-      
+
       // API returns paginated response: { success: true, data: [...], total, page, limit, ... }
       // axios interceptor already unwraps response.data, so response is the actual API response
       if (response) {
         // Check if response has data property (paginated response)
-        const analyticsData = response.data && Array.isArray(response.data) 
-          ? response.data 
-          : Array.isArray(response) 
-            ? response 
+        const analyticsData = response.data && Array.isArray(response.data)
+          ? response.data
+          : Array.isArray(response)
+            ? response
             : [];
-        
+
         console.log('Extracted analytics:', analyticsData, 'Total:', response.total || analyticsData.length);
         setNumberAnalytics(analyticsData);
       } else {
@@ -343,19 +353,19 @@ function InboundGenie() {
     if (!force && usersLoaded && users.length > 0) {
       return;
     }
-    
+
     try {
       const response = await apiClient.users.getAll('?page=1&limit=1000');
       console.log('Users API response:', response);
-      
+
       // Handle paginated response - axios interceptor unwraps response.data
       if (response) {
-        const usersList = response.data && Array.isArray(response.data) 
-          ? response.data 
-          : Array.isArray(response) 
-            ? response 
+        const usersList = response.data && Array.isArray(response.data)
+          ? response.data
+          : Array.isArray(response)
+            ? response
             : response.data?.data || [];
-        
+
         console.log('Fetched users:', usersList.length, 'Sample:', usersList[0]);
         setUsers(usersList);
         setUsersLoaded(true);
@@ -398,7 +408,7 @@ function InboundGenie() {
       try {
         const result = await getConsumers({ search: debouncedUserSearch });
         console.log('Consumer search response:', result);
-        
+
         // Handle different response structures
         let consumersList = [];
         if (result && !result.error) {
@@ -410,7 +420,7 @@ function InboundGenie() {
             consumersList = result.data;
           }
         }
-        
+
         // Map consumers to user format for display
         const mappedUsers = consumersList.map(consumer => ({
           user_id: consumer.user_id || consumer.id,
@@ -418,7 +428,7 @@ function InboundGenie() {
           full_name: consumer.full_name || consumer.name,
           email: consumer.email
         }));
-        
+
         setFilteredUsers(mappedUsers);
         // Automatically show suggestions if results found
         if (mappedUsers.length > 0) {
@@ -459,7 +469,7 @@ function InboundGenie() {
   useEffect(() => {
     if (agentFormData.user_id) {
       const user = users.find(u => (u.user_id || u.id) === agentFormData.user_id) ||
-                   filteredUsers.find(u => (u.user_id || u.id) === agentFormData.user_id);
+        filteredUsers.find(u => (u.user_id || u.id) === agentFormData.user_id);
       if (user) {
         setSelectedUserDisplay(`${user.full_name || user.email || ''} ${user.email ? `(${user.email})` : ''}`.trim());
       } else {
@@ -488,24 +498,24 @@ function InboundGenie() {
     if (!force && loadedTabs.agents && inboundAgents.length > 0) {
       return;
     }
-    
+
     try {
       setLoading(true);
       // Increase limit to fetch all agents (or use a high limit)
       const response = await inboundApi.getAgents({ page: 1, limit: 1000 });
-      
+
       console.log('Inbound agents API response:', response);
-      
+
       // API returns paginated response: { success: true, data: [...], total, page, limit, ... }
       // axios interceptor already unwraps response.data, so response is the actual API response
       if (response) {
         // Check if response has data property (paginated response)
-        const agents = response.data && Array.isArray(response.data) 
-          ? response.data 
-          : Array.isArray(response) 
-            ? response 
+        const agents = response.data && Array.isArray(response.data)
+          ? response.data
+          : Array.isArray(response)
+            ? response
             : [];
-        
+
         console.log('Extracted agents:', agents, 'Total:', response.total || agents.length);
         setInboundAgents(agents);
         setLoadedTabs(prev => ({ ...prev, agents: true }));
@@ -573,11 +583,16 @@ function InboundGenie() {
       status: number.status || 'active',
       assigned_to_agent_id: number.assigned_to_agent_id || '',
       sms_enabled: number.sms_enabled || false,
+      twilio_sid: number.twilio_sid || '',
       twilio_account_sid: number.twilio_account_sid || '',
       twilio_auth_token: number.twilio_auth_token || '',
       vonage_api_key: number.vonage_api_key || '',
       vonage_api_secret: number.vonage_api_secret || '',
-      telnyx_api_key: number.telnyx_api_key || ''
+      vonage_application_id: number.vonage_application_id || '',
+      telnyx_api_key: number.telnyx_api_key || '',
+      provider_api_key: number.provider_api_key || '',
+      callhippo_api_key: number.callhippo_api_key || '',
+      termination_uri: number.termination_uri || ''
     });
     setSelectedNumber(number);
     setShowEditModal(true);
@@ -594,15 +609,21 @@ function InboundGenie() {
       status: 'pending',
       assigned_to_agent_id: '',
       sms_enabled: false,
+      twilio_sid: '',
       twilio_account_sid: '',
       twilio_auth_token: '',
       vonage_api_key: '',
       vonage_api_secret: '',
-      telnyx_api_key: ''
+      vonage_application_id: '',
+      telnyx_api_key: '',
+      provider_api_key: '',
+      callhippo_api_key: '',
+      termination_uri: ''
     });
     setSelectedNumber(null);
     setShowCreateModal(true);
   };
+
 
   // Save number (create or update)
   const handleSaveNumber = async () => {
@@ -619,7 +640,7 @@ function InboundGenie() {
         if (response.success) {
           toast.success('Inbound number updated successfully');
           setShowEditModal(false);
-          
+
           // Update selected number if modal is open
           if (showNumberModal && response.data) {
             setSelectedNumber(response.data);
@@ -640,6 +661,38 @@ function InboundGenie() {
       toast.error(error.message || `Failed to ${selectedNumber ? 'update' : 'create'} inbound number`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Assign Agent handlers
+  const handleAssignClick = (number) => {
+    setSelectedNumber(number);
+    setFormData({
+      ...formData,
+      assigned_to_agent_id: number.assigned_to_agent_id || ''
+    });
+    setShowAssignModal(true);
+  };
+
+  const handleAssignSubmit = async () => {
+    if (!selectedNumber) return;
+
+    setAssigningLoading(true);
+    try {
+      const response = await inboundApi.assignNumberToAgent(selectedNumber.id, formData.assigned_to_agent_id);
+
+      if (response && (response.success || response.data)) {
+        toast.success(`Agent ${formData.assigned_to_agent_id ? 'assigned' : 'unassigned'} successfully`);
+        setShowAssignModal(false);
+        fetchInboundNumbers(true);
+      } else {
+        throw new Error(response?.error || 'Failed to assign agent');
+      }
+    } catch (error) {
+      console.error('Error assigning agent:', error);
+      toast.error(error.message || 'Failed to assign agent');
+    } finally {
+      setAssigningLoading(false);
     }
   };
 
@@ -699,11 +752,11 @@ function InboundGenie() {
     if (!usersLoaded) {
       await fetchUsers(true);
     }
-    
+
     // Find user to set display name
     const user = users.find(u => (u.user_id || u.id) === agent.user_id);
     const userDisplay = user ? `${user.full_name || user.email || ''} ${user.email ? `(${user.email})` : ''}`.trim() : '';
-    
+
     setAgentFormData({
       name: agent.name || '',
       user_id: agent.user_id || '',
@@ -912,7 +965,7 @@ function InboundGenie() {
         return false;
       }
     }
-    
+
     // Status filter
     if (filters.status !== 'all') {
       if (filters.status === 'answered' && call.call_status !== 'answered' && call.call_status !== 'completed') {
@@ -921,7 +974,7 @@ function InboundGenie() {
         return false;
       }
     }
-    
+
     return true;
   });
 
@@ -937,30 +990,30 @@ function InboundGenie() {
         audioElement.pause();
         audioElement.currentTime = 0;
       }
-      
+
       // Use existing audio element if it's the same recording, otherwise create new one
       let audio = audioElement;
       if (!audio || playingAudioId !== callId) {
         audio = new Audio(recordingUrl);
-        
+
         // Set up event listeners
         audio.addEventListener('loadedmetadata', () => {
           setAudioDuration(audio.duration);
         });
-        
+
         audio.addEventListener('timeupdate', () => {
           if (audio.duration) {
             setAudioCurrentTime(audio.currentTime);
             setAudioProgress((audio.currentTime / audio.duration) * 100);
           }
         });
-        
+
         audio.addEventListener('ended', () => {
           setPlayingAudioId(null);
           setAudioProgress(0);
           setAudioCurrentTime(0);
         });
-        
+
         audio.addEventListener('error', () => {
           toast.error('Failed to play recording');
           setPlayingAudioId(null);
@@ -969,15 +1022,15 @@ function InboundGenie() {
           setAudioCurrentTime(0);
           setAudioDuration(0);
         });
-        
+
         setAudioElement(audio);
       }
-      
+
       // Load metadata if not already loaded
       if (audio.readyState >= 1) {
         setAudioDuration(audio.duration);
       }
-      
+
       audio.play();
       setPlayingAudioId(callId);
     }
@@ -986,13 +1039,13 @@ function InboundGenie() {
   // Handle progress bar click (scrub)
   const handleProgressClick = (e, audioElement) => {
     if (!audioElement || !audioDuration) return;
-    
+
     const progressBar = e.currentTarget;
     const rect = progressBar.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const percentage = clickX / rect.width;
     const newTime = percentage * audioDuration;
-    
+
     audioElement.currentTime = newTime;
     setAudioCurrentTime(newTime);
     setAudioProgress(percentage * 100);
@@ -1241,7 +1294,7 @@ function InboundGenie() {
               {statistics.activeNumbers} active
             </div>
           </div>
-          
+
           <div style={{
             backgroundColor: 'white',
             borderRadius: '12px',
@@ -1258,7 +1311,7 @@ function InboundGenie() {
               {statistics.answeredCalls} answered
             </div>
           </div>
-          
+
           <div style={{
             backgroundColor: 'white',
             borderRadius: '12px',
@@ -1275,7 +1328,7 @@ function InboundGenie() {
               {statistics.activeAgents} active
             </div>
           </div>
-          
+
           <div style={{
             backgroundColor: 'white',
             borderRadius: '12px',
@@ -1446,15 +1499,15 @@ function InboundGenie() {
             {/* Search Bar and Controls */}
             <div style={{ marginBottom: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
               <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
-                <Search 
-                  size={18} 
-                  style={{ 
-                    position: 'absolute', 
-                    left: '12px', 
-                    top: '50%', 
+                <Search
+                  size={18}
+                  style={{
+                    position: 'absolute',
+                    left: '12px',
+                    top: '50%',
                     transform: 'translateY(-50%)',
                     color: '#999'
-                  }} 
+                  }}
                 />
                 <input
                   type="text"
@@ -1470,7 +1523,7 @@ function InboundGenie() {
                   }}
                 />
               </div>
-              
+
               {/* Advanced Filters */}
               {activeTab === 'numbers' && (
                 <>
@@ -1507,7 +1560,7 @@ function InboundGenie() {
                   </select>
                 </>
               )}
-              
+
               {activeTab === 'calls' && (
                 <select
                   value={filters.status}
@@ -1527,14 +1580,14 @@ function InboundGenie() {
                   <option value="forwarded">Forwarded</option>
                 </select>
               )}
-              
+
               {/* Export Button */}
               {(activeTab === 'numbers' || activeTab === 'calls' || activeTab === 'agents') && (
                 <button
                   onClick={() => {
-                    const data = activeTab === 'numbers' ? filteredNumbers : 
-                                activeTab === 'calls' ? filteredCalls : 
-                                filteredAgents;
+                    const data = activeTab === 'numbers' ? filteredNumbers :
+                      activeTab === 'calls' ? filteredCalls :
+                        filteredAgents;
                     exportToCSV(data, activeTab);
                   }}
                   style={{
@@ -1555,7 +1608,7 @@ function InboundGenie() {
                   Export
                 </button>
               )}
-              
+
               <button
                 onClick={() => {
                   if (activeTab === 'numbers') fetchInboundNumbers(true);
@@ -1628,9 +1681,9 @@ function InboundGenie() {
                               <span style={{
                                 padding: '4px 8px',
                                 background: number.status === 'active' ? '#28a745' :
-                                           number.status === 'inactive' ? '#6c757d' :
-                                           number.status === 'error' ? '#dc3545' :
-                                           '#ffc107',
+                                  number.status === 'inactive' ? '#6c757d' :
+                                    number.status === 'error' ? '#dc3545' :
+                                      '#ffc107',
                                 color: 'white',
                                 borderRadius: '4px',
                                 fontSize: '12px'
@@ -1643,8 +1696,8 @@ function InboundGenie() {
                                 <span style={{
                                   padding: '4px 8px',
                                   background: number.health_status === 'healthy' ? '#28a745' :
-                                             number.health_status === 'unhealthy' ? '#dc3545' :
-                                             '#ffc107',
+                                    number.health_status === 'unhealthy' ? '#dc3545' :
+                                      '#ffc107',
                                   color: 'white',
                                   borderRadius: '4px',
                                   fontSize: '12px'
@@ -1659,8 +1712,8 @@ function InboundGenie() {
                                 <span style={{
                                   padding: '4px 8px',
                                   background: number.webhook_status === 'active' ? '#28a745' :
-                                             number.webhook_status === 'failed' ? '#dc3545' :
-                                             '#ffc107',
+                                    number.webhook_status === 'failed' ? '#dc3545' :
+                                      '#ffc107',
                                   color: 'white',
                                   borderRadius: '4px',
                                   fontSize: '12px'
@@ -1677,7 +1730,27 @@ function InboundGenie() {
                             <td style={{ padding: '12px' }}>
                               <div style={{ display: 'flex', gap: '8px' }}>
                                 <button
+                                  onClick={() => handleAssignClick(number)}
+                                  style={{
+                                    padding: '6px 12px',
+                                    background: '#28a745',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    fontSize: '12px'
+                                  }}
+                                  title="Assign Agent"
+                                >
+                                  <Users size={14} />
+                                  {number.assigned_to_agent_id ? 'Reassign' : 'Assign'}
+                                </button>
+                                <button
                                   onClick={() => handleViewNumber(number)}
+
                                   style={{
                                     padding: '6px 12px',
                                     background: '#17a2b8',
@@ -1751,305 +1824,305 @@ function InboundGenie() {
             {/* Call History Tab */}
             {activeTab === 'calls' && (
               <div>
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: '40px' }}>
-              <p>Loading call history...</p>
-            </div>
-          ) : filteredCalls.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px' }}>
-              <p>No call history found</p>
-            </div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Caller</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Called Number</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Status</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Duration</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Agent</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Date</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredCalls.map((call) => (
-                    <tr key={call.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                      <td style={{ padding: '12px' }}>{call.caller_number || '-'}</td>
-                      <td style={{ padding: '12px' }}>{call.inbound_numbers?.phone_number || call.called_number || '-'}</td>
-                      <td style={{ padding: '12px' }}>
-                        <span style={{
-                          padding: '4px 8px',
-                          background: call.call_status === 'answered' || call.call_status === 'completed' ? '#28a745' :
-                                     call.call_status === 'missed' ? '#dc3545' :
-                                     call.call_status === 'forwarded' ? '#17a2b8' :
-                                     '#ffc107',
-                          color: 'white',
-                          borderRadius: '4px',
-                          fontSize: '12px'
-                        }}>
-                          {call.call_status || '-'}
-                        </span>
-                      </td>
-                      <td style={{ padding: '12px' }}>{call.call_duration ? `${Math.floor(call.call_duration / 60)}m ${Math.floor(call.call_duration % 60)}s` : '-'}</td>
-                      <td style={{ padding: '12px' }}>{call.voice_agents?.name || '-'}</td>
-                      <td style={{ padding: '12px' }}>{call.call_start_time ? new Date(call.call_start_time).toLocaleString() : '-'}</td>
-                      <td style={{ padding: '12px' }}>
-                        <button
-                          onClick={() => {
-                            setSelectedCall(call);
-                            setShowCallModal(true);
-                          }}
-                          style={{
-                            padding: '6px 12px',
-                            background: '#17a2b8',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            fontSize: '12px'
-                          }}
-                          title="View Details"
-                        >
-                          <Eye size={14} />
-                          View
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
+                {loading ? (
+                  <div style={{ textAlign: 'center', padding: '40px' }}>
+                    <p>Loading call history...</p>
+                  </div>
+                ) : filteredCalls.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px' }}>
+                    <p>No call history found</p>
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Caller</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Called Number</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Status</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Duration</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Agent</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Date</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredCalls.map((call) => (
+                          <tr key={call.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                            <td style={{ padding: '12px' }}>{call.caller_number || '-'}</td>
+                            <td style={{ padding: '12px' }}>{call.inbound_numbers?.phone_number || call.called_number || '-'}</td>
+                            <td style={{ padding: '12px' }}>
+                              <span style={{
+                                padding: '4px 8px',
+                                background: call.call_status === 'answered' || call.call_status === 'completed' ? '#28a745' :
+                                  call.call_status === 'missed' ? '#dc3545' :
+                                    call.call_status === 'forwarded' ? '#17a2b8' :
+                                      '#ffc107',
+                                color: 'white',
+                                borderRadius: '4px',
+                                fontSize: '12px'
+                              }}>
+                                {call.call_status || '-'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px' }}>{call.call_duration ? `${Math.floor(call.call_duration / 60)}m ${Math.floor(call.call_duration % 60)}s` : '-'}</td>
+                            <td style={{ padding: '12px' }}>{call.voice_agents?.name || '-'}</td>
+                            <td style={{ padding: '12px' }}>{call.call_start_time ? new Date(call.call_start_time).toLocaleString() : '-'}</td>
+                            <td style={{ padding: '12px' }}>
+                              <button
+                                onClick={() => {
+                                  setSelectedCall(call);
+                                  setShowCallModal(true);
+                                }}
+                                style={{
+                                  padding: '6px 12px',
+                                  background: '#17a2b8',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  fontSize: '12px'
+                                }}
+                                title="View Details"
+                              >
+                                <Eye size={14} />
+                                View
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Schedules Tab */}
             {activeTab === 'schedules' && (
               <div>
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: '40px' }}>
-              <p>Loading schedules...</p>
-            </div>
-          ) : schedules.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px' }}>
-              <p>No schedules found</p>
-            </div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Schedule Name</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Number</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Agent</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Timezone</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Status</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {schedules.map((schedule) => (
-                    <tr key={schedule.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                      <td style={{ padding: '12px' }}>{schedule.schedule_name}</td>
-                      <td style={{ padding: '12px' }}>{schedule.inbound_numbers?.phone_number || '-'}</td>
-                      <td style={{ padding: '12px' }}>{schedule.voice_agents?.name || '-'}</td>
-                      <td style={{ padding: '12px' }}>{schedule.timezone || '-'}</td>
-                      <td style={{ padding: '12px' }}>
-                        <span style={{
-                          padding: '4px 8px',
-                          background: schedule.is_active ? '#28a745' : '#6c757d',
-                          color: 'white',
-                          borderRadius: '4px',
-                          fontSize: '12px'
-                        }}>
-                          {schedule.is_active ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
-                      <td style={{ padding: '12px' }}>{new Date(schedule.created_at).toLocaleDateString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
+                {loading ? (
+                  <div style={{ textAlign: 'center', padding: '40px' }}>
+                    <p>Loading schedules...</p>
+                  </div>
+                ) : schedules.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px' }}>
+                    <p>No schedules found</p>
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Schedule Name</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Number</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Agent</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Timezone</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Status</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Created</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {schedules.map((schedule) => (
+                          <tr key={schedule.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                            <td style={{ padding: '12px' }}>{schedule.schedule_name}</td>
+                            <td style={{ padding: '12px' }}>{schedule.inbound_numbers?.phone_number || '-'}</td>
+                            <td style={{ padding: '12px' }}>{schedule.voice_agents?.name || '-'}</td>
+                            <td style={{ padding: '12px' }}>{schedule.timezone || '-'}</td>
+                            <td style={{ padding: '12px' }}>
+                              <span style={{
+                                padding: '4px 8px',
+                                background: schedule.is_active ? '#28a745' : '#6c757d',
+                                color: 'white',
+                                borderRadius: '4px',
+                                fontSize: '12px'
+                              }}>
+                                {schedule.is_active ? 'Active' : 'Inactive'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px' }}>{new Date(schedule.created_at).toLocaleDateString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Agents Tab */}
             {activeTab === 'agents' && (
               <div>
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: '40px' }}>
-              <p>Loading agents...</p>
-            </div>
-          ) : filteredAgents.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px' }}>
-              <p>No inbound agents found</p>
-            </div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Name</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Company</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Type</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Status</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Phone</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Voice</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Model</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>User Email</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Created</th>
-                    <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredAgents.map((agent) => {
-                    return (
-                      <tr key={agent.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                        <td style={{ padding: '12px', fontWeight: '500' }}>{agent.name}</td>
-                        <td style={{ padding: '12px' }}>{agent.company_name || '-'}</td>
-                        <td style={{ padding: '12px' }}>
-                          {agent.agent_type && (
-                            <span style={{
-                              padding: '4px 8px',
-                              background: '#17a2b8',
-                              color: 'white',
-                              borderRadius: '4px',
-                              fontSize: '12px'
-                            }}>
-                              {agent.agent_type}
-                            </span>
-                          )}
-                          {!agent.agent_type && <span style={{ color: '#999', fontSize: '12px' }}>-</span>}
-                        </td>
-                        <td style={{ padding: '12px' }}>
-                          <span style={{
-                            padding: '4px 8px',
-                            background: agent.status === 'active' ? '#28a745' :
-                                       agent.status === 'inactive' ? '#6c757d' :
-                                       agent.status === 'testing' ? '#ffc107' :
-                                       agent.status === 'draft' ? '#6c757d' :
-                                       '#dc3545',
-                            color: 'white',
-                            borderRadius: '4px',
-                            fontSize: '12px'
-                          }}>
-                            {agent.status || 'inactive'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '12px', fontSize: '12px' }}>{agent.phone_number || '-'}</td>
-                        <td style={{ padding: '12px', fontSize: '12px' }}>
-                          {agent.voice ? (
-                            <span style={{
-                              padding: '4px 8px',
-                              background: '#e5e7eb',
-                              color: '#333',
-                              borderRadius: '4px',
-                              fontSize: '11px'
-                            }}>
-                              {agent.voice}
-                            </span>
-                          ) : '-'}
-                        </td>
-                        <td style={{ padding: '12px', fontSize: '12px' }}>{agent.model || 'gpt-4o'}</td>
-                        <td style={{ padding: '12px', fontSize: '12px' }}>
-                          {agent.user_email ? (
-                            <span title={agent.user_full_name || agent.user_id || ''}>
-                              {agent.user_email}
-                            </span>
-                          ) : agent.user_full_name ? (
-                            <span style={{ color: '#666' }} title={agent.user_id || ''}>
-                              {agent.user_full_name}
-                            </span>
-                          ) : agent.user_id ? (
-                            <span style={{ color: '#999', fontSize: '11px' }} title={agent.user_id}>
-                              {agent.user_id.substring(0, 8)}...
-                            </span>
-                          ) : (
-                            <span style={{ color: '#999' }}>-</span>
-                          )}
-                        </td>
-                        <td style={{ padding: '12px', fontSize: '12px', color: '#666' }}>
-                          {new Date(agent.created_at).toLocaleDateString()}
-                        </td>
-                        <td style={{ padding: '12px' }}>
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            <button
-                              onClick={() => handleViewAgent(agent)}
-                              style={{
-                                padding: '6px 12px',
-                                background: '#17a2b8',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                fontSize: '12px'
-                              }}
-                              title="View Details"
-                            >
-                              <Eye size={14} />
-                              View
-                            </button>
-                            {canEdit && (
-                              <button
-                                onClick={() => handleEditAgent(agent)}
-                                style={{
-                                  padding: '6px 12px',
-                                  background: '#74317e',
+                {loading ? (
+                  <div style={{ textAlign: 'center', padding: '40px' }}>
+                    <p>Loading agents...</p>
+                  </div>
+                ) : filteredAgents.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px' }}>
+                    <p>No inbound agents found</p>
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Name</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Company</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Type</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Status</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Phone</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Voice</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Model</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>User Email</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Created</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredAgents.map((agent) => {
+                          return (
+                            <tr key={agent.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                              <td style={{ padding: '12px', fontWeight: '500' }}>{agent.name}</td>
+                              <td style={{ padding: '12px' }}>{agent.company_name || '-'}</td>
+                              <td style={{ padding: '12px' }}>
+                                {agent.agent_type && (
+                                  <span style={{
+                                    padding: '4px 8px',
+                                    background: '#17a2b8',
+                                    color: 'white',
+                                    borderRadius: '4px',
+                                    fontSize: '12px'
+                                  }}>
+                                    {agent.agent_type}
+                                  </span>
+                                )}
+                                {!agent.agent_type && <span style={{ color: '#999', fontSize: '12px' }}>-</span>}
+                              </td>
+                              <td style={{ padding: '12px' }}>
+                                <span style={{
+                                  padding: '4px 8px',
+                                  background: agent.status === 'active' ? '#28a745' :
+                                    agent.status === 'inactive' ? '#6c757d' :
+                                      agent.status === 'testing' ? '#ffc107' :
+                                        agent.status === 'draft' ? '#6c757d' :
+                                          '#dc3545',
                                   color: 'white',
-                                  border: 'none',
                                   borderRadius: '4px',
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
                                   fontSize: '12px'
-                                }}
-                                title="Edit Agent"
-                              >
-                                <Edit2 size={14} />
-                                Edit
-                              </button>
-                            )}
-                            {canDelete && (
-                              <button
-                                onClick={() => handleDeleteClick(agent, 'agent')}
-                                style={{
-                                  padding: '6px 12px',
-                                  background: '#dc3545',
-                                  color: 'white',
-                                  border: 'none',
-                                  borderRadius: '4px',
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  fontSize: '12px'
-                                }}
-                                title="Delete Agent"
-                              >
-                                <Trash2 size={14} />
-                                Delete
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+                                }}>
+                                  {agent.status || 'inactive'}
+                                </span>
+                              </td>
+                              <td style={{ padding: '12px', fontSize: '12px' }}>{agent.phone_number || '-'}</td>
+                              <td style={{ padding: '12px', fontSize: '12px' }}>
+                                {agent.voice ? (
+                                  <span style={{
+                                    padding: '4px 8px',
+                                    background: '#e5e7eb',
+                                    color: '#333',
+                                    borderRadius: '4px',
+                                    fontSize: '11px'
+                                  }}>
+                                    {agent.voice}
+                                  </span>
+                                ) : '-'}
+                              </td>
+                              <td style={{ padding: '12px', fontSize: '12px' }}>{agent.model || 'gpt-4o'}</td>
+                              <td style={{ padding: '12px', fontSize: '12px' }}>
+                                {agent.user_email ? (
+                                  <span title={agent.user_full_name || agent.user_id || ''}>
+                                    {agent.user_email}
+                                  </span>
+                                ) : agent.user_full_name ? (
+                                  <span style={{ color: '#666' }} title={agent.user_id || ''}>
+                                    {agent.user_full_name}
+                                  </span>
+                                ) : agent.user_id ? (
+                                  <span style={{ color: '#999', fontSize: '11px' }} title={agent.user_id}>
+                                    {agent.user_id.substring(0, 8)}...
+                                  </span>
+                                ) : (
+                                  <span style={{ color: '#999' }}>-</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '12px', fontSize: '12px', color: '#666' }}>
+                                {new Date(agent.created_at).toLocaleDateString()}
+                              </td>
+                              <td style={{ padding: '12px' }}>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                  <button
+                                    onClick={() => handleViewAgent(agent)}
+                                    style={{
+                                      padding: '6px 12px',
+                                      background: '#17a2b8',
+                                      color: 'white',
+                                      border: 'none',
+                                      borderRadius: '4px',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      fontSize: '12px'
+                                    }}
+                                    title="View Details"
+                                  >
+                                    <Eye size={14} />
+                                    View
+                                  </button>
+                                  {canEdit && (
+                                    <button
+                                      onClick={() => handleEditAgent(agent)}
+                                      style={{
+                                        padding: '6px 12px',
+                                        background: '#74317e',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        fontSize: '12px'
+                                      }}
+                                      title="Edit Agent"
+                                    >
+                                      <Edit2 size={14} />
+                                      Edit
+                                    </button>
+                                  )}
+                                  {canDelete && (
+                                    <button
+                                      onClick={() => handleDeleteClick(agent, 'agent')}
+                                      style={{
+                                        padding: '6px 12px',
+                                        background: '#dc3545',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        fontSize: '12px'
+                                      }}
+                                      title="Delete Agent"
+                                    >
+                                      <Trash2 size={14} />
+                                      Delete
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -2225,8 +2298,8 @@ function InboundGenie() {
                               <span style={{
                                 padding: '4px 8px',
                                 background: call.call_status === 'answered' || call.call_status === 'completed' ? '#28a745' :
-                                          call.call_status === 'missed' ? '#dc3545' :
-                                          '#ffc107',
+                                  call.call_status === 'missed' ? '#dc3545' :
+                                    '#ffc107',
                                 color: 'white',
                                 borderRadius: '4px',
                                 fontSize: '12px'
@@ -2354,60 +2427,6 @@ function InboundGenie() {
             </div>
 
             <div style={{ display: 'grid', gap: '20px' }}>
-              {/* Phone Number */}
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Phone Number *</label>
-                <input
-                  type="text"
-                  value={formData.phone_number}
-                  onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #ddd',
-                    borderRadius: '6px',
-                    fontSize: '14px'
-                  }}
-                  placeholder="+1234567890"
-                />
-              </div>
-
-              {/* Country Code */}
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Country Code</label>
-                <input
-                  type="text"
-                  value={formData.country_code}
-                  onChange={(e) => setFormData({ ...formData, country_code: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #ddd',
-                    borderRadius: '6px',
-                    fontSize: '14px'
-                  }}
-                  placeholder="+1"
-                />
-              </div>
-
-              {/* Phone Label */}
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Phone Label</label>
-                <input
-                  type="text"
-                  value={formData.phone_label}
-                  onChange={(e) => setFormData({ ...formData, phone_label: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #ddd',
-                    borderRadius: '6px',
-                    fontSize: '14px'
-                  }}
-                  placeholder="Main Office Line"
-                />
-              </div>
-
               {/* Provider */}
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Provider *</label>
@@ -2416,201 +2435,200 @@ function InboundGenie() {
                   onChange={(e) => setFormData({ ...formData, provider: e.target.value })}
                   style={{
                     width: '100%',
-                    padding: '10px',
+                    padding: '12px',
                     border: '1px solid #ddd',
-                    borderRadius: '6px',
-                    fontSize: '14px'
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    backgroundColor: '#fff'
                   }}
                 >
-                  <option value="twilio">Twilio - Leading cloud communications platform</option>
-                  <option value="vonage">Vonage - Global cloud communications</option>
-                  <option value="telnyx">Telnyx - Programmable communications</option>
-                  <option value="callhippo">CallHippo - Business phone system</option>
+                  <option value="twilio">Twilio</option>
+                  <option value="vonage">Vonage</option>
+                  <option value="telnyx">Telnyx</option>
                 </select>
               </div>
 
-              {/* Status */}
+              {/* Inbound Number with Country Code */}
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Status</label>
-                <select
-                  value={formData.status}
-                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #ddd',
-                    borderRadius: '6px',
-                    fontSize: '14px'
-                  }}
-                >
-                  <option value="active">Active - Number is receiving calls</option>
-                  <option value="inactive">Inactive - Number is not receiving calls</option>
-                  <option value="pending">Pending - Number is being activated</option>
-                  <option value="activating">Activating - Number is being activated</option>
-                  <option value="suspended">Suspended - Number is suspended</option>
-                  <option value="error">Error - Number has an error</option>
-                </select>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Inbound Number *</label>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <div style={{ width: '120px' }}>
+                    <select
+                      value={formData.country_code}
+                      onChange={(e) => setFormData({ ...formData, country_code: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '12px',
+                        border: '1px solid #ddd',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        backgroundColor: '#f9fafb'
+                      }}
+                    >
+                      <option value="+1">🇺🇸 +1 (US)</option>
+                      <option value="+44">🇬🇧 +44 (UK)</option>
+                      <option value="+91">🇮🇳 +91 (IN)</option>
+                      <option value="+61">🇦🇺 +61 (AU)</option>
+                      <option value="+1-CA">🇨🇦 +1 (CA)</option>
+                      <option value="+49">🇩🇪 +49 (DE)</option>
+                      <option value="+33">🇫🇷 +33 (FR)</option>
+                      <option value="+81">🇯🇵 +81 (JP)</option>
+                      <option value="+86">🇨🇳 +86 (CN)</option>
+                      <option value="+55">🇧🇷 +55 (BR)</option>
+                      <option value="+27">🇿🇦 +27 (ZA)</option>
+                      <option value="+971">🇦🇪 +971 (UAE)</option>
+                      <option value="+92">🇵🇰 +92 (PK)</option>
+                      {/* Add more as needed */}
+                    </select>
+                  </div>
+                  <input
+                    type="text"
+                    value={formData.phone_number}
+                    onChange={(e) => setFormData({ ...formData, phone_number: e.target.value.replace(/\D/g, '') })}
+                    style={{
+                      flex: 1,
+                      padding: '12px',
+                      border: '1px solid #ddd',
+                      borderRadius: '8px',
+                      fontSize: '14px'
+                    }}
+                    placeholder="Enter number without code"
+                  />
+                </div>
               </div>
 
-              {/* Assigned Agent */}
+              {/* Name (Phone Label) */}
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Assigned Agent</label>
-                <select
-                  value={formData.assigned_to_agent_id}
-                  onChange={(e) => setFormData({ ...formData, assigned_to_agent_id: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #ddd',
-                    borderRadius: '6px',
-                    fontSize: '14px'
-                  }}
-                >
-                  <option value="">None</option>
-                  {availableAgents.map(agent => (
-                    <option key={agent.id} value={agent.id}>{agent.name} {agent.company_name ? `(${agent.company_name})` : ''}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Call Forwarding */}
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Call Forwarding Number</label>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Name (Label)</label>
                 <input
                   type="text"
-                  value={formData.call_forwarding_number}
-                  onChange={(e) => setFormData({ ...formData, call_forwarding_number: e.target.value })}
+                  value={formData.phone_label}
+                  onChange={(e) => setFormData({ ...formData, phone_label: e.target.value })}
                   style={{
                     width: '100%',
-                    padding: '10px',
+                    padding: '12px',
                     border: '1px solid #ddd',
-                    borderRadius: '6px',
+                    borderRadius: '8px',
                     fontSize: '14px'
                   }}
-                  placeholder="+1234567890"
+                  placeholder="e.g., Marketing Campaign"
                 />
               </div>
 
-              {/* SMS Enabled */}
+              {/* Termination URL */}
               <div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={formData.sms_enabled}
-                    onChange={(e) => setFormData({ ...formData, sms_enabled: e.target.checked })}
-                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                  />
-                  <span style={{ fontWeight: '600' }}>SMS Enabled</span>
-                </label>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Termination URL</label>
+                <input
+                  type="text"
+                  value={formData.termination_uri}
+                  onChange={(e) => setFormData({ ...formData, termination_uri: e.target.value })}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    border: '1px solid #ddd',
+                    borderRadius: '8px',
+                    fontSize: '14px'
+                  }}
+                  placeholder="https://your-webhook.com/endpoint"
+                />
               </div>
 
-              {/* Provider-specific fields */}
-              {formData.provider === 'twilio' && (
-                <>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Twilio Account SID</label>
-                    <input
-                      type="text"
-                      value={formData.twilio_account_sid}
-                      onChange={(e) => setFormData({ ...formData, twilio_account_sid: e.target.value })}
-                      style={{
-                        width: '100%',
-                        padding: '10px',
-                        border: '1px solid #ddd',
-                        borderRadius: '6px',
-                        fontSize: '14px'
-                      }}
-                      placeholder="AC..."
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Twilio Auth Token</label>
-                    <input
-                      type="password"
-                      value={formData.twilio_auth_token}
-                      onChange={(e) => setFormData({ ...formData, twilio_auth_token: e.target.value })}
-                      style={{
-                        width: '100%',
-                        padding: '10px',
-                        border: '1px solid #ddd',
-                        borderRadius: '6px',
-                        fontSize: '14px'
-                      }}
-                      placeholder="Enter auth token"
-                    />
-                  </div>
-                </>
-              )}
+              {/* Provider Credentials (conditionally shown but kept for functionality) */}
+              <div style={{ marginTop: '10px' }}>
+                <button 
+                  type="button"
+                  onClick={() => setShowAdvanced(!showAdvanced)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#74317e',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    padding: 0,
+                    marginBottom: '10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  {showAdvanced ? 'Hide Settings' : 'Show Provider Settings'}
+                </button>
 
-              {formData.provider === 'vonage' && (
-                <>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Vonage API Key</label>
-                    <input
-                      type="text"
-                      value={formData.vonage_api_key}
-                      onChange={(e) => setFormData({ ...formData, vonage_api_key: e.target.value })}
-                      style={{
-                        width: '100%',
-                        padding: '10px',
-                        border: '1px solid #ddd',
-                        borderRadius: '6px',
-                        fontSize: '14px'
-                      }}
-                      placeholder="Enter API key"
-                    />
+                {showAdvanced && (
+                  <div style={{ display: 'grid', gap: '15px', padding: '15px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    {formData.provider === 'twilio' && (
+                      <>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '12px' }}>Account SID</label>
+                          <input
+                            type="text"
+                            value={formData.twilio_account_sid}
+                            onChange={(e) => setFormData({ ...formData, twilio_account_sid: e.target.value })}
+                            style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '12px' }}>Auth Token</label>
+                          <input
+                            type="password"
+                            value={formData.twilio_auth_token}
+                            onChange={(e) => setFormData({ ...formData, twilio_auth_token: e.target.value })}
+                            style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}
+                          />
+                        </div>
+                      </>
+                    )}
+                    {formData.provider === 'vonage' && (
+                      <>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '12px' }}>API Key</label>
+                          <input
+                            type="text"
+                            value={formData.vonage_api_key}
+                            onChange={(e) => setFormData({ ...formData, vonage_api_key: e.target.value })}
+                            style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '12px' }}>API Secret</label>
+                          <input
+                            type="password"
+                            value={formData.vonage_api_secret}
+                            onChange={(e) => setFormData({ ...formData, vonage_api_secret: e.target.value })}
+                            style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}
+                          />
+                        </div>
+                      </>
+                    )}
+                    {formData.provider === 'telnyx' && (
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '12px' }}>API Key</label>
+                        <input
+                          type="password"
+                          value={formData.telnyx_api_key}
+                          onChange={(e) => setFormData({ ...formData, telnyx_api_key: e.target.value })}
+                          style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}
+                        />
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Vonage API Secret</label>
-                    <input
-                      type="password"
-                      value={formData.vonage_api_secret}
-                      onChange={(e) => setFormData({ ...formData, vonage_api_secret: e.target.value })}
-                      style={{
-                        width: '100%',
-                        padding: '10px',
-                        border: '1px solid #ddd',
-                        borderRadius: '6px',
-                        fontSize: '14px'
-                      }}
-                      placeholder="Enter API secret"
-                    />
-                  </div>
-                </>
-              )}
-
-              {formData.provider === 'telnyx' && (
-                <div>
-                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>Telnyx API Key</label>
-                  <input
-                    type="password"
-                    value={formData.telnyx_api_key}
-                    onChange={(e) => setFormData({ ...formData, telnyx_api_key: e.target.value })}
-                    style={{
-                      width: '100%',
-                      padding: '10px',
-                      border: '1px solid #ddd',
-                      borderRadius: '6px',
-                      fontSize: '14px'
-                    }}
-                    placeholder="Enter API key"
-                  />
-                </div>
-              )}
+                )}
+              </div>
 
               {/* Action Buttons */}
-              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '20px' }}>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
                 <button
                   onClick={closeModals}
                   disabled={saving}
                   style={{
                     padding: '10px 20px',
-                    background: '#6c757d',
-                    color: 'white',
+                    background: '#f3f4f6',
+                    color: '#374151',
                     border: 'none',
                     borderRadius: '8px',
                     cursor: saving ? 'not-allowed' : 'pointer',
-                    opacity: saving ? 0.6 : 1
+                    fontWeight: '500'
                   }}
                 >
                   Cancel
@@ -2625,13 +2643,13 @@ function InboundGenie() {
                     border: 'none',
                     borderRadius: '8px',
                     cursor: saving ? 'not-allowed' : 'pointer',
-                    opacity: saving ? 0.6 : 1,
+                    fontWeight: '600',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '8px'
                   }}
                 >
-                  {saving ? 'Saving...' : selectedNumber ? 'Update' : 'Create'}
+                  {saving ? 'Saving...' : selectedNumber ? 'Update Number' : 'Create Number'}
                   {saving && <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite' }} />}
                 </button>
               </div>
@@ -2726,9 +2744,9 @@ function InboundGenie() {
                       <span style={{ fontSize: '12px', color: '#666', minWidth: '80px' }}>
                         {formatTime(audioCurrentTime)} / {formatTime(audioDuration)}
                       </span>
-                      <a 
-                        href={selectedCall.recording_url} 
-                        target="_blank" 
+                      <a
+                        href={selectedCall.recording_url}
+                        target="_blank"
                         rel="noopener noreferrer"
                         style={{
                           padding: '8px 16px',
@@ -2743,7 +2761,7 @@ function InboundGenie() {
                         Download
                       </a>
                     </div>
-                    
+
                     {/* Progress Bar */}
                     <div
                       onClick={(e) => {
@@ -3102,7 +3120,7 @@ function InboundGenie() {
                     </div>
                   )}
                 </div>
-                
+
                 {/* User Suggestions Dropdown */}
                 {showUserSuggestions && filteredUsers.length > 0 && (
                   <div style={{
@@ -3145,7 +3163,7 @@ function InboundGenie() {
                     ))}
                   </div>
                 )}
-                
+
                 {showUserSuggestions && !loadingUsers && userSearchTerm.length >= 2 && filteredUsers.length === 0 && (
                   <div style={{
                     position: 'absolute',
@@ -3389,6 +3407,108 @@ function InboundGenie() {
           </div>
         </div>
       )}
+
+      {/* Assign Agent Modal */}
+      {showAssignModal && selectedNumber && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1100,
+          padding: '20px'
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            width: '100%',
+            maxWidth: '500px',
+            padding: '24px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h4 style={{ margin: 0, fontWeight: '700', color: '#111827' }}>Assign Agent to {selectedNumber.phone_label || selectedNumber.phone_number}</h4>
+              <button onClick={() => setShowAssignModal(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#6b7280' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ display: 'block', textTransform: 'uppercase', fontSize: '12px', fontWeight: '700', color: '#374151', marginBottom: '8px' }}>
+                Select Agent
+              </label>
+              <select
+                value={formData.assigned_to_agent_id || ''}
+                onChange={(e) => setFormData({ ...formData, assigned_to_agent_id: e.target.value })}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  color: '#111827',
+                  backgroundColor: 'white'
+                }}
+              >
+                <option value="">Unassigned (None)</option>
+                {availableAgents.map(agent => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name} {agent.company_name ? `(${agent.company_name})` : ''}
+                  </option>
+                ))}
+              </select>
+              <p style={{ marginTop: '8px', fontSize: '12px', color: '#6b7280' }}>
+                The selected agent will handle all incoming calls to this number.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowAssignModal(false)}
+                style={{
+                  padding: '10px 20px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '8px',
+                  background: 'white',
+                  color: '#374151',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAssignSubmit}
+                disabled={assigningLoading}
+                style={{
+                  padding: '10px 24px',
+                  border: 'none',
+                  borderRadius: '8px',
+                  background: '#74317e',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: assigningLoading ? 'not-allowed' : 'pointer',
+                  opacity: assigningLoading ? 0.7 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                {assigningLoading ? 'Assigning...' : 'Confirm Assignment'}
+                {assigningLoading && <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite' }} />}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
