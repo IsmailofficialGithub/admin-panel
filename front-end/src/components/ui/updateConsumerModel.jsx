@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Phone, Calendar, Globe, MapPin, ChevronDown, Package, CheckCircle, Shield, Tag } from 'lucide-react';
+import { X, User, Phone, Calendar, Globe, MapPin, ChevronDown, Package, CheckCircle, Shield, Tag, Info, Coins, Check, CreditCard } from 'lucide-react';
 import { countries, searchCountries } from '../../utils/countryData';
 import apiClient from '../../services/apiClient';
 import { normalizeRole } from '../../utils/roleUtils';
@@ -8,6 +8,7 @@ import { getAllVapiAccounts } from '../../api/backend/vapi';
 import { useAuth } from '../../hooks/useAuth';
 import { hasRole } from '../../utils/roleUtils';
 import toast from 'react-hot-toast';
+import CreditsModal from './CreditsModal';
 
 const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProductSettings }) => {
   const { profile } = useAuth();
@@ -44,6 +45,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
   const [productSettings, setProductSettings] = useState({});
   const [vapiAccounts, setVapiAccounts] = useState([]);
   const [loadingVapiAccounts, setLoadingVapiAccounts] = useState(false);
+  const [showCreditsModal, setShowCreditsModal] = useState(false);
   const [errors, setErrors] = useState({});
 
   useEffect(() => {
@@ -69,6 +71,12 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
 
       // Initialize selected products from consumer data
       setSelectedProducts(Array.isArray(consumerProducts) ? consumerProducts : []);
+
+      console.log('🔍 Update Modal Env Check:', {
+        REACT_APP_INBOUND_DB_ID: process.env.REACT_APP_INBOUND_DB_ID,
+        INBOUND_DB_ID: process.env.INBOUND_DB_ID,
+        ResolvedInboundId: getInboundProductId()
+      });
 
       // Initialize productSettings from prop or consumer data
       if (initialProductSettings && Object.keys(initialProductSettings).length > 0) {
@@ -146,6 +154,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
     if (isOpen && isConsumerSelected) {
       const fetchProducts = async () => {
         setLoadingProducts(true);
+        console.log('🔄 UpdateConsumerModal - Fetching products...');
         try {
           const result = await getProducts();
           if (result && result.success && result.data && Array.isArray(result.data)) {
@@ -369,9 +378,55 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
 
     setSelectedProducts(prev => {
       const isSelected = prev.includes(productId);
+      const productName = products.find(p => p.id === productId)?.name?.toLowerCase();
+      
       const newProducts = isSelected
         ? prev.filter(id => id !== productId)
         : [...prev, productId];
+
+      // If adding Inbound product, initialize with default values
+      const isInbound = productName?.includes('inbound') || 
+                       productId === (process.env.REACT_APP_INBOUND_DB_ID || '').trim() ||
+                       productId === (process.env.INBOUND_DB_ID || '').trim() ||
+                       productId === '1e27e1d8-2c82-408c-89c3-ecab9f608cc8' ||
+                       productId === 'fec12233-0a0b-438b-99a5-ad7de950727a';
+
+      if (!isSelected && isInbound) {
+        setProductSettings(prevSettings => {
+          if (!prevSettings[productId]) {
+            return {
+              ...prevSettings,
+              [productId]: {
+                balance: 0,
+                low_credit_threshold: 10,
+                auto_topup_enabled: false,
+                auto_topup_amount: 50,
+                auto_topup_threshold: 10
+              }
+            };
+          }
+          return prevSettings;
+        });
+      }
+
+      // If adding genie product, initialize with default values
+      if (!isSelected && (productName === 'genie' || productName === 'genie_outbound')) {
+        setProductSettings(prevSettings => {
+          if (!prevSettings[productId]) {
+            return {
+              ...prevSettings,
+              [productId]: {
+                list_limit: 1,
+                agent_number: 3,
+                vapi_account: 1,
+                duration_limit: 60,
+                concurrency_limit: 1
+              }
+            };
+          }
+          return prevSettings;
+        });
+      }
 
       // Clean up productSettings if product is removed
       if (isSelected) {
@@ -449,35 +504,50 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
       return newSettings;
     });
   };
+  // Get Inbound product ID (helper function)
+  const getInboundProductId = () => {
+    const inboundEnvId = (process.env.REACT_APP_INBOUND_DB_ID || '').trim() || 
+                        (process.env.INBOUND_DB_ID || '').trim() || 
+                        '1e27e1d8-2c82-408c-89c3-ecab9f608cc8';
+    
+    const envIds = [inboundEnvId, 'fec12233-0a0b-438b-99a5-ad7de950727a'].filter(id => id && id.length > 5);
 
-  // Get Genie product ID (helper function)
-  const getGenieProductId = () => {
-    // Find the Genie product ID from products list
-    const genieProduct = products.find(p => p.name && p.name.toLowerCase().includes('genie'));
-    const foundId = genieProduct?.id || selectedProducts.find(id => {
-      const product = products.find(p => p.id === id);
-      return product?.name && product.name.toLowerCase().includes('genie');
+    // Find if any selected product is an Inbound product
+    const foundId = selectedProducts.find(productId => {
+      if (envIds.includes(productId)) return true;
+      const product = products.find(p => p.id === productId);
+      if (product && product.name) {
+        const name = product.name.toLowerCase();
+        return name.includes('inbound');
+      }
+      return false;
     });
 
-    // Also check if any selected product has settings, even if not named "genie"
-    if (!foundId && selectedProducts.length > 0 && Object.keys(productSettings).length > 0) {
-      // Find first selected product that has settings
-      const productWithSettings = selectedProducts.find(id => {
-        const idStr = String(id);
-        return productSettings[idStr] || productSettings[id];
-      });
-      if (productWithSettings) {
-        return productWithSettings;
-      }
-    }
-
-    return foundId;
+    return foundId || null;
   };
 
-  // Check if Genie product is selected
+  // Check if legacy genie product is selected
+  const getGenieProductId = () => {
+    const inboundId = getInboundProductId();
+    return selectedProducts.find(productId => {
+      if (inboundId && productId === inboundId) return false;
+      const product = products.find(p => p.id === productId);
+      if (product && product.name) {
+        const name = product.name.toLowerCase();
+        return name.includes('genie') && !name.includes('inbound');
+      }
+      return false;
+    });
+  };
+
+  // Check if Inbound product is selected (backward compatibility)
+  const isInboundProductSelected = () => {
+    return !!getInboundProductId();
+  };
+
+  // Check if Genie product is selected (backward compatibility)
   const isGenieProductSelected = () => {
-    const genieProductId = getGenieProductId();
-    return genieProductId && selectedProducts.includes(genieProductId);
+    return !!getGenieProductId();
   };
 
   // Get Beeba product ID (helper function)
@@ -1589,7 +1659,64 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
             </div>
           )}
 
-          {/* Genie Product Settings Section */}
+          {/* Genie Inbound Settings (Credit management display) */}
+          {isConsumerSelected && isInboundProductSelected() && canViewGenieSettings && (
+            <div style={{
+              marginBottom: '20px',
+              padding: '16px',
+              backgroundColor: '#f5f3ff',
+              borderRadius: '8px',
+              border: '1px solid #ddd6fe'
+            }}>
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '14px',
+                fontWeight: '600',
+                color: '#7c3aed',
+                marginBottom: '12px'
+              }}>
+                <Coins size={16} />
+                Inbound Genie Settings
+              </label>
+              
+              <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 12px 0', lineHeight: '1.5' }}>
+                This user has an active Inbound Genie product. You can manage their credit balance, 
+                auto-topup settings, and subscribed packages using the management tool.
+              </p>
+
+              <button
+                type="button"
+                onClick={() => setShowCreditsModal(true)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 16px',
+                  backgroundColor: 'white',
+                  border: '1px solid #7c3aed',
+                  borderRadius: '6px',
+                  color: '#7c3aed',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#f5f3ff';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'white';
+                }}
+              >
+                <CreditCard size={14} />
+                Manage Inbound Credits
+              </button>
+            </div>
+          )}
+
+          {/* Legacy Genie Product Settings Section */}
           {isConsumerSelected && isGenieProductSelected() && canViewGenieSettings && (
             <div style={{
               marginBottom: '20px',
@@ -2366,6 +2493,70 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
                 })}
               </div>
             </div>
+          )}
+
+          {/* Credits Management Section */}
+          {(isGenieProductSelected() || isInboundProductSelected()) && isAdmin && (
+            <div style={{
+              marginTop: '16px',
+              marginBottom: '20px',
+              padding: '16px',
+              backgroundColor: '#f5f3ff',
+              borderRadius: '8px',
+              border: '1px solid #ddd6fe',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  backgroundColor: isInboundProductSelected() ? '#7c3aed' : '#74317e',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white'
+                }}>
+                  <CreditCard size={20} />
+                </div>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#1f2937' }}>{isInboundProductSelected() ? 'Inbound Credit Management' : 'Genie Credit Management'}</h4>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#6b7280' }}>
+                    Manage balance and package subscriptions
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCreditsModal(true)}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: 'white',
+                  border: `1px solid ${isInboundProductSelected() ? '#7c3aed' : '#74317e'}`,
+                  borderRadius: '6px',
+                  color: isInboundProductSelected() ? '#7c3aed' : '#74317e',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+              >
+                Manage Credits
+              </button>
+            </div>
+          )}
+
+          {/* Credits Modal Integration */}
+          {showCreditsModal && (consumer?.id || consumer?.user_id) && (
+            <CreditsModal
+              isOpen={showCreditsModal}
+              onClose={() => setShowCreditsModal(false)}
+              userId={consumer?.id || consumer?.user_id}
+              productId={getInboundProductId() || getGenieProductId()}
+              userName={formData.full_name || 'Consumer'}
+            />
           )}
         </div>
 

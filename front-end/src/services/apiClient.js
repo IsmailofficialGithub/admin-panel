@@ -468,6 +468,26 @@ const apiClient = {
      * Reassign consumer to a different reseller
      */
     reassign: (id, data) => axiosInstance.post(`/consumers/${id}/reassign`, data),
+
+    /**
+     * Get user credits
+     */
+    getUserCredits: (userId) => axiosInstance.get(`/consumers/${userId}/credits`),
+
+    /**
+     * Update user credits
+     */
+    updateUserCredits: (userId, creditData) => axiosInstance.put(`/consumers/${userId}/credits`, creditData),
+
+    /**
+     * Get billing packages for product
+     */
+    getBillingPackages: (productId) => axiosInstance.get(`/consumers/products/${productId}/packages`),
+
+    /**
+     * Create user subscription
+     */
+    createUserSubscription: (userId, subscriptionData) => axiosInstance.post(`/consumers/${userId}/subscriptions`, subscriptionData),
   },
 
   // ==================== RESELLERS ====================

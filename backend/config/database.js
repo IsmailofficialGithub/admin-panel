@@ -8,6 +8,11 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+// Inbound Database Configuration
+const inboundSupabaseUrl = process.env.INBOUND_SUPABASE_URL || supabaseUrl;
+const inboundSupabaseAnonKey = process.env.INBOUND_SUPABASE_ANON_KEY || supabaseAnonKey;
+const inboundSupabaseServiceKey = process.env.INBOUND_SUPABASE_SERVICE_ROLE_KEY || supabaseServiceKey;
+
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error('❌ Missing Supabase environment variables!');
   console.error('Please set SUPABASE_URL and SUPABASE_ANON_KEY in .env file');
@@ -24,11 +29,11 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     fetch: (url, options = {}) => {
       // Increase timeout for Supabase requests to 30 seconds
       const timeout = 30000; // 30 seconds instead of default 10 seconds
-      
+
       // Create AbortController for timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout);
-      
+
       return fetch(url, {
         ...options,
         signal: controller.signal
@@ -48,19 +53,19 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 });
 
-export const supabaseAdmin = supabaseServiceKey 
+export const supabaseAdmin = supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    })
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  })
   : null;
 
-// Create Supabase client for "inbound" schema
-export const inboundSupabase = createClient(supabaseUrl, supabaseAnonKey, {
+// Create Supabase client for "inbound" schema (actually querying public views)
+export const inboundSupabase = createClient(inboundSupabaseUrl, inboundSupabaseAnonKey, {
   db: {
-    schema: 'inbound'
+    schema: 'public'
   },
   auth: {
     autoRefreshToken: false,
@@ -68,29 +73,42 @@ export const inboundSupabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 });
 
-// Create Supabase admin client for "inbound" schema
-export const inboundSupabaseAdmin = supabaseServiceKey 
-  ? createClient(supabaseUrl, supabaseServiceKey, {
-      db: {
-        schema: 'inbound'
-      },
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    })
+// Create Supabase admin client for "inbound" schema (actually querying public views)
+export const inboundSupabaseAdmin = inboundSupabaseServiceKey
+  ? createClient(inboundSupabaseUrl, inboundSupabaseServiceKey, {
+    db: {
+      schema: 'public'
+    },
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  })
+  : null;
+
+// Create Supabase admin client for "billing" schema (actually querying public views)
+export const billingSupabaseAdmin = inboundSupabaseServiceKey
+  ? createClient(inboundSupabaseUrl, inboundSupabaseServiceKey, {
+    db: {
+      schema: 'public'
+    },
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  })
   : null;
 
 // Test database connection
 export const testConnection = async () => {
   try {
     const { error } = await supabase.from('profiles').select('count', { count: 'exact', head: true });
-    
+
     if (error) {
       console.error('❌ Database connection failed:', error.message);
       return false;
     }
-    
+
     console.log('✅ Database connection successful');
     return true;
   } catch (err) {
@@ -98,6 +116,12 @@ export const testConnection = async () => {
     return false;
   }
 };
+
+// Log initialization status
+console.log('✅ Supabase clients initialized:');
+console.log(`   - Main: ${supabaseUrl} (schema: public)`);
+console.log(`   - Inbound Admin: ${inboundSupabaseUrl} (schema: public)`);
+console.log(`   - Billing Admin: ${inboundSupabaseUrl} (schema: public)`);
 
 export default supabase;
 

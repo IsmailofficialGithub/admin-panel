@@ -367,6 +367,64 @@ export const updateConsumerProductSettings = async (consumerId, settings) => {
   }
 };
 
+/**
+ * Get user credits
+ * @param {string} userId - User ID
+ */
+export const getUserCredits = async (userId) => {
+  try {
+    const response = await apiClient.consumers.getUserCredits(userId);
+    return response;
+  } catch (error) {
+    console.error('getUserCredits Error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Update user credits
+ * @param {string} userId - User ID
+ * @param {Object} creditData - Credit data
+ */
+export const updateUserCredits = async (userId, creditData) => {
+  try {
+    const response = await apiClient.consumers.updateUserCredits(userId, creditData);
+    return response;
+  } catch (error) {
+    console.error('updateUserCredits Error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Get billing packages for product
+ * @param {string} productId - Product ID
+ */
+export const getBillingPackages = async (productId) => {
+  try {
+    const response = await apiClient.consumers.getBillingPackages(productId);
+    return response;
+  } catch (error) {
+    console.error('getBillingPackages Error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Create user subscription
+ * @param {string} userId - User ID
+ * @param {Object} subscriptionData - Subscription data
+ */
+export const createUserSubscription = async (userId, subscriptionData) => {
+  try {
+    const response = await apiClient.consumers.createUserSubscription(userId, subscriptionData);
+    return response;
+  } catch (error) {
+    console.error('createUserSubscription Error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 export default {
   getConsumers,
   getConsumerById,
@@ -379,6 +437,10 @@ export default {
   revokeLifetimeAccess,
   reassignConsumerToReseller,
   getConsumerProductSettings,
-  updateConsumerProductSettings
+  updateConsumerProductSettings,
+  getUserCredits,
+  updateUserCredits,
+  getBillingPackages,
+  createUserSubscription
 };
 

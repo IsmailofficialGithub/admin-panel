@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Mail, Shield, Calendar, Globe, MapPin, Phone, ChevronDown, Tag, Users, Package } from 'lucide-react';
+import { X, User, Mail, Shield, Calendar, Globe, MapPin, Phone, ChevronDown, Tag, Users, Package, CreditCard } from 'lucide-react';
 import { countries, searchCountries } from '../../utils/countryData';
 import { getResellers, getProducts } from '../../api/backend';
 import { getAllVapiAccounts } from '../../api/backend/vapi';
 import { useAuth } from '../../hooks/useAuth';
 import { hasRole } from '../../utils/roleUtils';
+import CreditsModal from './CreditsModal';
 
 const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
   const { profile } = useAuth();
@@ -58,6 +59,10 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
     const product = products.find(p => p.id === productId || p.product_id === productId);
     return product && product.name && product.name.toLowerCase() === 'genie';
   });
+
+  // Credit Management state
+  const [showCreditsModal, setShowCreditsModal] = useState(false);
+  const INBOUND_DB_ID = process.env.REACT_APP_INBOUND_DB_ID || getGenieProductId();
 
   // Check if beeba product is selected
   const isBeebaProductSelected = formData.subscribed_products.some(productId => {
@@ -2244,6 +2249,56 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
               </div>
             </div>
           )}
+
+          {/* Credits Management Section */}
+          {isGenieProductSelected && isAdmin && (
+            <div style={{
+              marginTop: '16px',
+              padding: '16px',
+              backgroundColor: '#f5f3ff',
+              borderRadius: '8px',
+              border: '1px solid #ddd6fe',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  backgroundColor: '#74317e',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white'
+                }}>
+                  <CreditCard size={20} />
+                </div>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#1f2937' }}>Credit Management</h4>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#6b7280' }}>Manage balance and package subscriptions</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCreditsModal(true)}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: 'white',
+                  border: '1px solid #74317e',
+                  borderRadius: '6px',
+                  color: '#74317e',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+              >
+                Manage Credits
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -2302,8 +2357,17 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
           </button>
         </div>
       </div>
+      {showCreditsModal && (
+        <CreditsModal
+          isOpen={showCreditsModal}
+          onClose={() => setShowCreditsModal(false)}
+          userId={user?.id}
+          productId={getGenieProductId()}
+          userName={formData.name || user?.full_name}
+        />
+      )}
     </div>
   );
 };
 
-export default UpdateUserModal;
+export default UpdateUserModal;
