@@ -7,6 +7,75 @@ import { getConsumers } from "../api/backend/consumers";
 import { usePermissions } from "hooks/usePermissions";
 import toast from "react-hot-toast";
 
+const Pagination = ({ current, total, limit, onPageChange }) => {
+  const totalPages = Math.ceil(total / limit);
+  if (totalPages <= 1) return null;
+
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxVisible = 5;
+    let start = Math.max(1, current - Math.floor(maxVisible / 2));
+    let end = Math.min(totalPages, start + maxVisible - 1);
+    
+    if (end - start + 1 < maxVisible) {
+      start = Math.max(1, end - maxVisible + 1);
+    }
+    
+    for (let i = start; i <= end; i++) pages.push(i);
+    return pages;
+  };
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginTop: '20px', gap: '8px' }}>
+      <button
+        onClick={() => onPageChange(Math.max(1, current - 1))}
+        disabled={current === 1}
+        style={{
+          padding: '8px 12px',
+          background: 'white',
+          border: '1px solid #ddd',
+          borderRadius: '4px',
+          cursor: current === 1 ? 'not-allowed' : 'pointer',
+          color: current === 1 ? '#ccc' : '#333'
+        }}
+      >
+        Prev
+      </button>
+      {getPageNumbers().map(page => (
+        <button
+          key={page}
+          onClick={() => onPageChange(page)}
+          style={{
+            padding: '8px 12px',
+            background: page === current ? '#74317e' : 'white',
+            border: '1px solid #ddd',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            color: page === current ? 'white' : '#333',
+            fontWeight: page === current ? '600' : '400'
+          }}
+        >
+          {page}
+        </button>
+      ))}
+      <button
+        onClick={() => onPageChange(Math.min(totalPages, current + 1))}
+        disabled={current === totalPages}
+        style={{
+          padding: '8px 12px',
+          background: 'white',
+          border: '1px solid #ddd',
+          borderRadius: '4px',
+          cursor: current === totalPages ? 'not-allowed' : 'pointer',
+          color: current === totalPages ? '#ccc' : '#333'
+        }}
+      >
+        Next
+      </button>
+    </div>
+  );
+};
+
 function InboundGenie() {
   const history = useHistory();
   const { hasPermission } = usePermissions();
@@ -17,6 +86,15 @@ function InboundGenie() {
   const [inboundAgents, setInboundAgents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  
+  // Pagination state for each tab
+  const [pagination, setPagination] = useState({
+    numbers: { page: 1, limit: 10, total: 0 },
+    calls: { page: 1, limit: 10, total: 0 },
+    schedules: { page: 1, limit: 10, total: 0 },
+    agents: { page: 1, limit: 10, total: 0 }
+  });
 
   // Statistics state
   const [statistics, setStatistics] = useState({
@@ -30,13 +108,77 @@ function InboundGenie() {
     activeSchedules: 0
   });
 
+  // Fetch statistics summary
+  const fetchStatistics = async () => {
+    try {
+      const response = await inboundApi.getStatistics();
+      if (response && response.success && response.data) {
+        setStatistics(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching statistics:', error);
+    }
+  };
+
+  // Parse URL search parameters on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    const page = parseInt(params.get('page')) || 1;
+    const search = params.get('q') || '';
+
+    if (tab && ['numbers', 'calls', 'schedules', 'agents'].includes(tab)) {
+      setActiveTab(tab);
+      setPagination(prev => ({
+        ...prev,
+        [tab]: { ...prev[tab], page: page }
+      }));
+    }
+    
+    if (search) {
+      setSearchQuery(search);
+      setDebouncedSearch(search);
+    }
+  }, []);
+
+  // Update URL search parameters when tab, page, or search changes
+  useEffect(() => {
+    const params = new URLSearchParams();
+    params.set('tab', activeTab);
+    params.set('page', pagination[activeTab].page);
+    if (debouncedSearch) {
+      params.set('q', debouncedSearch);
+    }
+    
+    const newUrl = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState({ path: newUrl }, '', newUrl);
+  }, [activeTab, pagination[activeTab].page, debouncedSearch]);
+
+  // Handle global search debounce
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      // Reset page to 1 when searching
+      setPagination(prev => ({
+        ...prev,
+        [activeTab]: { ...prev[activeTab], page: 1 }
+      }));
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   // Advanced filters
   const [filters, setFilters] = useState({
     status: 'all',
     provider: 'all',
-    dateRange: 'all',
-    agentId: 'all'
+    agentId: 'all',
+    callerNumber: '',
+    agentSearch: ''
   });
+
+  const [agentSearchResults, setAgentSearchResults] = useState([]);
+  const [showAgentSuggestions, setShowAgentSuggestions] = useState(false);
+  const [loadingAgentSearch, setLoadingAgentSearch] = useState(false);
 
   // Track which tabs have been loaded to avoid refetching on tab switch
   const [loadedTabs, setLoadedTabs] = useState({
@@ -170,19 +312,24 @@ function InboundGenie() {
 
   // Fetch inbound numbers
   const fetchInboundNumbers = async (force = false) => {
-    // Don't fetch if already loaded and not forcing a refresh
-    if (!force && loadedTabs.numbers && inboundNumbers.length > 0) {
-      return;
-    }
-
     try {
       setLoading(true);
-      const response = await inboundApi.getNumbers({ page: 1, limit: 50 });
+      const { page, limit } = pagination.numbers;
+      const response = await inboundApi.getAllInboundNumbers({ 
+        page, 
+        limit, 
+        search: debouncedSearch,
+        status: filters.status !== 'all' ? filters.status : undefined,
+        provider: filters.provider !== 'all' ? filters.provider : undefined
+      });
 
       if (response.success && response.data) {
-        // API returns paginated response: { success: true, data: [...], total, page, limit, ... }
         const numbers = Array.isArray(response.data) ? response.data : response.data;
         setInboundNumbers(numbers);
+        setPagination(prev => ({
+          ...prev,
+          numbers: { ...prev.numbers, total: response.total || response.count || 0 }
+        }));
         setLoadedTabs(prev => ({ ...prev, numbers: true }));
       } else {
         setInboundNumbers([]);
@@ -192,7 +339,6 @@ function InboundGenie() {
       console.error('Error fetching inbound numbers:', error);
       toast.error(error.message || 'Failed to load inbound numbers');
       setInboundNumbers([]);
-      setLoadedTabs(prev => ({ ...prev, numbers: true }));
     } finally {
       setLoading(false);
     }
@@ -200,19 +346,24 @@ function InboundGenie() {
 
   // Fetch call history
   const fetchCallHistory = async (force = false) => {
-    // Don't fetch if already loaded and not forcing a refresh
-    if (!force && loadedTabs.calls && callHistory.length > 0) {
-      return;
-    }
-
     try {
       setLoading(true);
-      const response = await inboundApi.getCallHistory({ page: 1, limit: 50 });
+      const response = await inboundApi.getAllCallHistory({
+        page: pagination.calls.page,
+        limit: pagination.calls.limit,
+        search: debouncedSearch,
+        status: filters.status !== 'all' ? filters.status : undefined,
+        agentId: filters.agentId !== 'all' ? filters.agentId : undefined,
+        callerNumber: filters.callerNumber || undefined
+      });
 
       if (response.success && response.data) {
-        // API returns paginated response: { success: true, data: [...], total, page, limit, ... }
         const calls = Array.isArray(response.data) ? response.data : response.data;
         setCallHistory(calls);
+        setPagination(prev => ({
+          ...prev,
+          calls: { ...prev.calls, total: response.total || response.count || 0 }
+        }));
         setLoadedTabs(prev => ({ ...prev, calls: true }));
       } else {
         setCallHistory([]);
@@ -222,7 +373,6 @@ function InboundGenie() {
       console.error('Error fetching call history:', error);
       toast.error(error.message || 'Failed to load call history');
       setCallHistory([]);
-      setLoadedTabs(prev => ({ ...prev, calls: true }));
     } finally {
       setLoading(false);
     }
@@ -230,19 +380,22 @@ function InboundGenie() {
 
   // Fetch schedules
   const fetchSchedules = async (force = false) => {
-    // Don't fetch if already loaded and not forcing a refresh
-    if (!force && loadedTabs.schedules && schedules.length > 0) {
-      return;
-    }
-
     try {
       setLoading(true);
-      const response = await inboundApi.getSchedules({ page: 1, limit: 50 });
+      const { page, limit } = pagination.schedules;
+      const response = await inboundApi.getSchedules({ 
+        page, 
+        limit,
+        search: debouncedSearch
+      });
 
       if (response.success && response.data) {
-        // API returns paginated response: { success: true, data: [...], total, page, limit, ... }
         const schedulesData = Array.isArray(response.data) ? response.data : response.data;
         setSchedules(schedulesData);
+        setPagination(prev => ({
+          ...prev,
+          schedules: { ...prev.schedules, total: response.total || response.count || 0 }
+        }));
         setLoadedTabs(prev => ({ ...prev, schedules: true }));
       } else {
         setSchedules([]);
@@ -252,7 +405,6 @@ function InboundGenie() {
       console.error('Error fetching schedules:', error);
       toast.error(error.message || 'Failed to load schedules');
       setSchedules([]);
-      setLoadedTabs(prev => ({ ...prev, schedules: true }));
     } finally {
       setLoading(false);
     }
@@ -449,7 +601,42 @@ function InboundGenie() {
     searchConsumers();
   }, [debouncedUserSearch]);
 
-  // Close user suggestions when clicking outside
+  // Handle Agent Search for filtering (with debouncing)
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (filters.agentSearch?.trim().length >= 2) {
+        setLoadingAgentSearch(true);
+        try {
+          const response = await inboundApi.getAllInboundAgents({ 
+            search: filters.agentSearch,
+            page: 1,
+            limit: 10
+          });
+          if (response.success && response.data) {
+            setAgentSearchResults(response.data);
+            setShowAgentSuggestions(true);
+          }
+        } catch (error) {
+          console.error('Error searching agents for filter:', error);
+        } finally {
+          setLoadingAgentSearch(false);
+        }
+      } else {
+        setAgentSearchResults([]);
+        setShowAgentSuggestions(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [filters.agentSearch]);
+
+  // Handle outside clicks for agent suggestions
+  useEffect(() => {
+    const handleOutsideClick = () => setShowAgentSuggestions(false);
+    window.addEventListener('click', handleOutsideClick);
+    return () => window.removeEventListener('click', handleOutsideClick);
+  }, []);
+  // Handle outside clicks for user suggestions
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (showUserSuggestions && !event.target.closest('.user-search-container')) {
@@ -495,32 +682,25 @@ function InboundGenie() {
 
   // Fetch inbound agents
   const fetchInboundAgents = async (force = false) => {
-    if (!force && loadedTabs.agents && inboundAgents.length > 0) {
-      return;
-    }
-
     try {
       setLoading(true);
-      // Increase limit to fetch all agents (or use a high limit)
-      const response = await inboundApi.getAgents({ page: 1, limit: 1000 });
+      const { page, limit } = pagination.agents;
+      const response = await inboundApi.getAllInboundAgents({ 
+        page, 
+        limit,
+        search: debouncedSearch,
+        status: filters.status !== 'all' ? filters.status : undefined
+      });
 
-      console.log('Inbound agents API response:', response);
-
-      // API returns paginated response: { success: true, data: [...], total, page, limit, ... }
-      // axios interceptor already unwraps response.data, so response is the actual API response
-      if (response) {
-        // Check if response has data property (paginated response)
-        const agents = response.data && Array.isArray(response.data)
-          ? response.data
-          : Array.isArray(response)
-            ? response
-            : [];
-
-        console.log('Extracted agents:', agents, 'Total:', response.total || agents.length);
+      if (response.success && response.data) {
+        const agents = Array.isArray(response.data) ? response.data : response.data;
         setInboundAgents(agents);
+        setPagination(prev => ({
+          ...prev,
+          agents: { ...prev.agents, total: response.total || response.count || 0 }
+        }));
         setLoadedTabs(prev => ({ ...prev, agents: true }));
       } else {
-        console.log('No response received for agents');
         setInboundAgents([]);
         setLoadedTabs(prev => ({ ...prev, agents: true }));
       }
@@ -528,40 +708,35 @@ function InboundGenie() {
       console.error('Error fetching inbound agents:', error);
       toast.error(error.message || 'Failed to load inbound agents');
       setInboundAgents([]);
-      setLoadedTabs(prev => ({ ...prev, agents: true }));
     } finally {
       setLoading(false);
     }
   };
 
-  // Calculate statistics
   useEffect(() => {
-    const stats = {
-      totalNumbers: inboundNumbers.length,
-      activeNumbers: inboundNumbers.filter(n => n.status === 'active').length,
-      totalCalls: callHistory.length,
-      answeredCalls: callHistory.filter(c => c.call_status === 'answered' || c.call_status === 'completed').length,
-      totalAgents: inboundAgents.length,
-      activeAgents: inboundAgents.filter(a => a.status === 'active').length,
-      totalSchedules: schedules.length,
-      activeSchedules: schedules.filter(s => s.is_active).length
-    };
-    setStatistics(stats);
-  }, [inboundNumbers, callHistory, inboundAgents, schedules]);
+    fetchStatistics();
+  }, []);
 
   useEffect(() => {
-    if (activeTab === 'numbers') {
-      fetchInboundNumbers();
-      fetchAvailableAgents();
-    } else if (activeTab === 'calls') {
-      fetchCallHistory();
-    } else if (activeTab === 'schedules') {
-      fetchSchedules();
-    } else if (activeTab === 'agents') {
-      fetchInboundAgents();
-      fetchUsers();
-    }
-  }, [activeTab]);
+    const triggerFetch = () => {
+      // Refresh stats on tab change
+      fetchStatistics();
+      
+      if (activeTab === 'numbers') {
+        fetchInboundNumbers();
+        fetchAvailableAgents();
+      } else if (activeTab === 'calls') {
+        fetchCallHistory();
+      } else if (activeTab === 'schedules') {
+        fetchSchedules();
+      } else if (activeTab === 'agents') {
+        fetchInboundAgents();
+        fetchUsers();
+      }
+    };
+    
+    triggerFetch();
+  }, [activeTab, pagination[activeTab].page, debouncedSearch, filters.status, filters.provider, filters.agentId, filters.callerNumber]);
 
   // View number details
   const handleViewNumber = async (number) => {
@@ -656,6 +831,7 @@ function InboundGenie() {
       }
 
       await fetchInboundNumbers(true);
+      await fetchStatistics();
     } catch (error) {
       console.error('Error saving number:', error);
       toast.error(error.message || `Failed to ${selectedNumber ? 'update' : 'create'} inbound number`);
@@ -685,6 +861,7 @@ function InboundGenie() {
         toast.success(`Agent ${formData.assigned_to_agent_id ? 'assigned' : 'unassigned'} successfully`);
         setShowAssignModal(false);
         fetchInboundNumbers(true);
+        fetchStatistics();
       } else {
         throw new Error(response?.error || 'Failed to assign agent');
       }
@@ -717,6 +894,7 @@ function InboundGenie() {
         if (response.success) {
           toast.success('Number deleted successfully');
           await fetchInboundNumbers(true);
+          await fetchStatistics();
         }
       } else if (deleteType === 'call') {
         // Note: Delete for calls not implemented in API yet
@@ -876,6 +1054,7 @@ function InboundGenie() {
           toast.success('Agent updated successfully');
           setShowAgentEditModal(false);
           await fetchInboundAgents(true);
+          await fetchStatistics();
         }
       } else {
         // Create
@@ -884,6 +1063,7 @@ function InboundGenie() {
           toast.success('Agent created successfully');
           setShowAgentCreateModal(false);
           await fetchInboundAgents(true);
+          await fetchStatistics();
         }
       }
     } catch (error) {
@@ -1379,8 +1559,8 @@ function InboundGenie() {
               }}
             >
               <Phone size={16} />
-              Numbers
-              {inboundNumbers.length > 0 && (
+               Numbers
+              {pagination.numbers.total > 0 && (
                 <span style={{
                   backgroundColor: activeTab === 'numbers' ? '#74317e' : '#e5e7eb',
                   color: activeTab === 'numbers' ? 'white' : '#666',
@@ -1389,7 +1569,7 @@ function InboundGenie() {
                   fontSize: '11px',
                   fontWeight: '600'
                 }}>
-                  {inboundNumbers.length}
+                  {pagination.numbers.total}
                 </span>
               )}
             </button>
@@ -1412,8 +1592,8 @@ function InboundGenie() {
               }}
             >
               <Clock size={16} />
-              Call History
-              {callHistory.length > 0 && (
+               Call History
+              {pagination.calls.total > 0 && (
                 <span style={{
                   backgroundColor: activeTab === 'calls' ? '#74317e' : '#e5e7eb',
                   color: activeTab === 'calls' ? 'white' : '#666',
@@ -1422,7 +1602,7 @@ function InboundGenie() {
                   fontSize: '11px',
                   fontWeight: '600'
                 }}>
-                  {callHistory.length}
+                  {pagination.calls.total}
                 </span>
               )}
             </button>
@@ -1445,8 +1625,8 @@ function InboundGenie() {
               }}
             >
               <Calendar size={16} />
-              Schedules
-              {schedules.length > 0 && (
+               Schedules
+              {pagination.schedules.total > 0 && (
                 <span style={{
                   backgroundColor: activeTab === 'schedules' ? '#74317e' : '#e5e7eb',
                   color: activeTab === 'schedules' ? 'white' : '#666',
@@ -1455,7 +1635,7 @@ function InboundGenie() {
                   fontSize: '11px',
                   fontWeight: '600'
                 }}>
-                  {schedules.length}
+                  {pagination.schedules.total}
                 </span>
               )}
             </button>
@@ -1478,8 +1658,8 @@ function InboundGenie() {
               }}
             >
               <Users size={16} />
-              Agents
-              {inboundAgents.length > 0 && (
+               Agents
+              {pagination.agents.total > 0 && (
                 <span style={{
                   backgroundColor: activeTab === 'agents' ? '#74317e' : '#e5e7eb',
                   color: activeTab === 'agents' ? 'white' : '#666',
@@ -1488,7 +1668,7 @@ function InboundGenie() {
                   fontSize: '11px',
                   fontWeight: '600'
                 }}>
-                  {inboundAgents.length}
+                  {pagination.agents.total}
                 </span>
               )}
             </button>
@@ -1562,23 +1742,155 @@ function InboundGenie() {
               )}
 
               {activeTab === 'calls' && (
-                <select
-                  value={filters.status}
-                  onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-                  style={{
-                    padding: '10px 12px',
-                    border: '1px solid #ddd',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <option value="all">All Status</option>
-                  <option value="answered">Answered</option>
-                  <option value="completed">Completed</option>
-                  <option value="missed">Missed</option>
-                  <option value="forwarded">Forwarded</option>
-                </select>
+                <>
+                  <select
+                    value={filters.status}
+                    onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                    style={{
+                      padding: '10px 12px',
+                      border: '1px solid #ddd',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="all">All Status</option>
+                    <option value="answered">Answered</option>
+                    <option value="completed">Completed</option>
+                    <option value="missed">Missed</option>
+                    <option value="forwarded">Forwarded</option>
+                  </select>
+
+                  {/* Agent Filter Search */}
+                  <div style={{ position: 'relative', minWidth: '180px' }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="text"
+                        placeholder="Search Agent..."
+                        value={filters.agentSearch}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setFilters(prev => ({ 
+                            ...prev, 
+                            agentSearch: val,
+                            agentId: val === '' ? 'all' : prev.agentId 
+                          }));
+                        }}
+                        style={{
+                          padding: '10px 12px',
+                          border: '1px solid #ddd',
+                          borderRadius: '8px',
+                          fontSize: '14px',
+                          width: '100%',
+                          backgroundColor: filters.agentId !== 'all' ? '#f0f7ff' : 'white'
+                        }}
+                      />
+                      {filters.agentId !== 'all' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setFilters(prev => ({ ...prev, agentId: 'all', agentSearch: '' }));
+                          }}
+                          style={{
+                            position: 'absolute',
+                            right: '8px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            border: 'none',
+                            background: 'none',
+                            color: '#007bff',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: '600'
+                          }}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
+                    {showAgentSuggestions && agentSearchResults.length > 0 && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        backgroundColor: 'white',
+                        border: '1px solid #ddd',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                        zIndex: 1000,
+                        marginTop: '4px',
+                        maxHeight: '200px',
+                        overflowY: 'auto'
+                      }}>
+                        {agentSearchResults.map(agent => (
+                          <div
+                            key={agent.id}
+                            onClick={() => {
+                              setFilters(prev => ({ 
+                                ...prev, 
+                                agentId: agent.id, 
+                                agentSearch: agent.name 
+                              }));
+                              setShowAgentSuggestions(false);
+                            }}
+                            style={{
+                              padding: '10px 12px',
+                              cursor: 'pointer',
+                              borderBottom: '1px solid #eee',
+                              fontSize: '14px',
+                              transition: 'background 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.target.style.backgroundColor = '#f8f9fa'}
+                            onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                          >
+                            <div style={{ fontWeight: '600' }}>{agent.name}</div>
+                            <div style={{ fontSize: '12px', color: '#666' }}>{agent.company_name}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Caller Number Filter */}
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type="text"
+                      placeholder="Filter by Caller..."
+                      value={filters.callerNumber}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setFilters({ ...filters, callerNumber: val });
+                      }}
+                      style={{
+                        padding: '10px 12px',
+                        border: '1px solid #ddd',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        width: '180px'
+                      }}
+                    />
+                    {filters.callerNumber && (
+                      <button
+                        onClick={() => setFilters({ ...filters, callerNumber: '' })}
+                        style={{
+                          position: 'absolute',
+                          right: '8px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          border: 'none',
+                          background: 'none',
+                          color: '#999',
+                          cursor: 'pointer',
+                          fontSize: '18px'
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </>
               )}
 
               {/* Export Button */}
@@ -1818,6 +2130,15 @@ function InboundGenie() {
                     </table>
                   </div>
                 )}
+                <Pagination 
+                  current={pagination.numbers.page}
+                  total={pagination.numbers.total}
+                  limit={pagination.numbers.limit}
+                  onPageChange={(page) => setPagination(prev => ({
+                    ...prev,
+                    numbers: { ...prev.numbers, page }
+                  }))}
+                />
               </div>
             )}
 
@@ -1898,6 +2219,15 @@ function InboundGenie() {
                     </table>
                   </div>
                 )}
+                <Pagination 
+                  current={pagination.calls.page}
+                  total={pagination.calls.total}
+                  limit={pagination.calls.limit}
+                  onPageChange={(page) => setPagination(prev => ({
+                    ...prev,
+                    calls: { ...prev.calls, page }
+                  }))}
+                />
               </div>
             )}
 
@@ -1950,6 +2280,15 @@ function InboundGenie() {
                     </table>
                   </div>
                 )}
+                <Pagination 
+                  current={pagination.schedules.page}
+                  total={pagination.schedules.total}
+                  limit={pagination.schedules.limit}
+                  onPageChange={(page) => setPagination(prev => ({
+                    ...prev,
+                    schedules: { ...prev.schedules, page }
+                  }))}
+                />
               </div>
             )}
 
@@ -2123,6 +2462,15 @@ function InboundGenie() {
                     </table>
                   </div>
                 )}
+                <Pagination 
+                  current={pagination.agents.page}
+                  total={pagination.agents.total}
+                  limit={pagination.agents.limit}
+                  onPageChange={(page) => setPagination(prev => ({
+                    ...prev,
+                    agents: { ...prev.agents, page }
+                  }))}
+                />
               </div>
             )}
           </div>

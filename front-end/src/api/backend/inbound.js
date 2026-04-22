@@ -15,6 +15,9 @@ export const inboundApi = {
    * @param {string} params.provider - Filter by provider
    * @returns {Promise} API response
    */
+  getAllInboundNumbers: (params = {}) => {
+    return axiosInstance.get('/inbound/numbers', { params });
+  },
   getNumbers: (params = {}) => {
     return axiosInstance.get('/inbound/numbers', { params });
   },
@@ -66,6 +69,9 @@ export const inboundApi = {
    * @param {string} params.numberId - Filter by number ID
    * @returns {Promise} API response
    */
+  getAllCallHistory: (params = {}) => {
+    return axiosInstance.get('/inbound/calls', { params });
+  },
   getCallHistory: (params = {}) => {
     return axiosInstance.get('/inbound/calls', { params });
   },
@@ -131,6 +137,9 @@ export const inboundApi = {
    * @param {Object} params - Query parameters
    * @returns {Promise} API response
    */
+  getAllInboundAgents: (params = {}) => {
+    return axiosInstance.get('/inbound/agents', { params });
+  },
   getAgents: (params = {}) => {
     return axiosInstance.get('/inbound/agents', { params });
   },
@@ -188,6 +197,14 @@ export const inboundApi = {
    */
   assignNumberToAgent: (id, agentId) => {
     return axiosInstance.post(`/inbound/numbers/${id}/assign`, { agent_id: agentId });
+  },
+  
+  /**
+   * Get unified statistics for dashboard
+   * @returns {Promise} API response
+   */
+  getStatistics: () => {
+    return axiosInstance.get('/inbound/statistics');
   },
 };
 

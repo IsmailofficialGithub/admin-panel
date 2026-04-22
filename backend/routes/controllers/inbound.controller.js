@@ -587,7 +587,7 @@ export const deleteInboundNumber = async (req, res) => {
  */
 export const getAllCallHistory = async (req, res) => {
   try {
-    const { page, limit, search, status, numberId } = req.query;
+    const { page, limit, search, status, numberId, agentId, callerNumber } = req.query;
     const { pageNum, limitNum } = validatePagination(page, limit);
     const offset = (pageNum - 1) * limitNum;
 
@@ -602,6 +602,12 @@ export const getAllCallHistory = async (req, res) => {
     }
     if (numberId && isValidUUID(numberId)) {
       query = query.eq('inbound_number_id', numberId);
+    }
+    if (agentId && isValidUUID(agentId)) {
+      query = query.eq('agent_id', agentId);
+    }
+    if (callerNumber) {
+      query = query.eq('caller_number', sanitizeString(callerNumber));
     }
     if (search) {
       const searchTerm = `%${sanitizeString(search)}%`;
@@ -747,15 +753,22 @@ export const getCallHistoryByNumberId = async (req, res) => {
  */
 export const getAllCallSchedules = async (req, res) => {
   try {
-    const { page, limit } = req.query;
+    const { page, limit, search } = req.query;
     const { pageNum, limitNum } = validatePagination(page, limit);
     const offset = (pageNum - 1) * limitNum;
 
-    const { data, error, count } = await inboundSupabaseAdmin
+    let query = inboundSupabaseAdmin
       .from('call_schedules')
       .select('*', { count: 'exact' })
       .is('deleted_at', null)
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (search) {
+      const searchTerm = `%${sanitizeString(search)}%`;
+      query = query.ilike('schedule_name', searchTerm);
+    }
+
+    const { data, error, count } = await query
       .range(offset, offset + limitNum - 1);
 
     if (error) throw error;
@@ -1907,6 +1920,53 @@ export const assignNumberToAgent = async (req, res) => {
     });
   } catch (error) {
     return handleApiError(error, res, 'Failed to assign number to agent');
+  }
+};
+
+/**
+ * Get unified statistics for the inbound dashboard
+ */
+export const getInboundStatistics = async (req, res) => {
+  try {
+    // We'll perform multiple count queries in parallel for efficiency
+    const [
+      numbersCount,
+      activeNumbersCount,
+      callsCount,
+      answeredCallsCount,
+      agentsCount,
+      activeAgentsCount,
+      schedulesCount,
+      activeSchedulesCount
+    ] = await Promise.all([
+      inboundSupabaseAdmin.from('inbound_numbers').select('*', { count: 'exact', head: true }),
+      inboundSupabaseAdmin.from('inbound_numbers').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+      inboundSupabaseAdmin.from('call_logs').select('*', { count: 'exact', head: true }),
+      inboundSupabaseAdmin.from('call_logs').select('*', { count: 'exact', head: true }).or('call_status.eq.answered,call_status.eq.completed'),
+      inboundSupabaseAdmin.from('voice_agents').select('*', { count: 'exact', head: true }).is('deleted_at', null).eq('agent_type', 'inbound'),
+      inboundSupabaseAdmin.from('voice_agents').select('*', { count: 'exact', head: true }).is('deleted_at', null).eq('agent_type', 'inbound').eq('status', 'active'),
+      inboundSupabaseAdmin.from('call_schedules').select('*', { count: 'exact', head: true }).is('deleted_at', null),
+      inboundSupabaseAdmin.from('call_schedules').select('*', { count: 'exact', head: true }).is('deleted_at', null).eq('is_active', true)
+    ]);
+
+    const stats = {
+      totalNumbers: numbersCount.count || 0,
+      activeNumbers: activeNumbersCount.count || 0,
+      totalCalls: callsCount.count || 0,
+      answeredCalls: answeredCallsCount.count || 0,
+      totalAgents: agentsCount.count || 0,
+      activeAgents: activeAgentsCount.count || 0,
+      totalSchedules: schedulesCount.count || 0,
+      activeSchedules: activeSchedulesCount.count || 0
+    };
+
+    return res.json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
+    console.error('Error fetching inbound statistics:', error);
+    return res.status(500).json({ success: false, error: error.message });
   }
 };
 

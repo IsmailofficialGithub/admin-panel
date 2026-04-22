@@ -30,6 +30,7 @@ import {
   // Supporting
   getAvailableAgents,
   assignNumberToAgent,
+  getInboundStatistics,
   // Middleware
   rateLimitMiddleware,
   sanitizeInputMiddleware
@@ -388,6 +389,21 @@ router.delete(
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   deleteInboundAgent
+);
+
+/**
+ * @route   GET /api/inbound/statistics
+ * @desc    Get unified statistics for dashboard
+ * @access  Private (genie.inbound.view)
+ */
+router.get(
+  '/statistics',
+  authenticate,
+  loadUserProfile,
+  requirePermission('genie.inbound.view'),
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
+  getInboundStatistics
 );
 
 export default router;
