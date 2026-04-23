@@ -19,6 +19,8 @@ const CACHE_KEYS = {
   ALL_PACKAGES: (page, limit, productId) => `packages:list:page${page}_limit${limit}_product${productId || 'all'}`,
   PACKAGE_BY_ID: (id) => `packages:id:${id}`,
   PACKAGES_BY_PRODUCT: (productId) => `packages:product:${productId}`,
+  PACKAGE_FEATURES: (packageId) => `packages:features:${packageId}`,
+  PACKAGE_VARIABLES: (packageId) => `packages:variables:${packageId}`,
 };
 
 // Export middleware for use in routes
@@ -80,7 +82,7 @@ export const getAllPackages = async (req, res) => {
     // ========================================
     let query = supabase
       .from('packages')
-      .select('id, product_id, name, description, price, created_at, updated_at, products:product_id (id, name)', { count: 'exact' })
+      .select('id, product_id, name, description, price, slug, tier, price_monthly, price_yearly, currency, is_active, is_featured, created_at, updated_at, products:product_id (id, name)', { count: 'exact' })
       .order('created_at', { ascending: false });
 
     // Filter by product if provided
@@ -270,7 +272,7 @@ export const getPackageById = async (req, res) => {
     // ========================================
     const query = supabase
       .from('packages')
-      .select('id, product_id, name, description, price, created_at, updated_at')
+      .select('id, product_id, name, description, price, slug, tier, price_monthly, price_yearly, currency, is_active, is_featured, created_at, updated_at')
       .eq('id', id)
       .single();
 
@@ -716,3 +718,189 @@ export const deletePackage = async (req, res) => {
   }
 };
 
+
+// ========================================
+// PACKAGE FEATURES HANDLERS
+// ========================================
+
+/**
+ * Get all features for a package
+ */
+export const getPackageFeatures = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid package ID format' });
+    }
+
+    const cacheKey = CACHE_KEYS.PACKAGE_FEATURES(id);
+    const cached = await cacheService.get(cacheKey);
+    if (cached) return res.json({ success: true, data: cached });
+
+    const { data, error } = await executeWithTimeout(
+      supabase.from('package_features').select('*').eq('package_id', id).order('display_order', { ascending: true })
+    );
+
+    if (error) throw error;
+
+    await cacheService.set(cacheKey, data, CACHE_TTL);
+    res.json({ success: true, data });
+  } catch (error) {
+    return handleApiError(error, res, 'Failed to fetch package features');
+  }
+};
+
+/**
+ * Create a feature for a package
+ */
+export const createPackageFeature = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const featureData = sanitizeObject(req.body);
+
+    const { data, error } = await executeWithTimeout(
+      supabase.from('package_features').insert([{ ...featureData, package_id: id }]).select()
+    );
+
+    if (error) throw error;
+
+    await cacheService.del(CACHE_KEYS.PACKAGE_FEATURES(id));
+    res.status(201).json({ success: true, data: data[0] });
+  } catch (error) {
+    return handleApiError(error, res, 'Failed to create package feature');
+  }
+};
+
+/**
+ * Update a feature
+ */
+export const updatePackageFeature = async (req, res) => {
+  try {
+    const { id, featureId } = req.params;
+    const featureData = sanitizeObject(req.body);
+
+    const { data, error } = await executeWithTimeout(
+      supabase.from('package_features').update(featureData).eq('id', featureId).eq('package_id', id).select()
+    );
+
+    if (error) throw error;
+
+    await cacheService.del(CACHE_KEYS.PACKAGE_FEATURES(id));
+    res.json({ success: true, data: data[0] });
+  } catch (error) {
+    return handleApiError(error, res, 'Failed to update package feature');
+  }
+};
+
+/**
+ * Delete a feature
+ */
+export const deletePackageFeature = async (req, res) => {
+  try {
+    const { id, featureId } = req.params;
+
+    const { error } = await executeWithTimeout(
+      supabase.from('package_features').delete().eq('id', featureId).eq('package_id', id)
+    );
+
+    if (error) throw error;
+
+    await cacheService.del(CACHE_KEYS.PACKAGE_FEATURES(id));
+    res.json({ success: true, message: 'Feature deleted successfully' });
+  } catch (error) {
+    return handleApiError(error, res, 'Failed to delete package feature');
+  }
+};
+
+// ========================================
+// PACKAGE VARIABLES HANDLERS
+// ========================================
+
+/**
+ * Get all variables for a package
+ */
+export const getPackageVariables = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidUUID(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid package ID format' });
+    }
+
+    const cacheKey = CACHE_KEYS.PACKAGE_VARIABLES(id);
+    const cached = await cacheService.get(cacheKey);
+    if (cached) return res.json({ success: true, data: cached });
+
+    const { data, error } = await executeWithTimeout(
+      supabase.from('package_variables').select('*').eq('package_id', id)
+    );
+
+    if (error) throw error;
+
+    await cacheService.set(cacheKey, data, CACHE_TTL);
+    res.json({ success: true, data });
+  } catch (error) {
+    return handleApiError(error, res, 'Failed to fetch package variables');
+  }
+};
+
+/**
+ * Create a variable for a package
+ */
+export const createPackageVariable = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const variableData = sanitizeObject(req.body);
+
+    const { data, error } = await executeWithTimeout(
+      supabase.from('package_variables').insert([{ ...variableData, package_id: id }]).select()
+    );
+
+    if (error) throw error;
+
+    await cacheService.del(CACHE_KEYS.PACKAGE_VARIABLES(id));
+    res.status(201).json({ success: true, data: data[0] });
+  } catch (error) {
+    return handleApiError(error, res, 'Failed to create package variable');
+  }
+};
+
+/**
+ * Update a variable
+ */
+export const updatePackageVariable = async (req, res) => {
+  try {
+    const { id, variableId } = req.params;
+    const variableData = sanitizeObject(req.body);
+
+    const { data, error } = await executeWithTimeout(
+      supabase.from('package_variables').update(variableData).eq('id', variableId).eq('package_id', id).select()
+    );
+
+    if (error) throw error;
+
+    await cacheService.del(CACHE_KEYS.PACKAGE_VARIABLES(id));
+    res.json({ success: true, data: data[0] });
+  } catch (error) {
+    return handleApiError(error, res, 'Failed to update package variable');
+  }
+};
+
+/**
+ * Delete a variable
+ */
+export const deletePackageVariable = async (req, res) => {
+  try {
+    const { id, variableId } = req.params;
+
+    const { error } = await executeWithTimeout(
+      supabase.from('package_variables').delete().eq('id', variableId).eq('package_id', id)
+    );
+
+    if (error) throw error;
+
+    await cacheService.del(CACHE_KEYS.PACKAGE_VARIABLES(id));
+    res.json({ success: true, message: 'Variable deleted successfully' });
+  } catch (error) {
+    return handleApiError(error, res, 'Failed to delete package variable');
+  }
+};

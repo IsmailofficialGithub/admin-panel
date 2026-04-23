@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useHistory } from "react-router-dom";
 import { Phone, RefreshCw, Search, Eye, Trash2, X, Edit2, BarChart3, Calendar, Plus, Clock, Users, Play, Pause, Download, Filter, CheckCircle, XCircle, AlertCircle, TrendingUp, DollarSign } from "lucide-react";
 import { inboundApi } from "../api/backend/inbound";
+import InboundSettings from "./InboundSettings";
 import apiClient from "../services/apiClient";
 import { getConsumers } from "../api/backend/consumers";
 import { usePermissions } from "hooks/usePermissions";
@@ -79,7 +80,7 @@ const Pagination = ({ current, total, limit, onPageChange }) => {
 function InboundGenie() {
   const history = useHistory();
   const { hasPermission } = usePermissions();
-  const [activeTab, setActiveTab] = useState('numbers'); // 'numbers', 'calls', 'schedules', 'agents'
+  const [activeTab, setActiveTab] = useState('numbers'); // 'numbers', 'calls', 'schedules', 'agents', 'settings'
   const [inboundNumbers, setInboundNumbers] = useState([]);
   const [callHistory, setCallHistory] = useState([]);
   const [schedules, setSchedules] = useState([]);
@@ -93,7 +94,8 @@ function InboundGenie() {
     numbers: { page: 1, limit: 10, total: 0 },
     calls: { page: 1, limit: 10, total: 0 },
     schedules: { page: 1, limit: 10, total: 0 },
-    agents: { page: 1, limit: 10, total: 0 }
+    agents: { page: 1, limit: 10, total: 0 },
+    settings: { page: 1, limit: 10, total: 0 }
   });
 
   // Statistics state
@@ -127,7 +129,7 @@ function InboundGenie() {
     const page = parseInt(params.get('page')) || 1;
     const search = params.get('q') || '';
 
-    if (tab && ['numbers', 'calls', 'schedules', 'agents'].includes(tab)) {
+    if (tab && ['numbers', 'calls', 'schedules', 'agents', 'settings'].includes(tab)) {
       setActiveTab(tab);
       setPagination(prev => ({
         ...prev,
@@ -185,7 +187,8 @@ function InboundGenie() {
     numbers: false,
     calls: false,
     schedules: false,
-    agents: false
+    agents: false,
+    settings: false
   });
 
   // Modal states
@@ -1672,11 +1675,33 @@ function InboundGenie() {
                 </span>
               )}
             </button>
+            <button
+              onClick={() => setActiveTab('settings')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '16px 24px',
+                border: 'none',
+                backgroundColor: 'transparent',
+                fontSize: '14px',
+                fontWeight: activeTab === 'settings' ? '600' : '400',
+                color: activeTab === 'settings' ? '#74317e' : '#666',
+                cursor: 'pointer',
+                borderBottom: activeTab === 'settings' ? '2px solid #74317e' : '2px solid transparent',
+                marginBottom: '-2px',
+                transition: 'all 0.2s'
+              }}
+            >
+              <BarChart3 size={16} />
+               Settings
+            </button>
           </div>
 
           {/* Tab Content */}
           <div style={{ padding: '24px' }}>
             {/* Search Bar and Controls */}
+            {activeTab !== 'settings' && (
             <div style={{ marginBottom: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
               <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
                 <Search
@@ -1945,6 +1970,7 @@ function InboundGenie() {
                 Refresh
               </button>
             </div>
+            )}
 
             {/* Numbers Tab */}
             {activeTab === 'numbers' && (
@@ -2473,6 +2499,10 @@ function InboundGenie() {
                 />
               </div>
             )}
+            {activeTab === 'settings' && (
+              <InboundSettings />
+            )}
+
           </div>
         </div>
       </div>
