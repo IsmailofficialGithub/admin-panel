@@ -402,10 +402,43 @@ export const updateUserCredits = async (userId, creditData) => {
  */
 export const getBillingPackages = async (productId) => {
   try {
+    // Product ID for Inbound (from .env or hardcoded)
+    const inboundProductId = '1e27e1d8-2c82-408c-89c3-ecab9f608cc8';
+    
+    // If it's an inbound product, use the specialized endpoint
+    if (productId === inboundProductId) {
+      console.log('📦 Fetching specialized inbound packages...');
+      return await getInboundPackages();
+    }
+
     const response = await apiClient.consumers.getBillingPackages(productId);
     return response;
   } catch (error) {
     console.error('getBillingPackages Error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Get specialized inbound packages
+ */
+export const getInboundPackages = async () => {
+  try {
+    const response = await apiClient.inbound.getPackages();
+    
+    // The backend returns a paginated response: { success: true, data: [...], count: X, ... }
+    // We need to return it in a way that the existing frontend components expect
+    // If it's paginated, extract the data array
+    if (response.success && response.data && !Array.isArray(response.data)) {
+      return {
+        success: true,
+        data: response.data.data || []
+      };
+    }
+    
+    return response;
+  } catch (error) {
+    console.error('getInboundPackages Error:', error);
     return { success: false, error: error.message };
   }
 };
@@ -441,6 +474,7 @@ export default {
   getUserCredits,
   updateUserCredits,
   getBillingPackages,
+  getInboundPackages,
   createUserSubscription
 };
 

@@ -639,6 +639,23 @@ export const createReseller = async (req, res) => {
               if (settings.carasoul !== undefined && settings.carasoul !== null && settings.carasoul !== '') {
                 sanitizedSettings.carasoul = parseInt(settings.carasoul);
               }
+
+              // Inbound product settings (Balance & Credits)
+              if (settings.balance !== undefined && settings.balance !== null && settings.balance !== '') {
+                sanitizedSettings.balance = parseFloat(settings.balance);
+              }
+              if (settings.low_credit_threshold !== undefined && settings.low_credit_threshold !== null && settings.low_credit_threshold !== '') {
+                sanitizedSettings.low_credit_threshold = parseFloat(settings.low_credit_threshold);
+              }
+              if (settings.auto_topup_enabled !== undefined) {
+                sanitizedSettings.auto_topup_enabled = !!settings.auto_topup_enabled;
+              }
+              if (settings.auto_topup_amount !== undefined && settings.auto_topup_amount !== null && settings.auto_topup_amount !== '') {
+                sanitizedSettings.auto_topup_amount = parseFloat(settings.auto_topup_amount);
+              }
+              if (settings.auto_topup_threshold !== undefined && settings.auto_topup_threshold !== null && settings.auto_topup_threshold !== '') {
+                sanitizedSettings.auto_topup_threshold = parseFloat(settings.auto_topup_threshold);
+              }
               
               // Only add product_settings if there are valid settings
               if (Object.keys(sanitizedSettings).length > 0) {

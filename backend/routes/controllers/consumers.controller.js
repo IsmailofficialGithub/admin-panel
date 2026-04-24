@@ -740,6 +740,23 @@ export const updateConsumer = async (req, res) => {
               sanitizedSettings.carasoul = parseInt(mergedSettings.carasoul);
             }
 
+            // Inbound product settings (Balance & Credits)
+            if (mergedSettings.balance !== undefined && mergedSettings.balance !== null && mergedSettings.balance !== '') {
+              sanitizedSettings.balance = parseFloat(mergedSettings.balance);
+            }
+            if (mergedSettings.low_credit_threshold !== undefined && mergedSettings.low_credit_threshold !== null && mergedSettings.low_credit_threshold !== '') {
+              sanitizedSettings.low_credit_threshold = parseFloat(mergedSettings.low_credit_threshold);
+            }
+            if (mergedSettings.auto_topup_enabled !== undefined) {
+              sanitizedSettings.auto_topup_enabled = !!mergedSettings.auto_topup_enabled;
+            }
+            if (mergedSettings.auto_topup_amount !== undefined && mergedSettings.auto_topup_amount !== null && mergedSettings.auto_topup_amount !== '') {
+              sanitizedSettings.auto_topup_amount = parseFloat(mergedSettings.auto_topup_amount);
+            }
+            if (mergedSettings.auto_topup_threshold !== undefined && mergedSettings.auto_topup_threshold !== null && mergedSettings.auto_topup_threshold !== '') {
+              sanitizedSettings.auto_topup_threshold = parseFloat(mergedSettings.auto_topup_threshold);
+            }
+
             // Always add product_settings (with defaults if no user settings provided)
             if (Object.keys(sanitizedSettings).length > 0) {
               record.product_settings = sanitizedSettings;

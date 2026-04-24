@@ -82,7 +82,7 @@ export const getAllPackages = async (req, res) => {
     // ========================================
     let query = supabase
       .from('packages')
-      .select('id, product_id, name, description, price, slug, tier, price_monthly, price_yearly, currency, is_active, is_featured, created_at, updated_at, products:product_id (id, name)', { count: 'exact' })
+      .select('id, product_id, name, description, price, slug, tier, price_monthly, price_yearly, currency, is_active, is_featured, created_at, updated_at, product_type, products:product_id (id, name), package_variables:package_variables!package_id (variable_name, variable_value)', { count: 'exact' })
       .order('created_at', { ascending: false });
 
     // Filter by product if provided

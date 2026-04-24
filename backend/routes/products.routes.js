@@ -17,14 +17,14 @@ const router = express.Router();
  * @desc    Get all products (admin, reseller, consumer)
  * @access  Private (Admin/Reseller/Consumer)
  */
-router.get('/', authenticate, requireRole(['admin','reseller','consumer']), rateLimitMiddleware, sanitizeInputMiddleware, getAllProducts);
+router.get('/', authenticate, requireRole(['admin', 'reseller', 'consumer']), rateLimitMiddleware, sanitizeInputMiddleware, getAllProducts);
 
 /**
  * @route   GET /api/products/:id
  * @desc    Get product by ID (admin, reseller, consumer)
  * @access  Private (Admin/Reseller/Consumer)
  */
-router.get('/:id', authenticate, requireRole(['admin','reseller','consumer']), rateLimitMiddleware, sanitizeInputMiddleware, getProductById);
+router.get('/:id', authenticate, requireRole(['admin', 'reseller', 'consumer']), rateLimitMiddleware, sanitizeInputMiddleware, getProductById);
 
 /**
  * @route   POST /api/products
@@ -46,5 +46,6 @@ router.put('/:id', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInpu
  * @access  Private (Admin)
  */
 router.delete('/:id', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, deleteProduct);
+
 
 export default router;

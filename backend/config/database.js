@@ -62,7 +62,7 @@ export const supabaseAdmin = supabaseServiceKey
   })
   : null;
 
-// Create Supabase client for "inbound" schema (actually querying public views)
+// Create Supabase client for "inbound" schema (actually querying public views/tables)
 export const inboundSupabase = createClient(inboundSupabaseUrl, inboundSupabaseAnonKey, {
   db: {
     schema: 'public'
@@ -73,7 +73,7 @@ export const inboundSupabase = createClient(inboundSupabaseUrl, inboundSupabaseA
   }
 });
 
-// Create Supabase admin client for "inbound" schema (actually querying public views)
+// Create Supabase admin client for "inbound" schema (actually querying public views/tables)
 export const inboundSupabaseAdmin = inboundSupabaseServiceKey
   ? createClient(inboundSupabaseUrl, inboundSupabaseServiceKey, {
     db: {

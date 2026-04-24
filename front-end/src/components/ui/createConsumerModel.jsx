@@ -62,7 +62,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [packages, setPackages] = useState([]);
   const [loadingPackages, setLoadingPackages] = useState(false);
-  const [showPackagesDropdown, setShowPackagesDropdown] = useState(false);
+  const [activePackageDropdown, setActivePackageDropdown] = useState(null); // 'inbound', 'genie', 'beeba', or null
 
   // Check if inbound product is selected
   const getInboundProductId = () => {
@@ -155,12 +155,13 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         setLoadingPackages(true);
         try {
           const packagesResult = await getAllPackages();
-          console.log('Fetched packages:', packagesResult);
+          console.log('📦 DEBUG: Fetched packages result:', packagesResult);
           if (packagesResult && packagesResult.success && packagesResult.data && Array.isArray(packagesResult.data)) {
             setPackages(packagesResult.data);
-            console.log('Packages set:', packagesResult.data.length);
+            console.log('📦 DEBUG: Packages set in state:', packagesResult.data.length);
+            console.log('📦 DEBUG: Sample package:', packagesResult.data[0]);
           } else if (packagesResult && packagesResult.error) {
-            console.error('Error from getAllPackages:', packagesResult.error);
+            console.error('❌ DEBUG: Error from getAllPackages:', packagesResult.error);
           }
         } catch (error) {
           console.error('Error fetching packages:', error);
@@ -542,13 +543,49 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
   // Handle package selection
   const handlePackageToggle = (packageId) => {
     console.log('📦 Package toggled:', packageId);
-
+    
+    // Find the package object to check for credits
+    const packageItem = packages.find(p => p.id === packageId);
+    
     setFormData(prev => {
-      const nextPackages = prev.subscribed_packages.includes(packageId)
-        ? prev.subscribed_packages.filter(id => id !== packageId)
-        : [...prev.subscribed_packages, packageId];
+      const isSelecting = !prev.subscribed_packages.includes(packageId);
+      const nextPackages = isSelecting
+        ? [...prev.subscribed_packages, packageId]
+        : prev.subscribed_packages.filter(id => id !== packageId);
 
       console.log('📋 Current subscribed packages array:', nextPackages);
+      
+      // If we are selecting an inbound package, update the balance
+      if (isSelecting && packageItem && (packageItem.product_type === 'inbound' || packageItem.product_id === '1e27e1d8-2c82-408c-89c3-ecab9f608cc8')) {
+        const inboundProductId = packageItem.product_id || '1e27e1d8-2c82-408c-89c3-ecab9f608cc8';
+        
+        // Find credits variable
+        const creditsVar = packageItem.package_variables?.find(v => 
+          v.variable_name === 'credits' || 
+          v.variable_name === 'included_credits' || 
+          v.variable_name === 'given_credits' ||
+          v.variable_name === 'balance'
+        );
+        
+        if (creditsVar) {
+          const creditValue = parseFloat(creditsVar.variable_value) || 0;
+          console.log(`💰 DEBUG: Found ${creditValue} credits in package ${packageItem.name}`);
+          
+          setProductSettings(prevSettings => ({
+            ...prevSettings,
+            [inboundProductId]: {
+              ...(prevSettings[inboundProductId] || {
+                low_credit_threshold: 10,
+                auto_topup_enabled: false,
+                auto_topup_amount: 50,
+                auto_topup_threshold: 10
+              }),
+              balance: creditValue
+            }
+          }));
+        }
+      }
+      
       return {
         ...prev,
         subscribed_packages: nextPackages
@@ -2182,191 +2219,6 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                   </p>
                 )}
               </div>
-
-
-              {/* Packages Section (actual subscription) */}
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  color: '#374151',
-                  marginBottom: '8px'
-                }}>
-                  <Package size={16} style={{ color: '#6b7280' }} />
-                  Subscribed Packages <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Optional)</span>
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <div
-                    onClick={() => !isSubmitting && setShowPackagesDropdown(!showPackagesDropdown)}
-                    style={{
-                      width: '100%',
-                      minHeight: '42px',
-                      padding: '8px 40px 8px 12px',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '8px',
-                      fontSize: '14px',
-                      outline: 'none',
-                      transition: 'all 0.2s',
-                      boxSizing: 'border-box',
-                      backgroundColor: 'white',
-                      cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: '6px',
-                      alignItems: 'center',
-                      opacity: isSubmitting ? 0.6 : 1
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isSubmitting) {
-                        e.currentTarget.style.borderColor = '#74317e';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = '#d1d5db';
-                    }}
-                  >
-                    {loadingPackages ? (
-                      <span style={{ color: '#9ca3af' }}>Loading packages...</span>
-                    ) : formData.subscribed_packages.length === 0 ? (
-                      <span style={{ color: '#9ca3af' }}>Select packages...</span>
-                    ) : (
-                      formData.subscribed_packages.map(packageId => {
-                        const packageItem = packages.find(p => p.id === packageId);
-                        const product = packageItem ? products.find(prod => prod.id === packageItem.product_id) : null;
-                        return (
-                          <span
-                            key={packageId}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              padding: '4px 8px',
-                              backgroundColor: '#74317e',
-                              color: 'white',
-                              borderRadius: '6px',
-                              fontSize: '12px',
-                              fontWeight: '500'
-                            }}
-                          >
-                            {packageItem?.name}{product ? ` (${product.name})` : ''}
-                            <X
-                              size={14}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (!isSubmitting) handlePackageToggle(packageId);
-                              }}
-                              style={{ cursor: 'pointer' }}
-                            />
-                          </span>
-                        );
-                      })
-                    )}
-                    <div style={{
-                      position: 'absolute',
-                      right: '12px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      pointerEvents: 'none'
-                    }}>
-                      <ChevronDown size={16} style={{ color: '#9ca3af' }} />
-                    </div>
-                  </div>
-
-                  {/* Packages Dropdown */}
-                  {showPackagesDropdown && !isSubmitting && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: '100%',
-                        left: 0,
-                        right: 0,
-                        marginTop: '4px',
-                        backgroundColor: 'white',
-                        border: '1px solid #d1d5db',
-                        borderRadius: '8px',
-                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
-                        maxHeight: '200px',
-                        overflowY: 'auto',
-                        zIndex: 1000
-                      }}
-                    >
-                      {loadingPackages ? (
-                        <div style={{ padding: '10px 12px', textAlign: 'center', color: '#9ca3af' }}>
-                          Loading packages...
-                        </div>
-                      ) : packages.length === 0 ? (
-                        <div style={{ padding: '10px 12px', textAlign: 'center', color: '#9ca3af' }}>
-                          No packages available
-                        </div>
-                      ) : (
-                        packages.map((packageItem) => {
-                          const product = products.find(p => p.id === packageItem.product_id);
-                          return (
-                            <div
-                              key={packageItem.id}
-                              onClick={() => handlePackageToggle(packageItem.id)}
-                              style={{
-                                padding: '10px 12px',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '10px',
-                                transition: 'background-color 0.2s',
-                                backgroundColor: isPackageSelected(packageItem.id) ? '#eff6ff' : 'white'
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = isPackageSelected(packageItem.id) ? '#dbeafe' : '#f9fafb';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = isPackageSelected(packageItem.id) ? '#eff6ff' : 'white';
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: '18px',
-                                  height: '18px',
-                                  border: isPackageSelected(packageItem.id) ? '2px solid #74317e' : '2px solid #d1d5db',
-                                  borderRadius: '4px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  backgroundColor: isPackageSelected(packageItem.id) ? '#74317e' : 'white',
-                                  transition: 'all 0.2s'
-                                }}
-                              >
-                                {isPackageSelected(packageItem.id) && (
-                                  <CheckCircle size={12} style={{ color: 'white' }} />
-                                )}
-                              </div>
-                              <div style={{ flex: 1 }}>
-                                <span style={{
-                                  fontSize: '14px',
-                                  color: '#374151',
-                                  fontWeight: isPackageSelected(packageItem.id) ? '500' : '400'
-                                }}>
-                                  {packageItem.name}
-                                </span>
-                                {product && (
-                                  <span style={{
-                                    fontSize: '12px',
-                                    color: '#6b7280',
-                                    marginLeft: '8px'
-                                  }}>
-                                    ({product.name})
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
               {formData.subscribed_packages.length > 0 && (
                 <p style={{
                   color: '#6b7280',
@@ -2382,7 +2234,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                 </p>
               )}
 
-              {/* Inbound Product (Credit System) Settings Section */}
+              {/* Genie Inbound Settings (Initial Credit Configuration) */}
               {isInboundProductSelected && canViewGenieSettings && (
                 <div style={{
                   marginBottom: '20px',
@@ -2394,15 +2246,19 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                   <label style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
+                    gap: '8px',
                     fontSize: '14px',
                     fontWeight: '600',
-                    color: '#5b21b6',
-                    marginBottom: '16px'
+                    color: '#7c3aed',
+                    marginBottom: '12px'
                   }}>
-                    <Coins size={16} style={{ color: '#7c3aed' }} />
-                    Inbound Genie Settings <span style={{ color: '#9ca3af', fontWeight: '400' }}>(Credits Management)</span>
+                    <Coins size={16} />
+                    Inbound Genie Settings
                   </label>
+                  
+                  <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 16px 0', lineHeight: '1.5' }}>
+                    Configure the initial credit settings and subscription for this consumer. 
+                  </p>
 
                   {(() => {
                     const inboundId = getInboundProductId();
@@ -2429,7 +2285,23 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                               value={settings.balance || 0}
                               onChange={(e) => handleProductSettingChange(inboundId, 'balance', e.target.value)}
                               disabled={isSubmitting}
-                              style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px' }}
+                              style={{ 
+                                width: '100%', 
+                                padding: '8px 12px', 
+                                border: '1px solid #d1d5db', 
+                                borderRadius: '6px', 
+                                fontSize: '14px',
+                                outline: 'none',
+                                transition: 'all 0.2s'
+                              }}
+                              onFocus={(e) => {
+                                e.target.style.borderColor = '#7c3aed';
+                                e.target.style.boxShadow = '0 0 0 3px rgba(124, 58, 237, 0.1)';
+                              }}
+                              onBlur={(e) => {
+                                e.target.style.borderColor = '#d1d5db';
+                                e.target.style.boxShadow = 'none';
+                              }}
                             />
                           </div>
 
@@ -2445,29 +2317,233 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                               value={settings.low_credit_threshold || 10}
                               onChange={(e) => handleProductSettingChange(inboundId, 'low_credit_threshold', e.target.value)}
                               disabled={isSubmitting}
-                              style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px' }}
+                              style={{ 
+                                width: '100%', 
+                                padding: '8px 12px', 
+                                border: '1px solid #d1d5db', 
+                                borderRadius: '6px', 
+                                fontSize: '14px',
+                                outline: 'none',
+                                transition: 'all 0.2s'
+                              }}
+                              onFocus={(e) => {
+                                e.target.style.borderColor = '#7c3aed';
+                                e.target.style.boxShadow = '0 0 0 3px rgba(124, 58, 237, 0.1)';
+                              }}
+                              onBlur={(e) => {
+                                e.target.style.borderColor = '#d1d5db';
+                                e.target.style.boxShadow = 'none';
+                              }}
                             />
                           </div>
                         </div>
 
                         {/* Auto Top-up Toggle */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #e5e7eb' }}>
-                          <input
-                            type="checkbox"
-                            id="auto_topup"
-                            checked={settings.auto_topup_enabled || false}
-                            onChange={(e) => handleProductSettingChange(inboundId, 'auto_topup_enabled', e.target.checked)}
-                            disabled={isSubmitting}
-                          />
-                          <label htmlFor="auto_topup" style={{ fontSize: '14px', fontWeight: '500', color: '#374151', cursor: 'pointer' }}>
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '10px', 
+                          padding: '12px', 
+                          backgroundColor: 'white', 
+                          borderRadius: '8px', 
+                          border: '1px solid #e5e7eb',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                        onClick={() => handleProductSettingChange(inboundId, 'auto_topup_enabled', !settings.auto_topup_enabled)}
+                        onMouseEnter={(e) => e.currentTarget.style.borderColor = '#ddd6fe'}
+                        onMouseLeave={(e) => e.currentTarget.style.borderColor = '#e5e7eb'}
+                        >
+                          <div style={{
+                            width: '20px',
+                            height: '20px',
+                            border: settings.auto_topup_enabled ? '2px solid #7c3aed' : '2px solid #d1d5db',
+                            borderRadius: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: settings.auto_topup_enabled ? '#7c3aed' : 'white',
+                            transition: 'all 0.2s'
+                          }}>
+                            {settings.auto_topup_enabled && <Check size={14} style={{ color: 'white' }} />}
+                          </div>
+                          <span style={{ fontSize: '14px', fontWeight: '500', color: '#374151' }}>
                             Enable Auto Top-up
+                          </span>
+                        </div>
+
+                         {/* Initial Subscription Package */}
+                        <div style={{ marginTop: '4px' }}>
+                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#7c3aed', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            Initial Subscription Package
                           </label>
+                          <div style={{ position: 'relative' }}>
+                            <div
+                              onClick={() => !isSubmitting && setActivePackageDropdown(activePackageDropdown === 'inbound' ? null : 'inbound')}
+                              style={{
+                                width: '100%',
+                                minHeight: '42px',
+                                padding: '8px 40px 8px 12px',
+                                border: '1px solid #ddd6fe',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                outline: 'none',
+                                transition: 'all 0.2s',
+                                boxSizing: 'border-box',
+                                backgroundColor: 'white',
+                                cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: '6px',
+                                alignItems: 'center',
+                                opacity: isSubmitting ? 0.6 : 1
+                              }}
+                            >
+                              {loadingPackages ? (
+                                <span style={{ color: '#9ca3af' }}>Loading packages...</span>
+                              ) : formData.subscribed_packages.filter(id => {
+                                const pkg = packages.find(p => p.id === id);
+                                return pkg && (pkg.product_id === inboundId || pkg.product_type === 'inbound');
+                              }).length === 0 ? (
+                                <span style={{ color: '#9ca3af' }}>Select inbound package (optional)...</span>
+                              ) : (
+                                formData.subscribed_packages
+                                  .filter(id => {
+                                    const pkg = packages.find(p => p.id === id);
+                                    return pkg && (pkg.product_id === inboundId || pkg.product_type === 'inbound');
+                                  })
+                                  .map(packageId => {
+                                    const packageItem = packages.find(p => p.id === packageId);
+                                    return (
+                                      <span
+                                        key={packageId}
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '4px',
+                                          padding: '4px 8px',
+                                          backgroundColor: '#7c3aed',
+                                          color: 'white',
+                                          borderRadius: '6px',
+                                          fontSize: '12px',
+                                          fontWeight: '500'
+                                        }}
+                                      >
+                                        {packageItem?.name}
+                                        <X
+                                          size={14}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (!isSubmitting) handlePackageToggle(packageId);
+                                          }}
+                                          style={{ cursor: 'pointer' }}
+                                        />
+                                      </span>
+                                    );
+                                  })
+                              )}
+                              <div style={{
+                                position: 'absolute',
+                                right: '12px',
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                pointerEvents: 'none'
+                              }}>
+                                <ChevronDown size={16} style={{ color: '#9ca3af' }} />
+                              </div>
+                            </div>
+
+                            {activePackageDropdown === 'inbound' && !isSubmitting && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: 0,
+                                  right: 0,
+                                  marginTop: '4px',
+                                  backgroundColor: 'white',
+                                  border: '1px solid #ddd6fe',
+                                  borderRadius: '8px',
+                                  boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                                  maxHeight: '200px',
+                                  overflowY: 'auto',
+                                  zIndex: 1000
+                                }}
+                              >
+                                {(() => {
+                                  const filtered = packages.filter(pkg => pkg.product_id === inboundId || pkg.product_type === 'inbound');
+                                  console.log('📦 DEBUG: Inbound filtered packages:', { 
+                                    inboundId, 
+                                    totalPackages: packages.length, 
+                                    filteredCount: filtered.length 
+                                  });
+                                  return filtered.length === 0 ? (
+                                    <div style={{ padding: '12px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>
+                                      No packages available for this product
+                                    </div>
+                                  ) : filtered.map((packageItem) => (
+                                    <div
+                                      key={packageItem.id}
+                                      onClick={() => handlePackageToggle(packageItem.id)}
+                                      style={{
+                                        padding: '10px 12px',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        transition: 'background-color 0.2s',
+                                        backgroundColor: isPackageSelected(packageItem.id) ? '#f5f3ff' : 'white'
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.backgroundColor = isPackageSelected(packageItem.id) ? '#ede9fe' : '#f9fafb';
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.backgroundColor = isPackageSelected(packageItem.id) ? '#f5f3ff' : 'white';
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          width: '18px',
+                                          height: '18px',
+                                          border: isPackageSelected(packageItem.id) ? '2px solid #7c3aed' : '2px solid #d1d5db',
+                                          borderRadius: '4px',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          backgroundColor: isPackageSelected(packageItem.id) ? '#7c3aed' : 'white'
+                                        }}
+                                      >
+                                        {isPackageSelected(packageItem.id) && (
+                                          <Check size={12} style={{ color: 'white' }} />
+                                        )}
+                                      </div>
+                                      <span style={{
+                                        fontSize: '14px',
+                                        color: '#374151',
+                                        fontWeight: isPackageSelected(packageItem.id) ? '500' : '400'
+                                      }}>
+                                        {packageItem.name} - ${packageItem.price}/{packageItem.billing_cycle === 'monthly' ? 'mo' : 'yr'}
+                                      </span>
+                                    </div>
+                                  ));
+                                })()}
+                              </div>
+                            )}
+                          </div>
                         </div>
 
                         {settings.auto_topup_enabled && (
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', padding: '12px', backgroundColor: '#fdf4ff', borderRadius: '6px', border: '1px dashed #d8b4fe' }}>
+                          <div style={{ 
+                            display: 'grid', 
+                            gridTemplateColumns: '1fr 1fr', 
+                            gap: '16px', 
+                            padding: '16px', 
+                            backgroundColor: 'white', 
+                            borderRadius: '8px', 
+                            border: '1px dashed #ddd6fe' 
+                          }}>
                             <div>
-                              <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', color: '#6d28d9', marginBottom: '4px' }}>
+                              <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#7c3aed', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                 Top-up Amount ($)
                               </label>
                               <input
@@ -2476,11 +2552,20 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                                 value={settings.auto_topup_amount || 50}
                                 onChange={(e) => handleProductSettingChange(inboundId, 'auto_topup_amount', e.target.value)}
                                 disabled={isSubmitting}
-                                style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '13px' }}
+                                style={{ 
+                                  width: '100%', 
+                                  padding: '8px 10px', 
+                                  border: '1px solid #d1d5db', 
+                                  borderRadius: '6px', 
+                                  fontSize: '13px',
+                                  outline: 'none'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#7c3aed'}
+                                onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
                               />
                             </div>
                             <div>
-                              <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', color: '#6d28d9', marginBottom: '4px' }}>
+                              <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#7c3aed', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                 Trigger at ($)
                               </label>
                               <input
@@ -2489,7 +2574,16 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                                 value={settings.auto_topup_threshold || 10}
                                 onChange={(e) => handleProductSettingChange(inboundId, 'auto_topup_threshold', e.target.value)}
                                 disabled={isSubmitting}
-                                style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '13px' }}
+                                style={{ 
+                                  width: '100%', 
+                                  padding: '8px 10px', 
+                                  border: '1px solid #d1d5db', 
+                                  borderRadius: '6px', 
+                                  fontSize: '13px',
+                                  outline: 'none'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#7c3aed'}
+                                onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
                               />
                             </div>
                           </div>
@@ -2721,6 +2815,171 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                               e.target.style.boxShadow = 'none';
                             }}
                           />
+                        </div>
+
+                         {/* Initial Subscription Package */}
+                        <div style={{ marginTop: '4px' }}>
+                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#74317e', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            Initial Subscription Package
+                          </label>
+                          <div style={{ position: 'relative' }}>
+                            <div
+                              onClick={() => !isSubmitting && setActivePackageDropdown(activePackageDropdown === 'genie' ? null : 'genie')}
+                              style={{
+                                width: '100%',
+                                minHeight: '42px',
+                                padding: '8px 40px 8px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                outline: 'none',
+                                transition: 'all 0.2s',
+                                boxSizing: 'border-box',
+                                backgroundColor: 'white',
+                                cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: '6px',
+                                alignItems: 'center',
+                                opacity: isSubmitting ? 0.6 : 1
+                              }}
+                            >
+                              {loadingPackages ? (
+                                <span style={{ color: '#9ca3af' }}>Loading packages...</span>
+                              ) : formData.subscribed_packages.filter(id => {
+                                const pkg = packages.find(p => p.id === id);
+                                return pkg && (pkg.product_id === genieProductId || pkg.product_type === 'genie');
+                              }).length === 0 ? (
+                                <span style={{ color: '#9ca3af' }}>Select genie package (optional)...</span>
+                              ) : (
+                                formData.subscribed_packages
+                                  .filter(id => {
+                                    const pkg = packages.find(p => p.id === id);
+                                    return pkg && (pkg.product_id === genieProductId || pkg.product_type === 'genie');
+                                  })
+                                  .map(packageId => {
+                                    const packageItem = packages.find(p => p.id === packageId);
+                                    return (
+                                      <span
+                                        key={packageId}
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '4px',
+                                          padding: '4px 8px',
+                                          backgroundColor: '#74317e',
+                                          color: 'white',
+                                          borderRadius: '6px',
+                                          fontSize: '12px',
+                                          fontWeight: '500'
+                                        }}
+                                      >
+                                        {packageItem?.name}
+                                        <X
+                                          size={14}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (!isSubmitting) handlePackageToggle(packageId);
+                                          }}
+                                          style={{ cursor: 'pointer' }}
+                                        />
+                                      </span>
+                                    );
+                                  })
+                              )}
+                              <div style={{
+                                position: 'absolute',
+                                right: '12px',
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                pointerEvents: 'none'
+                              }}>
+                                <ChevronDown size={16} style={{ color: '#9ca3af' }} />
+                              </div>
+                            </div>
+
+                            {activePackageDropdown === 'genie' && !isSubmitting && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: 0,
+                                  right: 0,
+                                  marginTop: '4px',
+                                  backgroundColor: 'white',
+                                  border: '1px solid #d1d5db',
+                                  borderRadius: '8px',
+                                  boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                                  maxHeight: '200px',
+                                  overflowY: 'auto',
+                                  zIndex: 1000
+                                }}
+                              >
+                                {(() => {
+                                  const filtered = packages.filter(pkg => pkg.product_id === genieProductId || pkg.product_type === 'genie');
+                                  console.log('📦 DEBUG: Genie filtered packages:', { 
+                                    genieProductId, 
+                                    totalPackages: packages.length, 
+                                    filteredCount: filtered.length 
+                                  });
+                                  
+                                  if (filtered.length === 0) {
+                                    return (
+                                      <div style={{ padding: '12px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>
+                                        No packages available for this product
+                                      </div>
+                                    );
+                                  }
+
+                                  return filtered.map((packageItem) => (
+                                    <div
+                                      key={packageItem.id}
+                                      onClick={() => handlePackageToggle(packageItem.id)}
+                                      style={{
+                                        padding: '10px 12px',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        transition: 'background-color 0.2s',
+                                        backgroundColor: isPackageSelected(packageItem.id) ? '#eff6ff' : 'white'
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.backgroundColor = isPackageSelected(packageItem.id) ? '#dbeafe' : '#f9fafb';
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.backgroundColor = isPackageSelected(packageItem.id) ? '#eff6ff' : 'white';
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          width: '18px',
+                                          height: '18px',
+                                          border: isPackageSelected(packageItem.id) ? '2px solid #74317e' : '2px solid #d1d5db',
+                                          borderRadius: '4px',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          backgroundColor: isPackageSelected(packageItem.id) ? '#74317e' : 'white'
+                                        }}
+                                      >
+                                        {isPackageSelected(packageItem.id) && (
+                                          <Check size={12} style={{ color: 'white' }} />
+                                        )}
+                                      </div>
+                                      <span style={{
+                                        fontSize: '14px',
+                                        color: '#374151',
+                                        fontWeight: isPackageSelected(packageItem.id) ? '500' : '400'
+                                      }}>
+                                        {packageItem.name} - ${packageItem.price}/{packageItem.billing_cycle === 'monthly' ? 'mo' : 'yr'}
+                                      </span>
+                                    </div>
+                                  ));
+                                })()}
+                              </div>
+                            )}
+                          </div>
                         </div>
 
                         {/* Concurrency Limit */}
@@ -2978,6 +3237,171 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                           />
                         </div>
 
+                         {/* Initial Subscription Package */}
+                        <div style={{ marginTop: '16px' }}>
+                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#74317e', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            Initial Subscription Package
+                          </label>
+                          <div style={{ position: 'relative' }}>
+                            <div
+                              onClick={() => !isSubmitting && setActivePackageDropdown(activePackageDropdown === 'beeba' ? null : 'beeba')}
+                              style={{
+                                width: '100%',
+                                minHeight: '42px',
+                                padding: '8px 40px 8px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                outline: 'none',
+                                transition: 'all 0.2s',
+                                boxSizing: 'border-box',
+                                backgroundColor: 'white',
+                                cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: '6px',
+                                alignItems: 'center',
+                                opacity: isSubmitting ? 0.6 : 1
+                              }}
+                            >
+                              {loadingPackages ? (
+                                <span style={{ color: '#9ca3af' }}>Loading packages...</span>
+                              ) : formData.subscribed_packages.filter(id => {
+                                const pkg = packages.find(p => p.id === id);
+                                return pkg && (pkg.product_id === beebaProductId || pkg.product_type === 'beeba');
+                              }).length === 0 ? (
+                                <span style={{ color: '#9ca3af' }}>Select beeba package (optional)...</span>
+                              ) : (
+                                formData.subscribed_packages
+                                  .filter(id => {
+                                    const pkg = packages.find(p => p.id === id);
+                                    return pkg && (pkg.product_id === beebaProductId || pkg.product_type === 'beeba');
+                                  })
+                                  .map(packageId => {
+                                    const packageItem = packages.find(p => p.id === packageId);
+                                    return (
+                                      <span
+                                        key={packageId}
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '4px',
+                                          padding: '4px 8px',
+                                          backgroundColor: '#74317e',
+                                          color: 'white',
+                                          borderRadius: '6px',
+                                          fontSize: '12px',
+                                          fontWeight: '500'
+                                        }}
+                                      >
+                                        {packageItem?.name}
+                                        <X
+                                          size={14}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (!isSubmitting) handlePackageToggle(packageId);
+                                          }}
+                                          style={{ cursor: 'pointer' }}
+                                        />
+                                      </span>
+                                    );
+                                  })
+                              )}
+                              <div style={{
+                                position: 'absolute',
+                                right: '12px',
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                pointerEvents: 'none'
+                              }}>
+                                <ChevronDown size={16} style={{ color: '#9ca3af' }} />
+                              </div>
+                            </div>
+
+                            {activePackageDropdown === 'beeba' && !isSubmitting && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: 0,
+                                  right: 0,
+                                  marginTop: '4px',
+                                  backgroundColor: 'white',
+                                  border: '1px solid #d1d5db',
+                                  borderRadius: '8px',
+                                  boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                                  maxHeight: '200px',
+                                  overflowY: 'auto',
+                                  zIndex: 1000
+                                }}
+                              >
+                                {(() => {
+                                  const filtered = packages.filter(pkg => pkg.product_id === beebaProductId || pkg.product_type === 'beeba');
+                                  console.log('📦 DEBUG: Beeba filtered packages:', { 
+                                    beebaProductId, 
+                                    totalPackages: packages.length, 
+                                    filteredCount: filtered.length 
+                                  });
+                                  
+                                  if (filtered.length === 0) {
+                                    return (
+                                      <div style={{ padding: '12px', textAlign: 'center', color: '#9ca3af', fontSize: '13px' }}>
+                                        No packages available for this product
+                                      </div>
+                                    );
+                                  }
+
+                                  return filtered.map((packageItem) => (
+                                    <div
+                                      key={packageItem.id}
+                                      onClick={() => handlePackageToggle(packageItem.id)}
+                                      style={{
+                                        padding: '10px 12px',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        transition: 'background-color 0.2s',
+                                        backgroundColor: isPackageSelected(packageItem.id) ? '#eff6ff' : 'white'
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.backgroundColor = isPackageSelected(packageItem.id) ? '#dbeafe' : '#f9fafb';
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.backgroundColor = isPackageSelected(packageItem.id) ? '#eff6ff' : 'white';
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          width: '18px',
+                                          height: '18px',
+                                          border: isPackageSelected(packageItem.id) ? '2px solid #74317e' : '2px solid #d1d5db',
+                                          borderRadius: '4px',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          backgroundColor: isPackageSelected(packageItem.id) ? '#74317e' : 'white'
+                                        }}
+                                      >
+                                        {isPackageSelected(packageItem.id) && (
+                                          <Check size={12} style={{ color: 'white' }} />
+                                        )}
+                                      </div>
+                                      <span style={{
+                                        fontSize: '14px',
+                                        color: '#374151',
+                                        fontWeight: isPackageSelected(packageItem.id) ? '500' : '400'
+                                      }}>
+                                        {packageItem.name} - ${packageItem.price}/{packageItem.billing_cycle === 'monthly' ? 'mo' : 'yr'}
+                                      </span>
+                                    </div>
+                                  ));
+                                })()}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
                         {/* Video */}
                         <div>
                           <label style={{
@@ -3070,20 +3494,77 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
               )}
 
               {/* Trial Period Field (Required) */}
-              <div style={{ marginBottom: '20px' }}>
+              <div style={{ marginBottom: '24px' }}>
                 <label style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
+                  gap: '8px',
                   fontSize: '14px',
-                  fontWeight: '500',
+                  fontWeight: '600',
                   color: '#374151',
-                  marginBottom: '8px'
+                  marginBottom: '12px'
                 }}>
-                  <Calendar size={16} style={{ color: '#6b7280' }} />
-                  Trial Period <span style={{ color: '#ef4444' }}>*</span>
+                  <Calendar size={18} style={{ color: '#74317e' }} />
+                  Trial Subscription Period <span style={{ color: '#ef4444' }}>*</span>
                 </label>
+                
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(4, 1fr)', 
+                  gap: '10px',
+                  marginBottom: '12px'
+                }}>
+                  {[
+                    { label: '1 Day', value: '1' },
+                    { label: '3 Days', value: '3' },
+                    { label: '7 Days', value: '7' },
+                    { label: '30 Days', value: '30' }
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => handleChange({ target: { name: 'trial_expiry_date', value: option.value } })}
+                      style={{
+                        padding: '10px 4px',
+                        backgroundColor: formData.trial_expiry_date === option.value ? '#f5f3ff' : 'white',
+                        border: `1px solid ${formData.trial_expiry_date === option.value ? '#7c3aed' : '#d1d5db'}`,
+                        borderRadius: '8px',
+                        color: formData.trial_expiry_date === option.value ? '#7c3aed' : '#4b5563',
+                        fontSize: '13px',
+                        fontWeight: formData.trial_expiry_date === option.value ? '600' : '500',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        textAlign: 'center'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (formData.trial_expiry_date !== option.value) {
+                          e.currentTarget.style.borderColor = '#7c3aed';
+                          e.currentTarget.style.backgroundColor = '#f9fafb';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (formData.trial_expiry_date !== option.value) {
+                          e.currentTarget.style.borderColor = '#d1d5db';
+                          e.currentTarget.style.backgroundColor = 'white';
+                        }
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+
                 <div style={{ position: 'relative' }}>
+                  <div style={{
+                    position: 'absolute',
+                    left: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#9ca3af',
+                    zIndex: 1
+                  }}>
+                    <Calendar size={16} />
+                  </div>
                   <select
                     name="trial_expiry_date"
                     value={formData.trial_expiry_date}
@@ -3091,7 +3572,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                     disabled={isSubmitting}
                     style={{
                       width: '100%',
-                      padding: '10px 14px',
+                      padding: '10px 14px 10px 40px',
                       border: errors.trial_expiry_date ? '1px solid #ef4444' : '1px solid #d1d5db',
                       borderRadius: '8px',
                       fontSize: '14px',
@@ -3112,7 +3593,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                     onFocus={(e) => {
                       if (!errors.trial_expiry_date && !isSubmitting) {
                         e.target.style.borderColor = '#74317e';
-                        e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                        e.target.style.boxShadow = '0 0 0 3px rgba(116, 49, 126, 0.1)';
                       }
                     }}
                     onBlur={(e) => {
@@ -3120,10 +3601,10 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                       e.target.style.boxShadow = 'none';
                     }}
                   >
-                    <option value="">Select trial period</option>
-                    <option value="1">1 Day</option>
-                    <option value="2">2 Days</option>
-                    <option value="3">3 Days</option>
+                    <option value="">Custom duration...</option>
+                    {[5, 10, 14, 15, 21, 45, 60, 90].map(days => (
+                      <option key={days} value={String(days)}>{days} Days</option>
+                    ))}
                   </select>
                 </div>
                 {errors.trial_expiry_date && (
@@ -3137,27 +3618,37 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                   </p>
                 )}
                 {formData.trial_expiry_date && (
-                  <p style={{
-                    color: '#6b7280',
-                    fontSize: '12px',
-                    marginTop: '6px',
-                    marginBottom: 0,
+                  <div style={{
+                    marginTop: '12px',
+                    padding: '10px 12px',
+                    backgroundColor: '#f9fafb',
+                    borderRadius: '8px',
+                    border: '1px solid #f3f4f6',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '4px'
+                    gap: '8px'
                   }}>
-                    <span style={{ fontSize: '16px' }}>ℹ️</span>
-                    Trial expires: {(() => {
-                      const days = parseInt(formData.trial_expiry_date);
-                      const expiryDate = new Date();
-                      expiryDate.setDate(expiryDate.getDate() + days);
-                      return expiryDate.toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric'
-                      });
-                    })()}
-                  </p>
+                    <div style={{ 
+                      width: '8px', 
+                      height: '8px', 
+                      borderRadius: '50%', 
+                      backgroundColor: '#10b981' 
+                    }} />
+                    <span style={{ color: '#4b5563', fontSize: '13px', fontWeight: '500' }}>
+                      Trial expires: <span style={{ color: '#111827', fontWeight: '600' }}>
+                        {(() => {
+                          const days = parseInt(formData.trial_expiry_date);
+                          const expiryDate = new Date();
+                          expiryDate.setDate(expiryDate.getDate() + days);
+                          return expiryDate.toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric'
+                          });
+                        })()}
+                      </span>
+                    </span>
+                  </div>
                 )}
               </div>
               {/* Credits Management Section */}

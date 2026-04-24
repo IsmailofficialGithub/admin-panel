@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticate, loadUserProfile } from '../middleware/auth.js';
+import { authenticate, loadUserProfile, requireRole } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permissions.js';
 import {
   // Inbound Numbers
@@ -33,7 +33,12 @@ import {
   getInboundStatistics,
   // Middleware
   rateLimitMiddleware,
-  sanitizeInputMiddleware
+  sanitizeInputMiddleware,
+  // Packages
+  getInboundPackages,
+  // Settings
+  getInboundSettings,
+  updateInboundSettings
 } from './controllers/inbound.controller.js';
 
 const router = express.Router();
@@ -405,5 +410,27 @@ router.get(
   sanitizeInputMiddleware,
   getInboundStatistics
 );
+
+
+/**
+ * @route   GET /api/inbound/packages/inbound
+ * @desc    Get all inbound packages (admin, reseller, consumer)
+ * @access  Private (Admin/Reseller/Consumer)
+ */
+router.get('/packages', authenticate, requireRole(['admin', 'reseller', 'consumer']), rateLimitMiddleware, sanitizeInputMiddleware, getInboundPackages);
+
+/**
+ * @route   GET /api/inbound/settings
+ * @desc    Get inbound system settings
+ * @access  Private (Admin only)
+ */
+router.get('/settings', authenticate, requireRole(['admin']), rateLimitMiddleware, sanitizeInputMiddleware, getInboundSettings);
+
+/**
+ * @route   PATCH /api/inbound/settings
+ * @desc    Update inbound system settings
+ * @access  Private (Admin only)
+ */
+router.patch('/settings', authenticate, requireRole(['admin']), rateLimitMiddleware, sanitizeInputMiddleware, updateInboundSettings);
 
 export default router;

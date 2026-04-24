@@ -3,7 +3,7 @@ import { X, User, Phone, Calendar, Globe, MapPin, ChevronDown, Package, CheckCir
 import { countries, searchCountries } from '../../utils/countryData';
 import apiClient from '../../services/apiClient';
 import { normalizeRole } from '../../utils/roleUtils';
-import { getProducts } from '../../api/backend';
+import { getProducts, getAllPackages } from '../../api/backend';
 import { getAllVapiAccounts } from '../../api/backend/vapi';
 import { useAuth } from '../../hooks/useAuth';
 import { hasRole } from '../../utils/roleUtils';
@@ -35,9 +35,9 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
   const [countrySearch, setCountrySearch] = useState('');
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState(null);
-  // const [showPackagesDropdown, setShowPackagesDropdown] = useState(false);
-  // const [packages, setPackages] = useState([]);
-  // const [loadingPackages, setLoadingPackages] = useState(false);
+  const [showPackagesDropdown, setShowPackagesDropdown] = useState(false);
+  const [packages, setPackages] = useState([]);
+  const [loadingPackages, setLoadingPackages] = useState(false);
   const [showProductsDropdown, setShowProductsDropdown] = useState(false);
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
@@ -205,38 +205,29 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
   }, [isOpen]);
 
   // Fetch packages when modal opens and consumer role is selected
-  // useEffect(() => {
-  //   if (isOpen && isConsumerSelected) {
-  //     const fetchPackages = async () => {
-  //       setLoadingPackages(true);
-  //       try {
-  //         const response = await apiClient.packages.getAll({ limit: 1000 }); // Get all packages
+  useEffect(() => {
+    if (isOpen && isConsumerSelected) {
+      const fetchPackages = async () => {
+        setLoadingPackages(true);
+        try {
+          const response = await getAllPackages();
+          if (response?.success && Array.isArray(response.data)) {
+            setPackages(response.data);
+          } else if (response?.error) {
+            console.error('❌ Error from getPackages:', response.error);
+            setPackages([]);
+          }
+        } catch (error) {
+          console.error('Error fetching packages:', error);
+          setPackages([]);
+        } finally {
+          setLoadingPackages(false);
+        }
+      };
 
-  //         // The axios interceptor already unwraps response.data, so response is the data object
-  //         // API response structure: { success: true, data: [...], count: 9, ... }
-  //         if (response?.success && Array.isArray(response.data)) {
-  //           setPackages(response.data);
-  //         } else if (Array.isArray(response?.data)) {
-  //           // Fallback: if response.data is an array directly
-  //           setPackages(response.data);
-  //         } else if (response?.error) {
-  //           console.error('❌ Error from getPackages:', response.error);
-  //           setPackages([]);
-  //         } else {
-  //           console.warn('⚠️ Unexpected packages response format:', response);
-  //           setPackages([]);
-  //         }
-  //       } catch (error) {
-  //         console.error('Error fetching packages:', error);
-  //         setPackages([]);
-  //       } finally {
-  //         setLoadingPackages(false);
-  //       }
-  //     };
-
-  //     fetchPackages();
-  //   }
-  // }, [isOpen, isConsumerSelected]);
+      fetchPackages();
+    }
+  }, [isOpen, isConsumerSelected]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -343,14 +334,50 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
 
   // Handle package selection
   const handlePackageToggle = (packageId) => {
+    console.log('📦 Package toggled:', packageId);
+    
+    // Find the package object to check for credits
+    const packageItem = packages.find(p => p.id === packageId);
+    
     setFormData(prev => {
       // Convert both to strings for comparison to handle UUID string comparison issues
       const packageIdStr = String(packageId);
-      const isSelected = prev.subscribed_packages.some(id => String(id) === packageIdStr);
+      const isSelecting = !prev.subscribed_packages.some(id => String(id) === packageIdStr);
 
-      const newPackages = isSelected
-        ? prev.subscribed_packages.filter(id => String(id) !== packageIdStr)
-        : [...prev.subscribed_packages, packageId];
+      const newPackages = isSelecting
+        ? [...prev.subscribed_packages, packageId]
+        : prev.subscribed_packages.filter(id => String(id) !== packageIdStr);
+
+      // If we are selecting an inbound package, update the balance
+      if (isSelecting && packageItem && (packageItem.product_type === 'inbound' || packageItem.product_id === '1e27e1d8-2c82-408c-89c3-ecab9f608cc8')) {
+        const inboundProductId = packageItem.product_id || '1e27e1d8-2c82-408c-89c3-ecab9f608cc8';
+        
+        // Find credits variable
+        const creditsVar = packageItem.package_variables?.find(v => 
+          v.variable_name === 'credits' || 
+          v.variable_name === 'included_credits' || 
+          v.variable_name === 'given_credits' ||
+          v.variable_name === 'balance'
+        );
+        
+        if (creditsVar) {
+          const creditValue = parseFloat(creditsVar.variable_value) || 0;
+          console.log(`💰 DEBUG: Found ${creditValue} credits in package ${packageItem.name}`);
+          
+          setProductSettings(prevSettings => ({
+            ...prevSettings,
+            [inboundProductId]: {
+              ...(prevSettings[inboundProductId] || {
+                low_credit_threshold: 10,
+                auto_topup_enabled: false,
+                auto_topup_amount: 50,
+                auto_topup_threshold: 10
+              }),
+              balance: creditValue
+            }
+          }));
+        }
+      }
 
       return {
         ...prev,

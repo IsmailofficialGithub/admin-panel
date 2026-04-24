@@ -192,16 +192,72 @@ const CreditsModal = ({ isOpen, onClose, userId, productId, userName }) => {
               }}>
                 <div style={statCardStyle}>
                   <span style={statLabelStyle}>Balance</span>
-                  <span style={statValueStyle}>${parseFloat(credits.balance).toFixed(2)}</span>
+                  <span style={statValueStyle}>${parseFloat(credits.balance || 0).toFixed(2)}</span>
                 </div>
                 <div style={statCardStyle}>
                   <span style={statLabelStyle}>Total Given</span>
-                  <span style={statValueStyle}>${parseFloat(credits.total_purchased).toFixed(2)}</span>
+                  <span style={statValueStyle}>${parseFloat(credits.total_purchased || 0).toFixed(2)}</span>
                 </div>
                 <div style={statCardStyle}>
                   <span style={statLabelStyle}>Total Used</span>
-                  <span style={{...statValueStyle, color: '#ef4444'}}>${parseFloat(credits.total_used).toFixed(2)}</span>
+                  <span style={{...statValueStyle, color: '#ef4444'}}>${parseFloat(credits.total_used || 0).toFixed(2)}</span>
                 </div>
+              </div>
+              {/* Active Plan Section */}
+              <div style={{
+                ...sectionStyle,
+                backgroundColor: credits.active_plan ? '#f0f9ff' : '#fff7ed',
+                borderColor: credits.active_plan ? '#bae6fd' : '#ffedd5',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '12px 20px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{
+                    backgroundColor: credits.active_plan ? '#0ea5e9' : '#f97316',
+                    padding: '8px',
+                    borderRadius: '8px',
+                    color: 'white'
+                  }}>
+                    <Package size={20} />
+                  </div>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#1e293b' }}>
+                      Current Plan: {credits.active_plan ? credits.active_plan.name : 'No Active Plan'}
+                    </h4>
+                    {credits.active_plan && (
+                      <p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>
+                        Renewal: {new Date(credits.active_plan.current_period_end).toLocaleDateString()} ({credits.active_plan.billing_cycle})
+                      </p>
+                    )}
+                  </div>
+                </div>
+                {credits.active_plan ? (
+                  <span style={{
+                    backgroundColor: '#dcfce7',
+                    color: '#15803d',
+                    padding: '4px 10px',
+                    borderRadius: '9999px',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    textTransform: 'uppercase'
+                  }}>
+                    {credits.active_plan.status}
+                  </span>
+                ) : (
+                  <span style={{
+                    backgroundColor: '#fee2e2',
+                    color: '#b91c1c',
+                    padding: '4px 10px',
+                    borderRadius: '9999px',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    textTransform: 'uppercase'
+                  }}>
+                    Inactive
+                  </span>
+                )}
               </div>
 
               {/* Credit Adjustment */}
@@ -291,11 +347,13 @@ const CreditsModal = ({ isOpen, onClose, userId, productId, userName }) => {
                     style={{...inputStyle, flex: 1}}
                   >
                     <option value="">Select a package...</option>
-                    {packages.map(pkg => (
-                      <option key={pkg.id} value={pkg.id}>
-                        {pkg.name} - ${pkg.price}/{pkg.billing_cycle === 'monthly' ? 'mo' : 'yr'}
-                      </option>
-                    ))}
+                    {packages
+                      .filter(pkg => !credits.active_plan || pkg.id !== credits.active_plan.id)
+                      .map(pkg => (
+                        <option key={pkg.id} value={pkg.id}>
+                          {pkg.name} - ${pkg.price}/{pkg.billing_cycle === 'monthly' ? 'mo' : 'yr'}
+                        </option>
+                      ))}
                   </select>
                   <button
                     onClick={handleSubscribe}

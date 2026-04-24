@@ -1,4 +1,4 @@
-import { inboundSupabase, inboundSupabaseAdmin, supabaseAdmin } from "../../config/database.js";
+import { billingSupabaseAdmin, inboundSupabase, inboundSupabaseAdmin, supabaseAdmin } from "../../config/database.js";
 import pkg from 'pg';
 const { Client } = pkg;
 import {
@@ -1965,8 +1965,134 @@ export const getInboundStatistics = async (req, res) => {
       data: stats
     });
   } catch (error) {
-    console.error('Error fetching inbound statistics:', error);
-    return res.status(500).json({ success: false, error: error.message });
+    return handleApiError(error, res, 'Failed to fetch inbound statistics');
   }
 };
 
+
+export const getInboundPackages = async (req, res) => {
+  try {
+    const { page, limit } = req.query;
+    const { pageNum, limitNum } = validatePagination(page, limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    let query = supabaseAdmin
+      .schema('billing')
+      .from('packages')
+      .select('*, package_variables:package_variables!package_id (variable_name, variable_value)', { count: 'exact' })
+      .eq('product_type', 'inbound')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false });
+
+    if (req.user.role === 'reseller') {
+      query = query.eq('created_by', req.user.userId);
+    }
+
+    query = query.range(offset, offset + limitNum - 1);
+
+    const { data, error, count } = await query;
+
+
+    if (error) throw error;
+
+    // Map data to match frontend expectations (price and billing_cycle)
+    const mappedData = (data || []).map(pkg => ({
+      ...pkg,
+      price: pkg.price_monthly || pkg.price || 0,
+      billing_cycle: pkg.billing_cycle || 'monthly'
+    }));
+
+    return res.json(
+      createPaginatedResponse(mappedData, count || 0, pageNum, limitNum)
+    );
+  } catch (error) {
+    return handleApiError(error, res, 'Failed to fetch inbound packages');
+  }
+};
+
+/**
+ * Get inbound system settings
+ * @route   GET /api/inbound/settings
+ */
+export const getInboundSettings = async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .schema('inbound')
+      .from('system_settings')
+      .select('*')
+      .eq('key', 'inbound_billing_config')
+      .maybeSingle();
+
+    if (error) throw error;
+
+    return res.json({
+      success: true,
+      data: data || {
+        key: 'inbound_billing_config',
+        value: {
+          credit_rates: {
+            purchase_rate: 3,
+            agent_creation: 4,
+            call_per_minute: 4
+          }
+        },
+        description: 'System-wide billing configurations including credit rates.'
+      }
+    });
+  } catch (error) {
+    return handleApiError(error, res, 'Failed to fetch inbound settings');
+  }
+};
+
+/**
+ * Update inbound system settings
+ * @route   PATCH /api/inbound/settings
+ */
+export const updateInboundSettings = async (req, res) => {
+  try {
+    const { value, description } = req.body;
+
+    // Direct upsert logic in the inbound schema of the Main project
+    const { data: existing, error: findError } = await supabaseAdmin
+      .schema('inbound')
+      .from('system_settings')
+      .select('id')
+      .eq('key', 'inbound_billing_config')
+      .maybeSingle();
+
+    if (findError) throw findError;
+
+    let result;
+    if (existing) {
+      result = await supabaseAdmin
+        .schema('inbound')
+        .from('system_settings')
+        .update({
+          value,
+          description,
+          updated_at: new Date().toISOString()
+        })
+        .eq('key', 'inbound_billing_config');
+    } else {
+      result = await supabaseAdmin
+        .schema('inbound')
+        .from('system_settings')
+        .insert({
+          key: 'inbound_billing_config',
+          value,
+          description,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+    }
+
+    if (result.error) throw result.error;
+
+    return res.json({
+      success: true,
+      message: 'Settings updated successfully'
+    });
+  } catch (error) {
+    return handleApiError(error, res, 'Failed to update inbound settings');
+  }
+};

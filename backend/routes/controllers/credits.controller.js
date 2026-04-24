@@ -10,7 +10,7 @@ import {
 } from '../../utils/apiOptimization.js';
 
 /**
- * Get user credits from inbound schema
+ * Get user credits and active plan from inbound schema
  */
 export const getUserCredits = async (req, res) => {
   try {
@@ -23,34 +23,59 @@ export const getUserCredits = async (req, res) => {
       });
     }
 
-    let { data, error } = await inboundSupabaseAdmin
-      .schema('inbound')
+    // 1. Fetch credits
+    let { data: credits, error: creditsError } = await supabaseAdmin
       .from('user_credits')
       .select('*')
       .eq('user_id', userId)
       .maybeSingle();
 
-    if (error && error.code === 'PGRST106') {
-       const fallback = await inboundSupabaseAdmin
+    if (creditsError && creditsError.code === 'PGRST106') {
+       const fallback = await supabaseAdmin
         .from('user_credits')
         .select('*')
         .eq('user_id', userId)
         .maybeSingle();
-      data = fallback.data;
-      error = fallback.error;
+      credits = fallback.data;
+      creditsError = fallback.error;
     }
 
-    if (error) throw error;
+    if (creditsError) throw creditsError;
+
+    // 2. Fetch active subscription (joined with package name)
+    const { data: subscription, error: subError } = await supabaseAdmin
+      .from('user_subscriptions')
+      .select('*, packages(name)')
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // We don't throw on subError, just log it as the user might not have a plan yet
+    if (subError) {
+      console.error('Error fetching subscription for user credits:', subError);
+    }
 
     return res.json({
       success: true,
-      data: data || {
+      data: credits ? {
+        ...credits,
+        active_plan: subscription ? {
+          id: subscription.package_id,
+          name: subscription.packages?.name || 'Unknown Plan',
+          status: subscription.status,
+          billing_cycle: subscription.billing_cycle,
+          current_period_end: subscription.current_period_end
+        } : null
+      } : {
         user_id: userId,
         balance: 0,
         total_purchased: 0,
         total_used: 0,
         services_paused: false,
-        low_credit_threshold: 10
+        low_credit_threshold: 10,
+        active_plan: null
       }
     });
   } catch (error) {
@@ -98,15 +123,14 @@ export const updateUserCredits = async (req, res) => {
     if (auto_topup_threshold !== undefined) updateData.auto_topup_threshold = auto_topup_threshold;
     if (metadata !== undefined) updateData.metadata = metadata;
 
-    let { data, error } = await inboundSupabaseAdmin
-      .schema('inbound')
+    let { data, error } = await supabaseAdmin
       .from('user_credits')
       .upsert(updateData, { onConflict: 'user_id' })
       .select()
       .single();
 
     if (error && error.code === 'PGRST106') {
-      const fallback = await inboundSupabaseAdmin
+      const fallback = await supabaseAdmin
         .from('user_credits')
         .upsert(updateData, { onConflict: 'user_id' })
         .select()
@@ -254,7 +278,7 @@ export const createUserSubscription = async (req, res) => {
       updated_at: new Date().toISOString()
     };
 
-    const { data, error } = await inboundSupabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from('user_subscriptions')
       .insert(subscriptionData)
       .select()
