@@ -29,6 +29,7 @@ const InboundSettings = () => {
   const [showVariableModal, setShowVariableModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const [featureForm, setFeatureForm] = useState({
     feature_name: '',
@@ -91,9 +92,10 @@ const InboundSettings = () => {
 
   const handleSaveFeature = async (e) => {
     e.preventDefault();
-    if (!selectedPackage) return;
+    if (!selectedPackage || saving) return;
 
     try {
+      setSaving(true);
       let response;
       if (isEditing) {
         response = await updatePackageFeature(selectedPackage.id, editingItem.id, featureForm);
@@ -110,14 +112,17 @@ const InboundSettings = () => {
       }
     } catch (error) {
       toast.error('Error saving feature');
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleSaveVariable = async (e) => {
     e.preventDefault();
-    if (!selectedPackage) return;
+    if (!selectedPackage || saving) return;
 
     try {
+      setSaving(true);
       let response;
       if (isEditing) {
         response = await updatePackageVariable(selectedPackage.id, editingItem.id, variableForm);
@@ -134,12 +139,15 @@ const InboundSettings = () => {
       }
     } catch (error) {
       toast.error('Error saving variable');
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleDeleteFeature = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this feature?')) return;
+    if (!window.confirm('Are you sure you want to delete this feature?') || saving) return;
     try {
+      setSaving(true);
       const response = await deletePackageFeature(selectedPackage.id, id);
       if (response.success) {
         toast.success('Feature deleted');
@@ -147,12 +155,15 @@ const InboundSettings = () => {
       }
     } catch (error) {
       toast.error('Error deleting feature');
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleDeleteVariable = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this variable?')) return;
+    if (!window.confirm('Are you sure you want to delete this variable?') || saving) return;
     try {
+      setSaving(true);
       const response = await deletePackageVariable(selectedPackage.id, id);
       if (response.success) {
         toast.success('Variable deleted');
@@ -160,6 +171,8 @@ const InboundSettings = () => {
       }
     } catch (error) {
       toast.error('Error deleting variable');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -223,7 +236,17 @@ const InboundSettings = () => {
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <h4 style={{ margin: 0, fontSize: '18px', fontWeight: '600' }}>Packages</h4>
-          <button onClick={fetchPackages} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666' }}>
+          <button 
+            onClick={fetchPackages} 
+            disabled={loading || saving}
+            style={{ 
+              background: 'none', 
+              border: 'none', 
+              cursor: (loading || saving) ? 'not-allowed' : 'pointer', 
+              color: '#666',
+              opacity: (loading || saving) ? 0.5 : 1
+            }}
+          >
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
@@ -242,7 +265,9 @@ const InboundSettings = () => {
                   cursor: 'pointer',
                   backgroundColor: selectedPackage?.id === pkg.id ? '#f0f7ff' : 'transparent',
                   border: `1px solid ${selectedPackage?.id === pkg.id ? '#007bff' : '#eee'}`,
-                  transition: 'all 0.2s'
+                  transition: 'all 0.2s',
+                  pointerEvents: (loading || saving || loadingDetails) ? 'none' : 'auto',
+                  opacity: (loading || saving || loadingDetails) ? 0.8 : 1
                 }}
               >
                 <div style={{ fontWeight: '600', color: selectedPackage?.id === pkg.id ? '#007bff' : '#333' }}>
@@ -323,8 +348,10 @@ const InboundSettings = () => {
                         display: 'flex',
                         alignItems: 'center',
                         gap: '6px',
-                        cursor: 'pointer'
+                        cursor: (loading || saving || loadingDetails) ? 'not-allowed' : 'pointer',
+                        opacity: (loading || saving || loadingDetails) ? 0.5 : 1
                       }}
+                      disabled={loading || saving || loadingDetails}
                     >
                       <Plus size={14} /> Add Feature
                     </button>
@@ -357,8 +384,33 @@ const InboundSettings = () => {
                               </td>
                               <td style={{ padding: '12px', textAlign: 'center' }}>{feat.display_order}</td>
                               <td style={{ padding: '12px', textAlign: 'right' }}>
-                                <button onClick={() => openFeatureModal(feat)} style={{ background: 'none', border: 'none', color: '#007bff', cursor: 'pointer', marginRight: '8px' }}><Edit2 size={14} /></button>
-                                <button onClick={() => handleDeleteFeature(feat.id)} style={{ background: 'none', border: 'none', color: '#dc3545', cursor: 'pointer' }}><Trash2 size={14} /></button>
+                                <button 
+                                  onClick={() => openFeatureModal(feat)} 
+                                  disabled={loading || saving || loadingDetails}
+                                  style={{ 
+                                    background: 'none', 
+                                    border: 'none', 
+                                    color: '#007bff', 
+                                    cursor: (loading || saving || loadingDetails) ? 'not-allowed' : 'pointer', 
+                                    marginRight: '8px',
+                                    opacity: (loading || saving || loadingDetails) ? 0.5 : 1
+                                  }}
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+                                <button 
+                                  onClick={() => handleDeleteFeature(feat.id)} 
+                                  disabled={loading || saving || loadingDetails}
+                                  style={{ 
+                                    background: 'none', 
+                                    border: 'none', 
+                                    color: '#dc3545', 
+                                    cursor: (loading || saving || loadingDetails) ? 'not-allowed' : 'pointer',
+                                    opacity: (loading || saving || loadingDetails) ? 0.5 : 1
+                                  }}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
                               </td>
                             </tr>
                           ))
@@ -387,8 +439,10 @@ const InboundSettings = () => {
                         display: 'flex',
                         alignItems: 'center',
                         gap: '6px',
-                        cursor: 'pointer'
+                        cursor: (loading || saving || loadingDetails) ? 'not-allowed' : 'pointer',
+                        opacity: (loading || saving || loadingDetails) ? 0.5 : 1
                       }}
+                      disabled={loading || saving || loadingDetails}
                     >
                       <Plus size={14} /> Add Variable
                     </button>
@@ -416,8 +470,33 @@ const InboundSettings = () => {
                                 <span style={{ fontSize: '11px', padding: '2px 6px', backgroundColor: '#e9ecef', borderRadius: '4px' }}>{v.variable_type}</span>
                               </td>
                               <td style={{ padding: '12px', textAlign: 'right' }}>
-                                <button onClick={() => openVariableModal(v)} style={{ background: 'none', border: 'none', color: '#007bff', cursor: 'pointer', marginRight: '8px' }}><Edit2 size={14} /></button>
-                                <button onClick={() => handleDeleteVariable(v.id)} style={{ background: 'none', border: 'none', color: '#dc3545', cursor: 'pointer' }}><Trash2 size={14} /></button>
+                                <button 
+                                  onClick={() => openVariableModal(v)} 
+                                  disabled={loading || saving || loadingDetails}
+                                  style={{ 
+                                    background: 'none', 
+                                    border: 'none', 
+                                    color: '#007bff', 
+                                    cursor: (loading || saving || loadingDetails) ? 'not-allowed' : 'pointer', 
+                                    marginRight: '8px',
+                                    opacity: (loading || saving || loadingDetails) ? 0.5 : 1
+                                  }}
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+                                <button 
+                                  onClick={() => handleDeleteVariable(v.id)} 
+                                  disabled={loading || saving || loadingDetails}
+                                  style={{ 
+                                    background: 'none', 
+                                    border: 'none', 
+                                    color: '#dc3545', 
+                                    cursor: (loading || saving || loadingDetails) ? 'not-allowed' : 'pointer',
+                                    opacity: (loading || saving || loadingDetails) ? 0.5 : 1
+                                  }}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
                               </td>
                             </tr>
                           ))
@@ -509,8 +588,40 @@ const InboundSettings = () => {
                 </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                <button type="button" onClick={() => setShowFeatureModal(false)} style={{ padding: '8px 16px', border: '1px solid #ddd', background: 'none', borderRadius: '6px', cursor: 'pointer' }}>Cancel</button>
-                <button type="submit" style={{ padding: '8px 16px', backgroundColor: '#74317e', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Save Feature</button>
+                <button 
+                  type="button" 
+                  onClick={() => setShowFeatureModal(false)} 
+                  disabled={saving}
+                  style={{ 
+                    padding: '8px 16px', 
+                    border: '1px solid #ddd', 
+                    background: 'none', 
+                    borderRadius: '6px', 
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    opacity: saving ? 0.7 : 1
+                  }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={saving}
+                  style={{ 
+                    padding: '8px 16px', 
+                    backgroundColor: '#74317e', 
+                    color: 'white', 
+                    border: 'none', 
+                    borderRadius: '6px', 
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    opacity: saving ? 0.7 : 1
+                  }}
+                >
+                  {saving && <RefreshCw size={14} className="animate-spin" />}
+                  {isEditing ? 'Update Feature' : 'Save Feature'}
+                </button>
               </div>
             </form>
           </div>
@@ -563,8 +674,40 @@ const InboundSettings = () => {
                 </select>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                <button type="button" onClick={() => setShowVariableModal(false)} style={{ padding: '8px 16px', border: '1px solid #ddd', background: 'none', borderRadius: '6px', cursor: 'pointer' }}>Cancel</button>
-                <button type="submit" style={{ padding: '8px 16px', backgroundColor: '#17a2b8', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Save Variable</button>
+                <button 
+                  type="button" 
+                  onClick={() => setShowVariableModal(false)} 
+                  disabled={saving}
+                  style={{ 
+                    padding: '8px 16px', 
+                    border: '1px solid #ddd', 
+                    background: 'none', 
+                    borderRadius: '6px', 
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    opacity: saving ? 0.7 : 1
+                  }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={saving}
+                  style={{ 
+                    padding: '8px 16px', 
+                    backgroundColor: '#17a2b8', 
+                    color: 'white', 
+                    border: 'none', 
+                    borderRadius: '6px', 
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    opacity: saving ? 0.7 : 1
+                  }}
+                >
+                  {saving && <RefreshCw size={14} className="animate-spin" />}
+                  {isEditing ? 'Update Variable' : 'Save Variable'}
+                </button>
               </div>
             </form>
           </div>

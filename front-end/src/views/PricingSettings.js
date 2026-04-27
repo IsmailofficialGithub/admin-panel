@@ -93,10 +93,18 @@ const PricingSettings = () => {
         </div>
         <button 
           onClick={fetchSettings}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666', padding: '8px' }}
+          disabled={loading || saving}
+          style={{ 
+            background: 'none', 
+            border: 'none', 
+            cursor: (loading || saving) ? 'not-allowed' : 'pointer', 
+            color: '#666', 
+            padding: '8px',
+            opacity: (loading || saving) ? 0.5 : 1
+          }}
           title="Refresh settings"
         >
-          <RefreshCw size={20} />
+          <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
 
@@ -125,6 +133,7 @@ const PricingSettings = () => {
                 type="number" 
                 value={settings.credit_rates.purchase_rate}
                 onChange={(e) => handleRateChange('purchase_rate', e.target.value)}
+                disabled={saving}
                 style={{ 
                   width: '100px', 
                   padding: '10px', 
@@ -132,7 +141,9 @@ const PricingSettings = () => {
                   borderRadius: '8px',
                   fontSize: '16px',
                   fontWeight: '600',
-                  textAlign: 'center'
+                  textAlign: 'center',
+                  backgroundColor: saving ? '#f3f4f6' : 'white',
+                  cursor: saving ? 'not-allowed' : 'text'
                 }}
               />
               <span style={{ fontSize: '14px', fontWeight: '500', color: '#333' }}>Credits / $1</span>
@@ -161,6 +172,7 @@ const PricingSettings = () => {
                 type="number" 
                 value={settings.credit_rates.agent_creation}
                 onChange={(e) => handleRateChange('agent_creation', e.target.value)}
+                disabled={saving}
                 style={{ 
                   width: '100px', 
                   padding: '10px', 
@@ -168,7 +180,9 @@ const PricingSettings = () => {
                   borderRadius: '8px',
                   fontSize: '16px',
                   fontWeight: '600',
-                  textAlign: 'center'
+                  textAlign: 'center',
+                  backgroundColor: saving ? '#f3f4f6' : 'white',
+                  cursor: saving ? 'not-allowed' : 'text'
                 }}
               />
               <span style={{ fontSize: '14px', fontWeight: '500', color: '#333' }}>Credits</span>
@@ -197,6 +211,7 @@ const PricingSettings = () => {
                 type="number" 
                 value={settings.credit_rates.call_per_minute}
                 onChange={(e) => handleRateChange('call_per_minute', e.target.value)}
+                disabled={saving}
                 style={{ 
                   width: '100px', 
                   padding: '10px', 
@@ -204,7 +219,9 @@ const PricingSettings = () => {
                   borderRadius: '8px',
                   fontSize: '16px',
                   fontWeight: '600',
-                  textAlign: 'center'
+                  textAlign: 'center',
+                  backgroundColor: saving ? '#f3f4f6' : 'white',
+                  cursor: saving ? 'not-allowed' : 'text'
                 }}
               />
               <span style={{ fontSize: '14px', fontWeight: '500', color: '#333' }}>Credits / min</span>
@@ -225,6 +242,7 @@ const PricingSettings = () => {
             <textarea 
               value={description}
               onChange={(e) => setDescription(e.target.value)}
+              disabled={saving}
               style={{ 
                 width: '100%', 
                 height: '80px', 
@@ -232,7 +250,9 @@ const PricingSettings = () => {
                 border: '1px solid #e2e8f0', 
                 borderRadius: '8px',
                 fontSize: '13px',
-                resize: 'none'
+                resize: 'none',
+                backgroundColor: saving ? '#f3f4f6' : 'white',
+                cursor: saving ? 'not-allowed' : 'text'
               }}
               placeholder="Description of these settings..."
             />

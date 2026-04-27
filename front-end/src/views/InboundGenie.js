@@ -9,7 +9,7 @@ import { getConsumers } from "../api/backend/consumers";
 import { usePermissions } from "hooks/usePermissions";
 import toast from "react-hot-toast";
 
-const Pagination = ({ current, total, limit, onPageChange }) => {
+const Pagination = ({ current, total, limit, onPageChange, disabled }) => {
   const totalPages = Math.ceil(total / limit);
   if (totalPages <= 1) return null;
 
@@ -31,14 +31,15 @@ const Pagination = ({ current, total, limit, onPageChange }) => {
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginTop: '20px', gap: '8px' }}>
       <button
         onClick={() => onPageChange(Math.max(1, current - 1))}
-        disabled={current === 1}
+        disabled={current === 1 || disabled}
         style={{
           padding: '8px 12px',
           background: 'white',
           border: '1px solid #ddd',
           borderRadius: '4px',
-          cursor: current === 1 ? 'not-allowed' : 'pointer',
-          color: current === 1 ? '#ccc' : '#333'
+          cursor: (current === 1 || disabled) ? 'not-allowed' : 'pointer',
+          color: (current === 1 || disabled) ? '#ccc' : '#333',
+          opacity: disabled ? 0.6 : 1
         }}
       >
         Prev
@@ -47,14 +48,16 @@ const Pagination = ({ current, total, limit, onPageChange }) => {
         <button
           key={page}
           onClick={() => onPageChange(page)}
+          disabled={disabled}
           style={{
             padding: '8px 12px',
             background: page === current ? '#74317e' : 'white',
             border: '1px solid #ddd',
             borderRadius: '4px',
-            cursor: 'pointer',
+            cursor: disabled ? 'not-allowed' : 'pointer',
             color: page === current ? 'white' : '#333',
-            fontWeight: page === current ? '600' : '400'
+            fontWeight: page === current ? '600' : '400',
+            opacity: disabled ? 0.6 : 1
           }}
         >
           {page}
@@ -62,14 +65,15 @@ const Pagination = ({ current, total, limit, onPageChange }) => {
       ))}
       <button
         onClick={() => onPageChange(Math.min(totalPages, current + 1))}
-        disabled={current === totalPages}
+        disabled={current === totalPages || disabled}
         style={{
           padding: '8px 12px',
           background: 'white',
           border: '1px solid #ddd',
           borderRadius: '4px',
-          cursor: current === totalPages ? 'not-allowed' : 'pointer',
-          color: current === totalPages ? '#ccc' : '#333'
+          cursor: (current === totalPages || disabled) ? 'not-allowed' : 'pointer',
+          color: (current === totalPages || disabled) ? '#ccc' : '#333',
+          opacity: disabled ? 0.6 : 1
         }}
       >
         Next
@@ -1558,11 +1562,14 @@ function InboundGenie() {
                 fontSize: '14px',
                 fontWeight: activeTab === 'numbers' ? '600' : '400',
                 color: activeTab === 'numbers' ? '#74317e' : '#666',
-                cursor: 'pointer',
+                cursor: (loading || saving) ? 'not-allowed' : 'pointer',
                 borderBottom: activeTab === 'numbers' ? '2px solid #74317e' : '2px solid transparent',
                 marginBottom: '-2px',
-                transition: 'all 0.2s'
+                transition: 'all 0.2s',
+                pointerEvents: (loading || saving) ? 'none' : 'auto',
+                opacity: (loading || saving) ? 0.7 : 1
               }}
+              disabled={loading || saving}
             >
               <Phone size={16} />
                Numbers
@@ -1591,11 +1598,14 @@ function InboundGenie() {
                 fontSize: '14px',
                 fontWeight: activeTab === 'calls' ? '600' : '400',
                 color: activeTab === 'calls' ? '#74317e' : '#666',
-                cursor: 'pointer',
+                cursor: (loading || saving) ? 'not-allowed' : 'pointer',
                 borderBottom: activeTab === 'calls' ? '2px solid #74317e' : '2px solid transparent',
                 marginBottom: '-2px',
-                transition: 'all 0.2s'
+                transition: 'all 0.2s',
+                pointerEvents: (loading || saving) ? 'none' : 'auto',
+                opacity: (loading || saving) ? 0.7 : 1
               }}
+              disabled={loading || saving}
             >
               <Clock size={16} />
                Call History
@@ -1624,11 +1634,14 @@ function InboundGenie() {
                 fontSize: '14px',
                 fontWeight: activeTab === 'schedules' ? '600' : '400',
                 color: activeTab === 'schedules' ? '#74317e' : '#666',
-                cursor: 'pointer',
+                cursor: (loading || saving) ? 'not-allowed' : 'pointer',
                 borderBottom: activeTab === 'schedules' ? '2px solid #74317e' : '2px solid transparent',
                 marginBottom: '-2px',
-                transition: 'all 0.2s'
+                transition: 'all 0.2s',
+                pointerEvents: (loading || saving) ? 'none' : 'auto',
+                opacity: (loading || saving) ? 0.7 : 1
               }}
+              disabled={loading || saving}
             >
               <Calendar size={16} />
                Schedules
@@ -1657,11 +1670,14 @@ function InboundGenie() {
                 fontSize: '14px',
                 fontWeight: activeTab === 'agents' ? '600' : '400',
                 color: activeTab === 'agents' ? '#74317e' : '#666',
-                cursor: 'pointer',
+                cursor: (loading || saving) ? 'not-allowed' : 'pointer',
                 borderBottom: activeTab === 'agents' ? '2px solid #74317e' : '2px solid transparent',
                 marginBottom: '-2px',
-                transition: 'all 0.2s'
+                transition: 'all 0.2s',
+                pointerEvents: (loading || saving) ? 'none' : 'auto',
+                opacity: (loading || saving) ? 0.7 : 1
               }}
+              disabled={loading || saving}
             >
               <Users size={16} />
                Agents
@@ -1690,11 +1706,14 @@ function InboundGenie() {
                 fontSize: '14px',
                 fontWeight: activeTab === 'settings' ? '600' : '400',
                 color: activeTab === 'settings' ? '#74317e' : '#666',
-                cursor: 'pointer',
+                cursor: (loading || saving) ? 'not-allowed' : 'pointer',
                 borderBottom: activeTab === 'settings' ? '2px solid #74317e' : '2px solid transparent',
                 marginBottom: '-2px',
-                transition: 'all 0.2s'
+                transition: 'all 0.2s',
+                pointerEvents: (loading || saving) ? 'none' : 'auto',
+                opacity: (loading || saving) ? 0.7 : 1
               }}
+              disabled={loading || saving}
             >
               <BarChart3 size={16} />
                Settings
@@ -1711,11 +1730,14 @@ function InboundGenie() {
                 fontSize: '14px',
                 fontWeight: activeTab === 'pricing' ? '600' : '400',
                 color: activeTab === 'pricing' ? '#74317e' : '#666',
-                cursor: 'pointer',
+                cursor: (loading || saving) ? 'not-allowed' : 'pointer',
                 borderBottom: activeTab === 'pricing' ? '2px solid #74317e' : '2px solid transparent',
                 marginBottom: '-2px',
-                transition: 'all 0.2s'
+                transition: 'all 0.2s',
+                pointerEvents: (loading || saving) ? 'none' : 'auto',
+                opacity: (loading || saving) ? 0.7 : 1
               }}
+              disabled={loading || saving}
             >
               <DollarSign size={16} />
                Pricing
@@ -1748,8 +1770,11 @@ function InboundGenie() {
                     padding: '10px 12px 10px 40px',
                     border: '1px solid #ddd',
                     borderRadius: '8px',
-                    fontSize: '14px'
+                    fontSize: '14px',
+                    backgroundColor: (loading || saving) ? '#f3f4f6' : 'white',
+                    cursor: (loading || saving) ? 'not-allowed' : 'text'
                   }}
+                  disabled={loading || saving}
                 />
               </div>
 
@@ -1764,8 +1789,10 @@ function InboundGenie() {
                       border: '1px solid #ddd',
                       borderRadius: '8px',
                       fontSize: '14px',
-                      cursor: 'pointer'
+                      cursor: (loading || saving) ? 'not-allowed' : 'pointer',
+                      backgroundColor: (loading || saving) ? '#f3f4f6' : 'white'
                     }}
+                    disabled={loading || saving}
                   >
                     <option value="all">All Status</option>
                     <option value="active">Active</option>
@@ -1779,8 +1806,10 @@ function InboundGenie() {
                       border: '1px solid #ddd',
                       borderRadius: '8px',
                       fontSize: '14px',
-                      cursor: 'pointer'
+                      cursor: (loading || saving) ? 'not-allowed' : 'pointer',
+                      backgroundColor: (loading || saving) ? '#f3f4f6' : 'white'
                     }}
+                    disabled={loading || saving}
                   >
                     <option value="all">All Providers</option>
                     <option value="twilio">Twilio</option>
@@ -1800,8 +1829,10 @@ function InboundGenie() {
                       border: '1px solid #ddd',
                       borderRadius: '8px',
                       fontSize: '14px',
-                      cursor: 'pointer'
+                      cursor: (loading || saving) ? 'not-allowed' : 'pointer',
+                      backgroundColor: (loading || saving) ? '#f3f4f6' : 'white'
                     }}
+                    disabled={loading || saving}
                   >
                     <option value="all">All Status</option>
                     <option value="answered">Answered</option>
@@ -1831,8 +1862,10 @@ function InboundGenie() {
                           borderRadius: '8px',
                           fontSize: '14px',
                           width: '100%',
-                          backgroundColor: filters.agentId !== 'all' ? '#f0f7ff' : 'white'
+                          backgroundColor: filters.agentId !== 'all' ? '#f0f7ff' : (loading || saving) ? '#f3f4f6' : 'white',
+                          cursor: (loading || saving) ? 'not-allowed' : 'text'
                         }}
+                        disabled={loading || saving}
                       />
                       {filters.agentId !== 'all' && (
                         <button
@@ -1917,8 +1950,11 @@ function InboundGenie() {
                         border: '1px solid #ddd',
                         borderRadius: '8px',
                         fontSize: '14px',
-                        width: '180px'
+                        width: '180px',
+                        backgroundColor: (loading || saving) ? '#f3f4f6' : 'white',
+                        cursor: (loading || saving) ? 'not-allowed' : 'text'
                       }}
+                      disabled={loading || saving}
                     />
                     {filters.callerNumber && (
                       <button
@@ -1957,12 +1993,14 @@ function InboundGenie() {
                     color: 'white',
                     border: 'none',
                     borderRadius: '8px',
-                    cursor: 'pointer',
+                    cursor: (loading || saving) ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '8px',
-                    fontWeight: '500'
+                    fontWeight: '500',
+                    opacity: (loading || saving) ? 0.6 : 1
                   }}
+                  disabled={loading || saving}
                   title="Export to CSV"
                 >
                   <Download size={16} />
@@ -1983,14 +2021,16 @@ function InboundGenie() {
                   color: 'white',
                   border: 'none',
                   borderRadius: '8px',
-                  cursor: 'pointer',
+                  cursor: (loading || saving) ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
-                  fontWeight: '500'
+                  fontWeight: '500',
+                  opacity: (loading || saving) ? 0.6 : 1
                 }}
+                disabled={loading || saving}
               >
-                <RefreshCw size={16} />
+                <RefreshCw size={16} className={(loading || saving) ? 'animate-spin' : ''} />
                 Refresh
               </button>
             </div>
@@ -2188,6 +2228,7 @@ function InboundGenie() {
                     ...prev,
                     numbers: { ...prev.numbers, page }
                   }))}
+                  disabled={loading || saving}
                 />
               </div>
             )}
@@ -2277,6 +2318,7 @@ function InboundGenie() {
                     ...prev,
                     calls: { ...prev.calls, page }
                   }))}
+                  disabled={loading || saving}
                 />
               </div>
             )}
