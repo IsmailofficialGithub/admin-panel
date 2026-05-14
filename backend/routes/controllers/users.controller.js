@@ -623,6 +623,7 @@ export const createUser = async (req, res) => {
       phone: phone || null,
       country: country || null,
       city: city || null,
+      account_status: "active",
       referred_by: finalReferredBy || null,
       nickname: nickname ? sanitizeString(nickname, 100) : null,
     };
