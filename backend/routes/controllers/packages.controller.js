@@ -1,4 +1,4 @@
-import { supabase } from '../../config/database.js';
+import { supabaseAdmin } from '../../config/database.js';
 import { cacheService } from '../../config/redis.js';
 import {
   sanitizeString,
@@ -80,10 +80,10 @@ export const getAllPackages = async (req, res) => {
     // ========================================
     // 3. OPTIMIZED DATABASE QUERY
     // ========================================
-    let query = supabase
+    let query = supabaseAdmin
       .schema('billing')
       .from('packages')
-      .select('id, product_id, name, description, price, slug, tier, price_monthly, price_yearly, currency, credits_included, is_active, is_featured, created_at, updated_at, product_type, products:product_id (id, name), package_variables:package_variables!package_id (variable_name, variable_value)', { count: 'exact' })
+      .select('id, product_id, name, description, price, slug, tier, price_monthly, price_yearly, currency, credits_included, is_active, is_featured, created_at, updated_at, product_type', { count: 'exact' })
       .order('created_at', { ascending: false });
 
     // Filter by product if provided
@@ -110,12 +110,49 @@ export const getAllPackages = async (req, res) => {
     console.log(`✅ Found ${packages?.length || 0} packages`);
 
     // ========================================
-    // 5. ENRICH PACKAGES WITH PRODUCT NAME
+    // 5. MANUAL DATA JOINING (Cross-schema)
     // ========================================
-    const enrichedPackages = (packages || []).map(pkg => ({
-      ...pkg,
-      product_name: pkg.products?.name || null
-    }));
+    let enrichedPackages = packages || [];
+
+    if (enrichedPackages.length > 0) {
+      // 5.1 Fetch Product Names (public schema)
+      const productIds = [...new Set(enrichedPackages.map(p => p.product_id).filter(Boolean))];
+      if (productIds.length > 0) {
+        const { data: products } = await supabaseAdmin
+          .from('products')
+          .select('id, name')
+          .in('id', productIds);
+        
+        if (products) {
+          const productMap = products.reduce((acc, p) => ({ ...acc, [p.id]: p.name }), {});
+          enrichedPackages = enrichedPackages.map(pkg => ({
+            ...pkg,
+            product_name: productMap[pkg.product_id] || null
+          }));
+        }
+      }
+
+      // 5.2 Fetch Variables (inbound schema)
+      const packageIds = enrichedPackages.map(p => p.id);
+      const { data: variables } = await supabaseAdmin
+        .schema('inbound')
+        .from('package_variables')
+        .select('package_id, variable_name, variable_value')
+        .in('package_id', packageIds);
+
+      if (variables) {
+        const varMap = variables.reduce((acc, v) => {
+          if (!acc[v.package_id]) acc[v.package_id] = [];
+          acc[v.package_id].push({ variable_name: v.variable_name, variable_value: v.variable_value });
+          return acc;
+        }, {});
+        
+        enrichedPackages = enrichedPackages.map(pkg => ({
+          ...pkg,
+          package_variables: varMap[pkg.id] || []
+        }));
+      }
+    }
 
     // ========================================
     // 6. DATA SANITIZATION (Security)
@@ -183,7 +220,7 @@ export const getPackagesByProduct = async (req, res) => {
     // ========================================
     // 3. OPTIMIZED DATABASE QUERY
     // ========================================
-    const query = supabase
+    const query = supabaseAdmin
       .schema('billing')
       .from('packages')
       .select('id, product_id, name, description, price, slug, tier, price_monthly, price_yearly, currency, credits_included, is_active, is_featured, created_at, updated_at')
@@ -272,7 +309,7 @@ export const getPackageById = async (req, res) => {
     // ========================================
     // 3. OPTIMIZED DATABASE QUERY
     // ========================================
-    const query = supabase
+    const query = supabaseAdmin
       .schema('billing')
       .from('packages')
       .select('id, product_id, name, description, price, slug, tier, price_monthly, price_yearly, currency, credits_included, is_active, is_featured, created_at, updated_at')
@@ -378,7 +415,7 @@ export const createPackage = async (req, res) => {
     }
 
     // Verify product exists
-    const productCheck = await supabase
+    const productCheck = await supabaseAdmin
       .from('products')
       .select('id, name')
       .eq('id', product_id)
@@ -397,7 +434,7 @@ export const createPackage = async (req, res) => {
     // ========================================
     // 2. CREATE PACKAGE (with timeout)
     // ========================================
-    const insertPromise = supabase
+    const insertPromise = supabaseAdmin
       .schema('billing')
       .from('packages')
       .insert([{
@@ -538,7 +575,7 @@ export const updatePackage = async (req, res) => {
     // ========================================
     // 2. CHECK IF PACKAGE EXISTS (with timeout)
     // ========================================
-    const checkPromise = supabase
+    const checkPromise = supabaseAdmin
       .from('packages')
       .select('id, name, product_id')
       .eq('id', id)
@@ -557,7 +594,7 @@ export const updatePackage = async (req, res) => {
 
     // Verify product exists if product_id is being changed
     if (product_id && product_id !== existingPackage.product_id) {
-      const productCheck = await supabase
+      const productCheck = await supabaseAdmin
         .from('products')
         .select('id, name')
         .eq('id', product_id)
@@ -593,7 +630,7 @@ export const updatePackage = async (req, res) => {
     if (sort_order !== undefined) updateData.sort_order = parseInt(sort_order);
     if (metadata !== undefined) updateData.metadata = metadata;
 
-    const updatePromise = supabase
+    const updatePromise = supabaseAdmin
       .schema('billing')
       .from('packages')
       .update(updateData)
@@ -680,7 +717,7 @@ export const deletePackage = async (req, res) => {
     // ========================================
     // 2. CHECK IF PACKAGE EXISTS (with timeout)
     // ========================================
-    const checkPromise = supabase
+    const checkPromise = supabaseAdmin
       .from('packages')
       .select('id, name, product_id')
       .eq('id', id)
@@ -700,7 +737,7 @@ export const deletePackage = async (req, res) => {
     // ========================================
     // 3. DELETE PACKAGE (with timeout)
     // ========================================
-    const deletePromise = supabase
+    const deletePromise = supabaseAdmin
       .schema('billing')
       .from('packages')
       .delete()
@@ -758,7 +795,7 @@ export const getPackageFeatures = async (req, res) => {
     if (cached) return res.json({ success: true, data: cached });
 
     const { data, error } = await executeWithTimeout(
-      supabase.from('package_features').select('*').eq('package_id', id).order('display_order', { ascending: true })
+      supabaseAdmin.from('package_features').select('*').eq('package_id', id).order('display_order', { ascending: true })
     );
 
     if (error) throw error;
@@ -779,7 +816,7 @@ export const createPackageFeature = async (req, res) => {
     const featureData = sanitizeObject(req.body);
 
     const { data, error } = await executeWithTimeout(
-      supabase.from('package_features').insert([{ ...featureData, package_id: id }]).select()
+      supabaseAdmin.from('package_features').insert([{ ...featureData, package_id: id }]).select()
     );
 
     if (error) throw error;
@@ -800,7 +837,7 @@ export const updatePackageFeature = async (req, res) => {
     const featureData = sanitizeObject(req.body);
 
     const { data, error } = await executeWithTimeout(
-      supabase.from('package_features').update(featureData).eq('id', featureId).eq('package_id', id).select()
+      supabaseAdmin.from('package_features').update(featureData).eq('id', featureId).eq('package_id', id).select()
     );
 
     if (error) throw error;
@@ -820,7 +857,7 @@ export const deletePackageFeature = async (req, res) => {
     const { id, featureId } = req.params;
 
     const { error } = await executeWithTimeout(
-      supabase.from('package_features').delete().eq('id', featureId).eq('package_id', id)
+      supabaseAdmin.from('package_features').delete().eq('id', featureId).eq('package_id', id)
     );
 
     if (error) throw error;
@@ -851,7 +888,7 @@ export const getPackageVariables = async (req, res) => {
     if (cached) return res.json({ success: true, data: cached });
 
     const { data, error } = await executeWithTimeout(
-      supabase.from('package_variables').select('*').eq('package_id', id)
+      supabaseAdmin.from('package_variables').select('*').eq('package_id', id)
     );
 
     if (error) throw error;
@@ -872,7 +909,7 @@ export const createPackageVariable = async (req, res) => {
     const variableData = sanitizeObject(req.body);
 
     const { data, error } = await executeWithTimeout(
-      supabase.from('package_variables').insert([{ ...variableData, package_id: id }]).select()
+      supabaseAdmin.from('package_variables').insert([{ ...variableData, package_id: id }]).select()
     );
 
     if (error) throw error;
@@ -893,7 +930,7 @@ export const updatePackageVariable = async (req, res) => {
     const variableData = sanitizeObject(req.body);
 
     const { data, error } = await executeWithTimeout(
-      supabase.from('package_variables').update(variableData).eq('id', variableId).eq('package_id', id).select()
+      supabaseAdmin.from('package_variables').update(variableData).eq('id', variableId).eq('package_id', id).select()
     );
 
     if (error) throw error;
@@ -913,7 +950,7 @@ export const deletePackageVariable = async (req, res) => {
     const { id, variableId } = req.params;
 
     const { error } = await executeWithTimeout(
-      supabase.from('package_variables').delete().eq('id', variableId).eq('package_id', id)
+      supabaseAdmin.from('package_variables').delete().eq('id', variableId).eq('package_id', id)
     );
 
     if (error) throw error;
