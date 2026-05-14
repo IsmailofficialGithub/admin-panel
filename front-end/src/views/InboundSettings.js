@@ -4,7 +4,8 @@ import {
   Settings, Layers, Variable, Check, AlertCircle, RefreshCw
 } from 'lucide-react';
 import { 
-  getAllPackages, 
+  getAllPackages,
+  updatePackage,
   getPackageFeatures, 
   createPackageFeature, 
   updatePackageFeature, 
@@ -27,9 +28,19 @@ const InboundSettings = () => {
   // Modal/Form states
   const [showFeatureModal, setShowFeatureModal] = useState(false);
   const [showVariableModal, setShowVariableModal] = useState(false);
+  const [showPackageModal, setShowPackageModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const [packageForm, setPackageForm] = useState({
+    name: '',
+    description: '',
+    price_monthly: 0,
+    credits_included: 0,
+    tier: '',
+    is_active: true
+  });
 
   const [featureForm, setFeatureForm] = useState({
     feature_name: '',
@@ -142,6 +153,47 @@ const InboundSettings = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSavePackage = async (e) => {
+    e.preventDefault();
+    if (!selectedPackage || saving) return;
+
+    try {
+      setSaving(true);
+      // Sync price with price_monthly for compatibility
+      const dataToSave = {
+        ...packageForm,
+        price: packageForm.price_monthly
+      };
+      const response = await updatePackage(selectedPackage.id, dataToSave);
+
+      if (response.success) {
+        toast.success('Package updated successfully');
+        setShowPackageModal(false);
+        fetchPackages(); // Refresh the list
+        // Update local selected package
+        setSelectedPackage({ ...selectedPackage, ...packageForm });
+      } else {
+        toast.error(response.error || 'Failed to update package');
+      }
+    } catch (error) {
+      toast.error('Error updating package');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openPackageModal = (pkg) => {
+    setPackageForm({
+      name: pkg.name || '',
+      description: pkg.description || '',
+      price_monthly: pkg.price_monthly || pkg.price || 0,
+      credits_included: pkg.credits_included || 0,
+      tier: pkg.tier || '',
+      is_active: pkg.is_active ?? true
+    });
+    setShowPackageModal(true);
   };
 
   const handleDeleteFeature = async (id) => {
@@ -311,13 +363,33 @@ const InboundSettings = () => {
                 <p style={{ margin: '4px 0 0', color: '#666' }}>{selectedPackage.description}</p>
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  onClick={() => openPackageModal(selectedPackage)}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: 'white',
+                    color: '#74317e',
+                    border: '1px solid #74317e',
+                    borderRadius: '6px',
+                    fontSize: '13px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: (loading || saving || loadingDetails) ? 'not-allowed' : 'pointer'
+                  }}
+                  disabled={loading || saving || loadingDetails}
+                >
+                  <Edit2 size={14} /> Edit Plan
+                </button>
                 <span style={{ 
                   padding: '4px 12px', 
                   backgroundColor: '#e1f5fe', 
                   color: '#0288d1', 
                   borderRadius: '16px',
                   fontSize: '12px',
-                  fontWeight: '600'
+                  fontWeight: '600',
+                  display: 'flex',
+                  alignItems: 'center'
                 }}>
                   {(selectedPackage.tier || 'free').toUpperCase()}
                 </span>
@@ -707,6 +779,118 @@ const InboundSettings = () => {
                 >
                   {saving && <RefreshCw size={14} className="animate-spin" />}
                   {isEditing ? 'Update Variable' : 'Save Variable'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Package Modal */}
+      {showPackageModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1100
+        }}>
+          <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '12px', width: '500px', maxWidth: '90%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h4 style={{ margin: 0 }}>Edit Plan: {selectedPackage?.name}</h4>
+              <button onClick={() => setShowPackageModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} /></button>
+            </div>
+            <form onSubmit={handleSavePackage}>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '13px', marginBottom: '4px', fontWeight: '500' }}>Plan Name</label>
+                <input 
+                  type="text" value={packageForm.name} 
+                  onChange={e => setPackageForm({...packageForm, name: e.target.value})}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                  required
+                />
+              </div>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '13px', marginBottom: '4px', fontWeight: '500' }}>Description</label>
+                <textarea 
+                  value={packageForm.description} 
+                  onChange={e => setPackageForm({...packageForm, description: e.target.value})}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px', height: '60px' }}
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', marginBottom: '4px', fontWeight: '500' }}>Price (Monthly)</label>
+                  <input 
+                    type="number" 
+                    min="0"
+                    step="0.01"
+                    value={packageForm.price_monthly} 
+                    onChange={e => setPackageForm({...packageForm, price_monthly: parseFloat(e.target.value)})}
+                    style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                    required
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', marginBottom: '4px', fontWeight: '500' }}>Credits Included</label>
+                  <input 
+                    type="number" 
+                    min="0"
+                    value={packageForm.credits_included} 
+                    onChange={e => setPackageForm({...packageForm, credits_included: parseInt(e.target.value)})}
+                    style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                    required
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', marginBottom: '4px', fontWeight: '500' }}>Tier</label>
+                  <input 
+                    type="text" value={packageForm.tier} 
+                    onChange={e => setPackageForm({...packageForm, tier: e.target.value})}
+                    style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                    placeholder="e.g. Starter, Growth, Elite"
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', marginTop: '24px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                    <input type="checkbox" checked={packageForm.is_active} onChange={e => setPackageForm({...packageForm, is_active: e.target.checked})} />
+                    Active
+                  </label>
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setShowPackageModal(false)} 
+                  disabled={saving}
+                  style={{ 
+                    padding: '8px 16px', 
+                    border: '1px solid #ddd', 
+                    background: 'none', 
+                    borderRadius: '6px', 
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    opacity: saving ? 0.7 : 1
+                  }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={saving}
+                  style={{ 
+                    padding: '8px 16px', 
+                    backgroundColor: '#74317e', 
+                    color: 'white', 
+                    border: 'none', 
+                    borderRadius: '6px', 
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    opacity: saving ? 0.7 : 1
+                  }}
+                >
+                  {saving && <RefreshCw size={14} className="animate-spin" />}
+                  Save Plan Changes
                 </button>
               </div>
             </form>

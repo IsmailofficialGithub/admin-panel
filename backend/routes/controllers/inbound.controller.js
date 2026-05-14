@@ -1976,10 +1976,11 @@ export const getInboundPackages = async (req, res) => {
     const { pageNum, limitNum } = validatePagination(page, limit);
     const offset = (pageNum - 1) * limitNum;
 
+    // 1. Fetch packages from billing schema
     let query = supabaseAdmin
       .schema('billing')
       .from('packages')
-      .select('*, package_variables:package_variables!package_id (variable_name, variable_value)', { count: 'exact' })
+      .select('*', { count: 'exact' })
       .eq('product_type', 'inbound')
       .eq('is_active', true)
       .order('created_at', { ascending: false });
@@ -1990,17 +1991,82 @@ export const getInboundPackages = async (req, res) => {
 
     query = query.range(offset, offset + limitNum - 1);
 
-    const { data, error, count } = await query;
-
+    const { data: packages, error, count } = await query;
 
     if (error) throw error;
 
-    // Map data to match frontend expectations (price and billing_cycle)
-    const mappedData = (data || []).map(pkg => ({
-      ...pkg,
-      price: pkg.price_monthly || pkg.price || 0,
-      billing_cycle: pkg.billing_cycle || 'monthly'
-    }));
+    if (!packages || packages.length === 0) {
+      // Fallback packages if DB is empty (based on user provided data)
+      const fallbackPackages = [
+        {
+          id: '0cb33e90-f759-4b4b-a038-e938f65d6997',
+          product_id: '107e2ca1-ef1f-41c6-a3ad-26b54d7838c3',
+          name: 'Starter',
+          description: 'Basic features with limited access',
+          price: 399.00,
+          price_monthly: 399.00,
+          billing_cycle: 'monthly',
+          credits_included: 1000,
+          is_active: true,
+          product_type: 'inbound',
+          tier: 'Starter',
+          slug: 'free-plan-1'
+        },
+        {
+          id: '5038c07b-8372-4540-b50d-93f7d7233360',
+          product_id: 'd94a62fb-a503-4402-a3ce-673625768a81',
+          name: 'Growth',
+          description: 'Advanced features with priority support',
+          price: 750.00,
+          price_monthly: 750.00,
+          billing_cycle: 'monthly',
+          credits_included: 2500,
+          is_active: true,
+          product_type: 'inbound',
+          tier: 'Growth',
+          slug: 'premium-2'
+        },
+        {
+          id: '28ae5a7b-1293-4408-a650-d8d42a80b5de',
+          product_id: 'a8433d1c-8a1f-4eeb-8d55-87ec4487e2e9',
+          name: 'Elite',
+          description: 'Full-featured solution with dedicated support',
+          price: 1199.00,
+          price_monthly: 1199.00,
+          billing_cycle: 'monthly',
+          credits_included: 4000,
+          is_active: true,
+          product_type: 'inbound',
+          tier: 'Elite',
+          slug: 'enterprise'
+        }
+      ];
+      return res.json(createPaginatedResponse(fallbackPackages, 3, pageNum, limitNum));
+    }
+
+    // 2. Fetch variables from inbound schema for these packages
+    const packageIds = packages.map(p => p.id);
+    const { data: variables, error: varError } = await supabaseAdmin
+      .schema('inbound')
+      .from('package_variables')
+      .select('package_id, variable_name, variable_value')
+      .in('package_id', packageIds);
+
+    if (varError) {
+      console.warn('Error fetching package variables:', varError);
+      // Don't fail the whole request, just return packages without variables
+    }
+
+    // 3. Map data to match frontend expectations (price and billing_cycle)
+    const mappedData = packages.map(pkg => {
+      const pkgVars = (variables || []).filter(v => v.package_id === pkg.id);
+      return {
+        ...pkg,
+        package_variables: pkgVars,
+        price: pkg.price_monthly || pkg.price || 0,
+        billing_cycle: pkg.billing_cycle || 'monthly'
+      };
+    });
 
     return res.json(
       createPaginatedResponse(mappedData, count || 0, pageNum, limitNum)

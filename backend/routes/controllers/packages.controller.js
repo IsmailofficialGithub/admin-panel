@@ -465,7 +465,11 @@ export const updatePackage = async (req, res) => {
     // 1. INPUT VALIDATION
     // ========================================
     const { id } = req.params;
-    let { product_id, name, description, price } = req.body;
+    let { 
+      product_id, name, description, price, 
+      price_monthly, price_yearly, credits_included, 
+      tier, slug, is_active, is_featured, sort_order, metadata 
+    } = req.body;
 
     if (!id || !isValidUUID(id)) {
       return res.status(400).json({
@@ -507,16 +511,22 @@ export const updatePackage = async (req, res) => {
     }
 
     // Validate price if provided
-    let priceNum = null;
-    if (price !== undefined && price !== null) {
-      priceNum = parseFloat(price);
-      if (isNaN(priceNum) || priceNum < 0) {
-        return res.status(400).json({
-          success: false,
-          error: 'Bad Request',
-          message: 'Price must be a non-negative number'
-        });
-      }
+    const validatePrice = (p) => {
+      if (p === undefined || p === null) return null;
+      const n = parseFloat(p);
+      return isNaN(n) || n < 0 ? 'invalid' : n;
+    };
+
+    const priceNum = validatePrice(price);
+    const priceMonthlyNum = validatePrice(price_monthly);
+    const priceYearlyNum = validatePrice(price_yearly);
+
+    if (priceNum === 'invalid' || priceMonthlyNum === 'invalid' || priceYearlyNum === 'invalid') {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Price values must be non-negative numbers'
+      });
     }
 
     console.log(`📦 Updating package with ID: ${id}`);
@@ -567,19 +577,23 @@ export const updatePackage = async (req, res) => {
       updated_at: new Date().toISOString()
     };
 
-    if (product_id) {
-      updateData.product_id = product_id;
-    }
-
-    if (priceNum !== null) {
-      updateData.price = priceNum;
-    }
+    if (product_id) updateData.product_id = product_id;
+    if (priceNum !== null) updateData.price = priceNum;
+    if (priceMonthlyNum !== null) updateData.price_monthly = priceMonthlyNum;
+    if (priceYearlyNum !== null) updateData.price_yearly = priceYearlyNum;
+    if (credits_included !== undefined) updateData.credits_included = parseInt(credits_included);
+    if (tier !== undefined) updateData.tier = tier;
+    if (slug !== undefined) updateData.slug = slug;
+    if (is_active !== undefined) updateData.is_active = !!is_active;
+    if (is_featured !== undefined) updateData.is_featured = !!is_featured;
+    if (sort_order !== undefined) updateData.sort_order = parseInt(sort_order);
+    if (metadata !== undefined) updateData.metadata = metadata;
 
     const updatePromise = supabase
       .from('packages')
       .update(updateData)
       .eq('id', id)
-      .select('id, product_id, name, description, price, created_at, updated_at')
+      .select('id, product_id, name, description, price, slug, tier, price_monthly, price_yearly, currency, credits_included, is_active, is_featured, sort_order, metadata, created_at, updated_at')
       .single();
 
     const { data: packageData, error } = await executeWithTimeout(updatePromise);
