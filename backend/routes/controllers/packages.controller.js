@@ -82,7 +82,7 @@ export const getAllPackages = async (req, res) => {
     // ========================================
     let query = supabase
       .from('packages')
-      .select('id, product_id, name, description, price, slug, tier, price_monthly, price_yearly, currency, is_active, is_featured, created_at, updated_at, product_type, products:product_id (id, name), package_variables:package_variables!package_id (variable_name, variable_value)', { count: 'exact' })
+      .select('id, product_id, name, description, price, slug, tier, price_monthly, price_yearly, currency, credits_included, is_active, is_featured, created_at, updated_at, product_type, products:product_id (id, name), package_variables:package_variables!package_id (variable_name, variable_value)', { count: 'exact' })
       .order('created_at', { ascending: false });
 
     // Filter by product if provided
@@ -184,7 +184,7 @@ export const getPackagesByProduct = async (req, res) => {
     // ========================================
     const query = supabase
       .from('packages')
-      .select('id, product_id, name, description, price, created_at, updated_at')
+      .select('id, product_id, name, description, price, slug, tier, price_monthly, price_yearly, currency, credits_included, is_active, is_featured, created_at, updated_at')
       .eq('product_id', productId)
       .order('created_at', { ascending: false });
 
@@ -272,7 +272,7 @@ export const getPackageById = async (req, res) => {
     // ========================================
     const query = supabase
       .from('packages')
-      .select('id, product_id, name, description, price, slug, tier, price_monthly, price_yearly, currency, is_active, is_featured, created_at, updated_at')
+      .select('id, product_id, name, description, price, slug, tier, price_monthly, price_yearly, currency, credits_included, is_active, is_featured, created_at, updated_at')
       .eq('id', id)
       .single();
 
