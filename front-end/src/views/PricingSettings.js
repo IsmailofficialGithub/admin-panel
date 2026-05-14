@@ -59,13 +59,16 @@ const PricingSettings = () => {
   };
 
   const handleRateChange = (key, value) => {
-    setSettings({
-      ...settings,
-      credit_rates: {
-        ...settings.credit_rates,
-        [key]: parseFloat(value) || 0
-      }
-    });
+    const numericValue = parseFloat(value);
+    if (value === '' || numericValue >= 0) {
+      setSettings({
+        ...settings,
+        credit_rates: {
+          ...settings.credit_rates,
+          [key]: value === '' ? '' : numericValue
+        }
+      });
+    }
   };
 
   if (loading) {
@@ -131,6 +134,7 @@ const PricingSettings = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <input 
                 type="number" 
+                min="0"
                 value={settings.credit_rates.purchase_rate}
                 onChange={(e) => handleRateChange('purchase_rate', e.target.value)}
                 disabled={saving}
@@ -170,6 +174,7 @@ const PricingSettings = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <input 
                 type="number" 
+                min="0"
                 value={settings.credit_rates.agent_creation}
                 onChange={(e) => handleRateChange('agent_creation', e.target.value)}
                 disabled={saving}
@@ -209,6 +214,7 @@ const PricingSettings = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <input 
                 type="number" 
+                min="0"
                 value={settings.credit_rates.call_per_minute}
                 onChange={(e) => handleRateChange('call_per_minute', e.target.value)}
                 disabled={saving}

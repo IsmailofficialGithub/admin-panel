@@ -18,7 +18,7 @@ const CreditsModal = ({ isOpen, onClose, userId, productId, userName }) => {
   });
   const [packages, setPackages] = useState([]);
   const [selectedPackage, setSelectedPackage] = useState('');
-  const [adjustment, setAdjustment] = useState(0);
+  const [adjustment, setAdjustment] = useState('');
   const [adjustmentType, setAdjustmentType] = useState('add'); // 'add' or 'subtract'
 
   useEffect(() => {
@@ -64,6 +64,11 @@ const CreditsModal = ({ isOpen, onClose, userId, productId, userName }) => {
           newBalance += adjValue;
           newTotalPurchased += adjValue;
         } else {
+          if (newBalance < adjValue) {
+            toast.error('Insufficient balance for this adjustment');
+            setSaving(false);
+            return;
+          }
           newBalance -= adjValue;
           // We don't necessarily subtract from total_purchased unless it's a correction
         }
@@ -78,7 +83,7 @@ const CreditsModal = ({ isOpen, onClose, userId, productId, userName }) => {
       const res = await updateUserCredits(userId, updateData);
       if (res.success) {
         setCredits(res.data);
-        setAdjustment(0);
+        setAdjustment('');
         toast.success('Credits updated successfully');
       } else {
         toast.error(res.error || 'Failed to update credits');
@@ -308,8 +313,14 @@ const CreditsModal = ({ isOpen, onClose, userId, productId, userName }) => {
                   <div style={{ flex: 1 }}>
                     <input
                       type="number"
+                      min="0"
                       value={adjustment}
-                      onChange={(e) => setAdjustment(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '' || parseFloat(val) >= 0) {
+                          setAdjustment(val);
+                        }
+                      }}
                       placeholder="0.00"
                       style={inputStyle}
                     />
