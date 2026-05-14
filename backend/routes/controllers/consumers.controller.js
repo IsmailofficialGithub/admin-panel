@@ -3,6 +3,7 @@ import { sendPasswordResetEmail, sendTrialPeriodChangeEmail, sendTrialExtensionE
 import { generatePassword } from '../../utils/helpers.js';
 import { logActivity, getActorInfo, getClientIp, getUserAgent } from '../../services/activityLogger.js';
 import { cacheService } from '../../config/redis.js';
+import { performFullUserCleanup } from '../../utils/databaseCleanup.js';
 import {
   sanitizeString,
   isValidUUID,
@@ -95,10 +96,10 @@ export const getAllConsumers = async (req, res) => {
     // ========================================
     // 3. OPTIMIZED DATABASE QUERY
     // ========================================
-    let query = supabase
+    let query = supabaseAdmin
       .from('auth_role_with_profiles')
       .select(CONSUMER_SELECT_FIELDS, { count: 'exact' })
-      .contains('role', ['consumer']); // Check if role array contains 'consumer'
+      .contains('role', ['consumer']); // Keep filter for list view to show only consumers
     // Filter by account_status if provided
     if (statusFilter && statusFilter !== 'all') {
       query = query.eq('account_status', statusFilter);
@@ -270,12 +271,11 @@ export const getConsumerById = async (req, res) => {
     // ========================================
     // 2. OPTIMIZED DATABASE QUERY
     // ========================================
-    const queryPromise = supabase
+    const queryPromise = supabaseAdmin
       .from('auth_role_with_profiles')
       .select(CONSUMER_SELECT_FIELDS)
       .eq('user_id', id)
-      .contains('role', ['consumer']) // Check if role array contains 'consumer'
-      .single();
+      .maybeSingle();
 
     const { data: consumer, error } = await executeWithTimeout(queryPromise);
 
@@ -506,12 +506,11 @@ export const updateConsumer = async (req, res) => {
     }
 
     // Get current consumer data before update to compare trial_expiry
-    const currentConsumerPromise = supabase
-      .from('auth_role_with_profiles')
+    const currentConsumerPromise = supabaseAdmin
+      .from('profiles')
       .select('email, full_name, trial_expiry')
       .eq('user_id', id)
-      .contains('role', ['consumer']) // Check if role array contains 'consumer'
-      .single();
+      .maybeSingle();
 
     const { data: currentConsumer, error: fetchError } = await executeWithTimeout(currentConsumerPromise);
 
@@ -520,20 +519,19 @@ export const updateConsumer = async (req, res) => {
     }
 
     // Get old data for logging changed fields
-    const oldConsumerPromise = supabase
-      .from('auth_role_with_profiles')
+    const oldConsumerPromise = supabaseAdmin
+      .from('profiles')
       .select('*')
       .eq('user_id', id)
-      .single();
+      .maybeSingle();
 
     const { data: oldConsumer } = await executeWithTimeout(oldConsumerPromise);
 
     const oldTrialExpiry = currentConsumer?.trial_expiry || null;
 
-    const updatePromise = supabase
+    const updatePromise = supabaseAdmin
       .from('profiles')
-      .update(updateData)
-      .eq('user_id', id)
+      .upsert({ user_id: id, ...updateData, updated_at: new Date().toISOString() })
       .select()
       .maybeSingle();
 
@@ -542,7 +540,7 @@ export const updateConsumer = async (req, res) => {
     console.log("updatedConsumer", updatedConsumer);
 
     if (error) {
-      console.error('❌ Error updating consumer:', error);
+      console.error(' Error updating consumer:', error);
       return res.status(400).json({
         success: false,
         error: 'Bad Request',
@@ -695,10 +693,10 @@ export const updateConsumer = async (req, res) => {
             }
 
             // Merge user-provided settings with defaults
-            const userSettings = (productSettings && typeof productSettings === 'object' && productSettings[productId]) 
-              ? productSettings[productId] 
+            const userSettings = (productSettings && typeof productSettings === 'object' && productSettings[productId])
+              ? productSettings[productId]
               : {};
-            
+
             // Start with defaults, then override with user settings
             const mergedSettings = { ...defaultSettings, ...userSettings };
 
@@ -742,6 +740,23 @@ export const updateConsumer = async (req, res) => {
               sanitizedSettings.carasoul = parseInt(mergedSettings.carasoul);
             }
 
+            // Inbound product settings (Balance & Credits)
+            if (mergedSettings.balance !== undefined && mergedSettings.balance !== null && mergedSettings.balance !== '') {
+              sanitizedSettings.balance = parseFloat(mergedSettings.balance);
+            }
+            if (mergedSettings.low_credit_threshold !== undefined && mergedSettings.low_credit_threshold !== null && mergedSettings.low_credit_threshold !== '') {
+              sanitizedSettings.low_credit_threshold = parseFloat(mergedSettings.low_credit_threshold);
+            }
+            if (mergedSettings.auto_topup_enabled !== undefined) {
+              sanitizedSettings.auto_topup_enabled = !!mergedSettings.auto_topup_enabled;
+            }
+            if (mergedSettings.auto_topup_amount !== undefined && mergedSettings.auto_topup_amount !== null && mergedSettings.auto_topup_amount !== '') {
+              sanitizedSettings.auto_topup_amount = parseFloat(mergedSettings.auto_topup_amount);
+            }
+            if (mergedSettings.auto_topup_threshold !== undefined && mergedSettings.auto_topup_threshold !== null && mergedSettings.auto_topup_threshold !== '') {
+              sanitizedSettings.auto_topup_threshold = parseFloat(mergedSettings.auto_topup_threshold);
+            }
+
             // Always add product_settings (with defaults if no user settings provided)
             if (Object.keys(sanitizedSettings).length > 0) {
               record.product_settings = sanitizedSettings;
@@ -781,8 +796,8 @@ export const updateConsumer = async (req, res) => {
                 const newVapiAccountId = genieRecord?.product_settings?.vapi_account || null;
 
                 // Get old VAPI account ID
-                const oldVapiAccountId = oldGenieProductSettings?.vapiAccountId 
-                  ? parseInt(oldGenieProductSettings.vapiAccountId) 
+                const oldVapiAccountId = oldGenieProductSettings?.vapiAccountId
+                  ? parseInt(oldGenieProductSettings.vapiAccountId)
                   : null;
 
                 // Only update if VAPI account changed
@@ -961,7 +976,7 @@ export const updateConsumer = async (req, res) => {
       try {
         const genieProductId = oldGenieProductSettings.productId;
         const oldVapiAccountId = oldGenieProductSettings.vapiAccountId;
-        
+
         // Get new VAPI account ID from productSettings
         let newVapiAccountId = null;
         const genieSettings = productSettings[genieProductId];
@@ -1003,18 +1018,18 @@ export const updateConsumer = async (req, res) => {
               },
               body: JSON.stringify(webhookData)
             })
-            .then(async response => {
-              if (!response.ok) {
-                const errorText = await response.text().catch(() => 'Unknown error');
-                console.error('❌ Webhook call failed:', response.status, response.statusText, errorText);
-              } else {
-                console.log('✅ Webhook called successfully for VAPI account change');
-              }
-            })
-            .catch(error => {
-              console.error('❌ Error calling webhook:', error);
-              // Don't block the update if webhook fails
-            });
+              .then(async response => {
+                if (!response.ok) {
+                  const errorText = await response.text().catch(() => 'Unknown error');
+                  console.error('❌ Webhook call failed:', response.status, response.statusText, errorText);
+                } else {
+                  console.log('✅ Webhook called successfully for VAPI account change');
+                }
+              })
+              .catch(error => {
+                console.error('❌ Error calling webhook:', error);
+                // Don't block the update if webhook fails
+              });
           }
         }
       } catch (webhookError) {
@@ -1029,7 +1044,7 @@ export const updateConsumer = async (req, res) => {
     await cacheService.del(CACHE_KEYS.CONSUMER_BY_ID(id));
     await cacheService.delByPattern('users:list:*');
     await cacheService.delByPattern('consumers:*');
-    
+
     // If roles were updated, also clear permission caches since permissions are role-based
     if (updateData.role) {
       await cacheService.delByPattern('permissions:*');
@@ -1037,7 +1052,7 @@ export const updateConsumer = async (req, res) => {
       await cacheService.del(`permissions:user:${id}`);
       console.log('✅ Also cleared permission caches due to role update');
     }
-    
+
     console.log('✅ Cache invalidated for consumer update');
 
     // ========================================
@@ -1083,14 +1098,13 @@ export const deleteConsumer = async (req, res) => {
     // ========================================
     // 2. CHECK IF CONSUMER EXISTS (with timeout)
     // ========================================
-    const consumerPromise = supabase
-      .from('auth_role_with_profiles')
-      .select('*')
+    const checkPromise = supabaseAdmin
+      .from('profiles')
+      .select('role')
       .eq('user_id', id)
-      .contains('role', ['consumer']) // Check if role array contains 'consumer'
-      .single();
+      .maybeSingle();
 
-    const { data: consumer, error: fetchError } = await executeWithTimeout(consumerPromise);
+    const { data: consumer, error: fetchError } = await executeWithTimeout(checkPromise);
 
     if (fetchError || !consumer) {
       console.error('❌ Error fetching consumer:', fetchError);
@@ -1114,27 +1128,19 @@ export const deleteConsumer = async (req, res) => {
       userAgent: getUserAgent(req)
     });
 
+    // 3. ROBUST DATA CLEANUP (FOREIGN KEY HELL)
     // ========================================
-    // 3. DELETE CONSUMER (with timeout)
-    // ========================================
-    // Delete from profiles table first
-    const deleteProfilePromise = supabase
-      .from('profiles')
-      .delete()
-      .eq('user_id', id);
+    const cleanupSuccess = await performFullUserCleanup(id);
 
-    const { error: profileError } = await executeWithTimeout(deleteProfilePromise);
-
-    if (profileError) {
-      console.error('❌ Error deleting consumer profile:', profileError);
-      return res.status(400).json({
+    if (!cleanupSuccess) {
+      return res.status(500).json({
         success: false,
-        error: 'Bad Request',
-        message: 'Failed to delete consumer. Please try again.'
+        error: 'CLEANUP_FAILED',
+        message: 'Failed to clean up consumer data. The deletion was aborted to prevent data corruption.'
       });
     }
 
-    // Delete from auth using admin client
+    // 4. DELETE USER FROM AUTH
     if (supabaseAdmin) {
       try {
         const deleteAuthPromise = supabaseAdmin.auth.admin.deleteUser(id);
@@ -1216,12 +1222,11 @@ export const updateConsumerAccountStatus = async (req, res) => {
     // ========================================
     // 2. FETCH CONSUMER (with timeout)
     // ========================================
-    const consumerPromise = supabase
+    const consumerPromise = supabaseAdmin
       .from('auth_role_with_profiles')
-      .select('created_at, trial_expiry, lifetime_access, total_trial_days_used')
+      .select('created_at, email, trial_expiry, lifetime_access, total_trial_days_used')
       .eq('user_id', id)
-      .contains('role', ['consumer']) // Check if role array contains 'consumer'
-      .single();
+      .maybeSingle();
 
     const { data: consumer, error: fetchError } = await executeWithTimeout(consumerPromise);
 
@@ -1296,15 +1301,15 @@ export const updateConsumerAccountStatus = async (req, res) => {
         const createdAt = new Date(consumer.created_at);
         const requestedExpiryDate = new Date(trial_expiry_date);
         const now = new Date();
-        
+
         // Calculate total days from account creation to new expiry date
         const totalDaysFromCreation = Math.ceil((requestedExpiryDate - createdAt) / (1000 * 60 * 60 * 24));
-        
+
         // Get current user's role to check permissions
         const currentUserRole = req.userProfile?.role || req.user?.role || null;
         const isAdmin = hasRole(currentUserRole, 'admin') || req.userProfile?.is_systemadmin === true;
         const isReseller = hasRole(currentUserRole, 'reseller');
-        
+
         // Validate: resellers can only extend up to 7 days from account creation
         // Admins can extend as long as they want (no limit)
         if (isReseller && totalDaysFromCreation > 7) {
@@ -1313,7 +1318,7 @@ export const updateConsumerAccountStatus = async (req, res) => {
             message: `Cannot extend beyond 7 days from account creation date. Maximum 7 days allowed for resellers. Use lifetime_access: true for unlimited access.`
           });
         }
-        
+
         // Update trial_expiry and total_trial_days_used
         // total_trial_days_used = total days from account creation to new expiry
         updateData.trial_expiry = trial_expiry_date;
@@ -1347,12 +1352,11 @@ export const updateConsumerAccountStatus = async (req, res) => {
     // ========================================
     // 3. GET CONSUMER INFO (with timeout)
     // ========================================
-    const consumerInfoPromise = supabase
+    const consumerInfoPromise = supabaseAdmin
       .from('auth_role_with_profiles')
       .select('email, full_name, trial_expiry')
       .eq('user_id', id)
-      .contains('role', ['consumer']) // Check if role array contains 'consumer'
-      .single();
+      .maybeSingle();
 
     const { data: consumerInfo, error: infoError } = await executeWithTimeout(consumerInfoPromise);
 
@@ -1366,11 +1370,9 @@ export const updateConsumerAccountStatus = async (req, res) => {
     // ========================================
     // 4. UPDATE STATUS (with timeout)
     // ========================================
-    const updatePromise = supabase
+    const updatePromise = supabaseAdmin
       .from('profiles')
-      .update(updateData)
-      .eq('user_id', id)
-      .contains('role', ['consumer'])
+      .upsert({ user_id: id, ...updateData, updated_at: new Date().toISOString() })
       .select()
       .maybeSingle();
 
@@ -1612,12 +1614,11 @@ export const grantLifetimeAccess = async (req, res) => {
     // ========================================
     // 2. FETCH CONSUMER (with timeout)
     // ========================================
-    const consumerPromise = supabase
-      .from('auth_role_with_profiles')
-      .select('user_id, full_name, email, lifetime_access, role')
+    const consumerPromise = supabaseAdmin
+      .from('profiles')
+      .select('user_id, full_name, lifetime_access, role')
       .eq('user_id', id)
-      .contains('role', ['consumer']) // Check if role array contains 'consumer'
-      .single();
+      .maybeSingle();
 
     const { data: consumer, error: fetchError } = await executeWithTimeout(consumerPromise);
 
@@ -1642,10 +1643,9 @@ export const grantLifetimeAccess = async (req, res) => {
     // ========================================
     // 3. UPDATE LIFETIME ACCESS (with timeout)
     // ========================================
-    const updatePromise = supabase
+    const updatePromise = supabaseAdmin
       .from('profiles')
-      .update({ lifetime_access: true })
-      .eq('user_id', id)
+      .upsert({ user_id: id, lifetime_access: true, updated_at: new Date().toISOString() })
       .select()
       .maybeSingle();
 
@@ -1757,12 +1757,11 @@ export const revokeLifetimeAccess = async (req, res) => {
     // ========================================
     // 2. FETCH CONSUMER (with timeout)
     // ========================================
-    const consumerPromise = supabase
-      .from('auth_role_with_profiles')
-      .select('user_id, full_name, email, lifetime_access, role, created_at, trial_expiry')
+    const consumerPromise = supabaseAdmin
+      .from('profiles')
+      .select('user_id, full_name, lifetime_access, role, created_at, trial_expiry')
       .eq('user_id', id)
-      .contains('role', ['consumer']) // Check if role array contains 'consumer'
-      .single();
+      .maybeSingle();
 
     const { data: consumer, error: fetchError } = await executeWithTimeout(consumerPromise);
 
@@ -1806,10 +1805,9 @@ export const revokeLifetimeAccess = async (req, res) => {
     }
     // If consumer.trial_expiry exists and no trial_days provided, keep existing trial_expiry
 
-    const updatePromise = supabase
+    const updatePromise = supabaseAdmin
       .from('profiles')
-      .update(updateData)
-      .eq('user_id', id)
+      .upsert({ user_id: id, ...updateData, updated_at: new Date().toISOString() })
       .select()
       .maybeSingle();
 
@@ -1924,12 +1922,11 @@ export const reassignConsumerToReseller = async (req, res) => {
     // ========================================
     // 2. VERIFY CONSUMER EXISTS (with timeout)
     // ========================================
-    const consumerPromise = supabase
-      .from('auth_role_with_profiles')
-      .select('user_id, full_name, email, role, referred_by')
+    const consumerPromise = supabaseAdmin
+      .from('profiles')
+      .select('user_id, full_name, referred_by, role')
       .eq('user_id', id)
-      .contains('role', ['consumer']) // Check if role array contains 'consumer'
-      .single();
+      .maybeSingle();
 
     const { data: consumer, error: consumerError } = await executeWithTimeout(consumerPromise);
 
@@ -1956,11 +1953,11 @@ export const reassignConsumerToReseller = async (req, res) => {
     // ========================================
     // 3. VERIFY RESELLER EXISTS (with timeout)
     // ========================================
-    const resellerPromise = supabase
-      .from('auth_role_with_profiles')
-      .select('user_id, full_name, email, role')
+    const resellerPromise = supabaseAdmin
+      .from('profiles')
+      .select('id, full_name, role')
       .eq('user_id', reseller_id)
-      .single();
+      .maybeSingle();
 
     const { data: reseller, error: resellerError } = await executeWithTimeout(resellerPromise);
 
@@ -1994,10 +1991,13 @@ export const reassignConsumerToReseller = async (req, res) => {
     // ========================================
     // 4. UPDATE REFERRED_BY (with timeout)
     // ========================================
-    const updatePromise = supabase
+    const updatePromise = supabaseAdmin
       .from('profiles')
-      .update({ referred_by: reseller_id })
-      .eq('user_id', id)
+      .upsert({
+        user_id: id,
+        referred_by: reseller_id,
+        updated_at: new Date().toISOString()
+      })
       .select()
       .maybeSingle();
 

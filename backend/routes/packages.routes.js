@@ -7,6 +7,14 @@ import {
   createPackage,
   updatePackage,
   deletePackage,
+  getPackageFeatures,
+  createPackageFeature,
+  updatePackageFeature,
+  deletePackageFeature,
+  getPackageVariables,
+  createPackageVariable,
+  updatePackageVariable,
+  deletePackageVariable,
   rateLimitMiddleware,
   sanitizeInputMiddleware
 } from './controllers/packages.controller.js';
@@ -54,6 +62,22 @@ router.put('/:id', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInpu
  * @access  Private (Admin)
  */
 router.delete('/:id', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, deletePackage);
+
+/**
+ * Package Features Routes
+ */
+router.get('/:id/features', authenticate, requireRole(['admin','reseller','consumer','support']), rateLimitMiddleware, getPackageFeatures);
+router.post('/:id/features', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, createPackageFeature);
+router.put('/:id/features/:featureId', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, updatePackageFeature);
+router.delete('/:id/features/:featureId', authenticate, requireAdmin, rateLimitMiddleware, deletePackageFeature);
+
+/**
+ * Package Variables Routes
+ */
+router.get('/:id/variables', authenticate, requireRole(['admin','reseller','consumer','support']), rateLimitMiddleware, getPackageVariables);
+router.post('/:id/variables', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, createPackageVariable);
+router.put('/:id/variables/:variableId', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, updatePackageVariable);
+router.delete('/:id/variables/:variableId', authenticate, requireAdmin, rateLimitMiddleware, deletePackageVariable);
 
 export default router;
 

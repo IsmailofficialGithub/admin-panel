@@ -211,7 +211,7 @@ axiosInstance.interceptors.response.use(
       } catch (signOutError) {
         // Ignore sign out errors
       }
-      
+
       await new Promise(resolve => setTimeout(resolve, 200));
       localStorage.clear();
       sessionStorage.clear();
@@ -225,7 +225,7 @@ axiosInstance.interceptors.response.use(
 
       // Redirect to login immediately (no toast will be shown)
       // window.location.href = '/login';
-      
+
       // Return a rejected promise that never resolves (prevents error propagation)
       return Promise.reject(new Error('Authentication required - redirecting to login'));
     }
@@ -468,6 +468,26 @@ const apiClient = {
      * Reassign consumer to a different reseller
      */
     reassign: (id, data) => axiosInstance.post(`/consumers/${id}/reassign`, data),
+
+    /**
+     * Get user credits
+     */
+    getUserCredits: (userId) => axiosInstance.get(`/consumers/${userId}/credits`),
+
+    /**
+     * Update user credits
+     */
+    updateUserCredits: (userId, creditData) => axiosInstance.put(`/consumers/${userId}/credits`, creditData),
+
+    /**
+     * Get billing packages for product
+     */
+    getBillingPackages: (productId) => axiosInstance.get(`/consumers/products/${productId}/packages`),
+
+    /**
+     * Create user subscription
+     */
+    createUserSubscription: (userId, subscriptionData) => axiosInstance.post(`/consumers/${userId}/subscriptions`, subscriptionData),
   },
 
   // ==================== RESELLERS ====================
@@ -1055,7 +1075,7 @@ const apiClient = {
         try {
           const contentType = response.headers.get('content-type');
           let errorData;
-          
+
           if (contentType && contentType.includes('application/json')) {
             errorData = await response.json();
           } else {
@@ -1073,7 +1093,7 @@ const apiClient = {
               }
             }
           }
-          
+
           // Extract message from error data
           if (errorData) {
             errorMessage = errorData.message || errorData.error || errorMessage;
@@ -1085,7 +1105,7 @@ const apiClient = {
           }
           console.error('Error parsing error response:', parseError);
         }
-        
+
         const error = new Error(errorMessage);
         error.status = response.status;
         throw error;
@@ -1337,6 +1357,24 @@ const apiClient = {
     getVapiAccounts: () => axiosInstance.get('/genie/vapi-accounts'),
     assignVapiAccountToBots: (ownerUserId, vapiAccountId) =>
       axiosInstance.patch('/genie/bots/assign-vapi-account', { ownerUserId, vapiAccountId }),
+  },
+
+  // ==================== INBOUND ====================
+  inbound: {
+    /**
+     * Get all inbound packages
+     */
+    getPackages: () => axiosInstance.get('/inbound/packages'),
+    
+    /**
+     * Get inbound system settings
+     */
+    getSettings: () => axiosInstance.get('/inbound/settings'),
+
+    /**
+     * Update inbound system settings
+     */
+    updateSettings: (data) => axiosInstance.patch('/inbound/settings', data),
   },
 };
 

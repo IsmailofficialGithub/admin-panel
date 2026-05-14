@@ -367,6 +367,97 @@ export const updateConsumerProductSettings = async (consumerId, settings) => {
   }
 };
 
+/**
+ * Get user credits
+ * @param {string} userId - User ID
+ */
+export const getUserCredits = async (userId) => {
+  try {
+    const response = await apiClient.consumers.getUserCredits(userId);
+    return response;
+  } catch (error) {
+    console.error('getUserCredits Error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Update user credits
+ * @param {string} userId - User ID
+ * @param {Object} creditData - Credit data
+ */
+export const updateUserCredits = async (userId, creditData) => {
+  try {
+    const response = await apiClient.consumers.updateUserCredits(userId, creditData);
+    return response;
+  } catch (error) {
+    console.error('updateUserCredits Error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Get billing packages for product
+ * @param {string} productId - Product ID
+ */
+export const getBillingPackages = async (productId) => {
+  try {
+    // Product ID for Inbound (from .env or hardcoded)
+    const inboundProductId = '1e27e1d8-2c82-408c-89c3-ecab9f608cc8';
+    
+    // If it's an inbound product, use the specialized endpoint
+    if (productId === inboundProductId) {
+      console.log('📦 Fetching specialized inbound packages...');
+      return await getInboundPackages();
+    }
+
+    const response = await apiClient.consumers.getBillingPackages(productId);
+    return response;
+  } catch (error) {
+    console.error('getBillingPackages Error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Get specialized inbound packages
+ */
+export const getInboundPackages = async () => {
+  try {
+    const response = await apiClient.inbound.getPackages();
+    
+    // The backend returns a paginated response: { success: true, data: [...], count: X, ... }
+    // We need to return it in a way that the existing frontend components expect
+    // If it's paginated, extract the data array
+    if (response.success && response.data && !Array.isArray(response.data)) {
+      return {
+        success: true,
+        data: response.data.data || []
+      };
+    }
+    
+    return response;
+  } catch (error) {
+    console.error('getInboundPackages Error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Create user subscription
+ * @param {string} userId - User ID
+ * @param {Object} subscriptionData - Subscription data
+ */
+export const createUserSubscription = async (userId, subscriptionData) => {
+  try {
+    const response = await apiClient.consumers.createUserSubscription(userId, subscriptionData);
+    return response;
+  } catch (error) {
+    console.error('createUserSubscription Error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 export default {
   getConsumers,
   getConsumerById,
@@ -379,6 +470,11 @@ export default {
   revokeLifetimeAccess,
   reassignConsumerToReseller,
   getConsumerProductSettings,
-  updateConsumerProductSettings
+  updateConsumerProductSettings,
+  getUserCredits,
+  updateUserCredits,
+  getBillingPackages,
+  getInboundPackages,
+  createUserSubscription
 };
 

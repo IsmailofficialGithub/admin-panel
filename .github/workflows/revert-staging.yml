@@ -17,6 +17,8 @@ jobs:
   revert:
     name: Revert Staging Code
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
       - name: Checkout code
@@ -24,7 +26,7 @@ jobs:
         with:
           ref: staging-ismail-admin-panel
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN || secrets.PAT_TOKEN }}
+          token: ${{ secrets.PAT_TOKEN || github.token }}
       
       - name: Configure Git
         run: |
@@ -103,7 +105,7 @@ jobs:
       - name: Push changes
         if: steps.revert.outcome == 'success'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN || secrets.PAT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || github.token }}
         run: |
           # Configure remote URL with token for authentication
           git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git

@@ -91,4 +91,19 @@ router.get('/:id/product-settings', authenticate, requireAdmin, rateLimitMiddlew
  */
 router.patch('/:id/product-settings', authenticate, requireAdmin, rateLimitMiddleware, sanitizeInputMiddleware, updateConsumerProductSettings);
 
+// =====================================================
+// CREDIT MANAGEMENT ROUTES
+// =====================================================
+import {
+  getUserCredits,
+  updateUserCredits,
+  getBillingPackages,
+  createUserSubscription
+} from './controllers/credits.controller.js';
+
+router.get('/:userId/credits', authenticate, requireAdmin, getUserCredits);
+router.put('/:userId/credits', authenticate, requireAdmin, updateUserCredits);
+router.get('/products/:productId/packages', authenticate, requireAdmin, getBillingPackages);
+router.post('/:userId/subscriptions', authenticate, requireAdmin, createUserSubscription);
+
 export default router;

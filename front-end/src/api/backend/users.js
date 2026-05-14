@@ -15,7 +15,7 @@ export const searchAllUsers = async (query) => {
     if (!query || query.trim().length < 2) {
       return [];
     }
-    
+
     const response = await apiClient.users.search(query.trim());
     // Backend returns { success: true, count: X, data: [...] }
     // Extract the users array from response.data
@@ -39,11 +39,11 @@ export const getAdminUsers = async (filters = {}) => {
   try {
     const { search } = filters;
     const params = new URLSearchParams();
-    
+
     if (search && search.trim() !== '') {
       params.append('search', search.trim());
     }
-    
+
     const queryString = params.toString();
     const response = await apiClient.users.getAll(queryString ? `?${queryString}` : '');
     // Backend returns { success: true, count: X, data: [...] }
@@ -93,7 +93,7 @@ export const createUser = async (userData) => {
       city: userData.city || null,
       phone: userData.phone || null
     };
-    
+
     // Add consumer-specific fields if consumer role is selected
     if (userData.roles && userData.roles.includes('consumer')) {
       if (userData.referred_by) {
@@ -106,9 +106,9 @@ export const createUser = async (userData) => {
         requestData.trial_expiry_date = userData.trial_expiry_date;
       }
     }
-    
+
     const response = await apiClient.users.create(requestData);
-    
+
     if (response.success) {
       return {
         success: true,
@@ -116,17 +116,17 @@ export const createUser = async (userData) => {
         message: response.message
       };
     }
-    
+
     // Return the error message from the backend if available
     const errorMessage = response.message || response.error || 'Failed to create user';
     return { error: errorMessage, success: false };
   } catch (error) {
     console.error('createUser Error:', error);
     // Handle axios errors - extract message from response if available
-    const errorMessage = error.response?.data?.message || 
-                        error.response?.data?.error || 
-                        error.message || 
-                        'Failed to create user. Please try again.';
+    const errorMessage = error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      'Failed to create user. Please try again.';
     return { error: errorMessage, success: false };
   }
 };
@@ -147,7 +147,7 @@ export const updateUserRole = async (userId, updateData) => {
   try {
     // Clean up the update data - only send fields that are provided
     const cleanedData = {};
-    
+
     // Support both roles array and single role (backward compatibility)
     if (updateData.roles !== undefined) {
       cleanedData.roles = updateData.roles;
@@ -161,7 +161,7 @@ export const updateUserRole = async (userId, updateData) => {
     if (updateData.phone !== undefined) cleanedData.phone = updateData.phone;
 
     const response = await apiClient.users.update(userId, cleanedData);
-    
+
     if (response.success) {
       return {
         success: true,
@@ -169,7 +169,7 @@ export const updateUserRole = async (userId, updateData) => {
         message: response.message
       };
     }
-    
+
     return { error: 'Failed to update user' };
   } catch (error) {
     console.error('updateUserRole Error:', error);
@@ -185,14 +185,14 @@ export const updateUserRole = async (userId, updateData) => {
 export const deleteUser = async (userId) => {
   try {
     const response = await apiClient.users.delete(userId);
-    
+
     if (response.success) {
       return {
         success: true,
         message: response.message
       };
     }
-    
+
     return { error: 'Failed to delete user' };
   } catch (error) {
     console.error('deleteUser Error:', error);
@@ -208,7 +208,7 @@ export const deleteUser = async (userId) => {
 export const resetUserPassword = async (userId) => {
   try {
     const response = await apiClient.users.resetPassword(userId);
-    
+
     if (response.success) {
       return {
         success: true,
@@ -216,7 +216,7 @@ export const resetUserPassword = async (userId) => {
         message: response.message
       };
     }
-    
+
     return { error: 'Failed to reset password' };
   } catch (error) {
     console.error('resetUserPassword Error:', error);
@@ -233,7 +233,7 @@ export const resetUserPassword = async (userId) => {
 export const updateUserAccountStatus = async (userId, accountStatus) => {
   try {
     const response = await apiClient.users.updateAccountStatus(userId, accountStatus);
-    
+
     if (response.success) {
       return {
         success: true,
@@ -241,7 +241,7 @@ export const updateUserAccountStatus = async (userId, accountStatus) => {
         data: response.data
       };
     }
-    
+
     return { error: 'Failed to update account status' };
   } catch (error) {
     console.error('updateUserAccountStatus Error:', error);
