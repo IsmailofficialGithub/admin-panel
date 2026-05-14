@@ -327,6 +327,7 @@ const InboundSettings = () => {
                 </div>
                 <div style={{ fontSize: '12px', color: '#666' }}>
                   {pkg.tier || 'Free'} • {pkg.price_monthly ? `$${pkg.price_monthly}/mo` : 'Free'}
+                  {pkg.credits_included !== undefined && ` • ${pkg.credits_included.toLocaleString()} Credits`}
                 </div>
               </div>
             ))}
@@ -381,6 +382,19 @@ const InboundSettings = () => {
                 >
                   <Edit2 size={14} /> Edit Plan
                 </button>
+                <div style={{ 
+                  padding: '4px 12px', 
+                  backgroundColor: '#f0fdf4', 
+                  color: '#16a34a', 
+                  borderRadius: '16px',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  display: 'flex',
+                  alignItems: 'center',
+                  border: '1px solid #bcf0da'
+                }}>
+                  {selectedPackage.credits_included?.toLocaleString() || 0} CREDITS
+                </div>
                 <span style={{ 
                   padding: '4px 12px', 
                   backgroundColor: '#e1f5fe', 
