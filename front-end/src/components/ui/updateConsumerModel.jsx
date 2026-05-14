@@ -1244,7 +1244,9 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
                   borderRadius: '8px',
                   boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
                   zIndex: 1000
-                }}>
+                }}
+                onMouseDown={(e) => e.preventDefault()}
+                >
                   {filteredCountries.length > 0 ? (
                     filteredCountries.map((country) => (
                       <div
@@ -1611,7 +1613,7 @@ const UpdateConsumerModal = ({ isOpen, onClose, consumer, onUpdate, initialProdu
                         products.map((product) => (
                           <div
                             key={product.id}
-                            onClick={() => handleProductToggle(product.id)}
+                            onClick={(e) => { e.stopPropagation(); handleProductToggle(product.id); }}
                             style={{
                               padding: '10px 12px',
                               cursor: 'pointer',

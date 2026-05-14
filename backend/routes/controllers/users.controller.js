@@ -1042,7 +1042,7 @@ export const deleteUser = async (req, res) => {
     // Deleting/Nullifying related data across all schemas to avoid FK violations
     // ========================================
     const cleanupSuccess = await performFullUserCleanup(id);
-    
+
     if (!cleanupSuccess) {
       return res.status(500).json({
         success: false,

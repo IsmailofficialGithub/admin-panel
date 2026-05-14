@@ -62,7 +62,6 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
 
   // Credit Management state
   const [showCreditsModal, setShowCreditsModal] = useState(false);
-  const INBOUND_DB_ID = process.env.REACT_APP_INBOUND_DB_ID || getGenieProductId();
 
   // Check if beeba product is selected
   const isBeebaProductSelected = formData.subscribed_products.some(productId => {
@@ -427,6 +426,9 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
       return product && product.name && product.name.toLowerCase() === 'genie';
     });
   };
+
+  // INBOUND_DB_ID must be declared AFTER getGenieProductId (const arrow fn, not hoisted)
+  const INBOUND_DB_ID = process.env.REACT_APP_INBOUND_DB_ID || getGenieProductId();
 
   // Get beeba product ID
   const getBeebaProductId = () => {
@@ -1991,7 +1993,9 @@ const UpdateUserModal = ({ isOpen, onClose, user, onUpdate }) => {
                   borderRadius: '8px',
                   boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
                   zIndex: 1000
-                }}>
+                }}
+                onMouseDown={(e) => e.preventDefault()}
+                >
                   {filteredCountries.length > 0 ? (
                     filteredCountries.map((country) => (
                       <div
