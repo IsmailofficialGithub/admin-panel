@@ -81,6 +81,7 @@ export const getAllPackages = async (req, res) => {
     // 3. OPTIMIZED DATABASE QUERY
     // ========================================
     let query = supabase
+      .schema('billing')
       .from('packages')
       .select('id, product_id, name, description, price, slug, tier, price_monthly, price_yearly, currency, credits_included, is_active, is_featured, created_at, updated_at, product_type, products:product_id (id, name), package_variables:package_variables!package_id (variable_name, variable_value)', { count: 'exact' })
       .order('created_at', { ascending: false });
@@ -183,6 +184,7 @@ export const getPackagesByProduct = async (req, res) => {
     // 3. OPTIMIZED DATABASE QUERY
     // ========================================
     const query = supabase
+      .schema('billing')
       .from('packages')
       .select('id, product_id, name, description, price, slug, tier, price_monthly, price_yearly, currency, credits_included, is_active, is_featured, created_at, updated_at')
       .eq('product_id', productId)
@@ -271,6 +273,7 @@ export const getPackageById = async (req, res) => {
     // 3. OPTIMIZED DATABASE QUERY
     // ========================================
     const query = supabase
+      .schema('billing')
       .from('packages')
       .select('id, product_id, name, description, price, slug, tier, price_monthly, price_yearly, currency, credits_included, is_active, is_featured, created_at, updated_at')
       .eq('id', id)
@@ -395,6 +398,7 @@ export const createPackage = async (req, res) => {
     // 2. CREATE PACKAGE (with timeout)
     // ========================================
     const insertPromise = supabase
+      .schema('billing')
       .from('packages')
       .insert([{
         product_id,
@@ -590,6 +594,7 @@ export const updatePackage = async (req, res) => {
     if (metadata !== undefined) updateData.metadata = metadata;
 
     const updatePromise = supabase
+      .schema('billing')
       .from('packages')
       .update(updateData)
       .eq('id', id)
@@ -696,6 +701,7 @@ export const deletePackage = async (req, res) => {
     // 3. DELETE PACKAGE (with timeout)
     // ========================================
     const deletePromise = supabase
+      .schema('billing')
       .from('packages')
       .delete()
       .eq('id', id);
