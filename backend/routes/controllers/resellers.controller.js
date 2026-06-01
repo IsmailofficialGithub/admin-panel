@@ -439,14 +439,8 @@ export const createReseller = async (req, res) => {
       });
     }
 
-    // ========================================
-    // 2. GET RESELLER SETTINGS (with timeout)
-    // ========================================
-    const { getResellerSettings } = await import('../../utils/resellerSettings.js');
-    const resellerSettings = await getResellerSettings();
-    
-    // If admin approval is required, set account_status to 'pending' instead of 'active'
-    const accountStatus = resellerSettings.requireResellerApproval ? 'pending' : 'active';
+    // Admin-created accounts should be usable immediately.
+    const accountStatus = 'active';
 
     // Get the user ID of who created this reseller (from token) - use as fallback if referred_by not provided
     const adminId = req.user && req.user.id ? req.user.id : null;
@@ -2242,6 +2236,7 @@ export const createConsumerAdmin = async (req, res) => {
       country: country || null,
       city: city || null,
       referred_by: finalReferredBy || null,
+      account_status: 'active',
     };
 
     // Add trial_expiry if provided

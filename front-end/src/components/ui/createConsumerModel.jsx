@@ -644,6 +644,8 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
 
   const validateForm = () => {
     const newErrors = {};
+    const selectedCountryName = selectedCountry?.name || '';
+    const countryValue = (formData.country || selectedCountryName).trim();
     if (!formData.roles || formData.roles.length === 0) {
       newErrors.roles = 'At least one role is required';
     }
@@ -680,7 +682,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
     }
 
     // Country validation
-    if (!formData.country.trim()) {
+    if (!countryValue) {
       newErrors.country = 'Country is required';
     }
 
@@ -789,7 +791,7 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
         roles: formData.roles || ['consumer'], // Send roles array
         phone: fullPhone,
         trial_expiry_date: trialExpiryDate,
-        country: formData.country.trim() || null,
+        country: (formData.country || selectedCountry?.name || '').trim() || null,
         city: formData.city.trim() || null,
         referred_by: referredBy,
         subscribed_packages: formData.subscribed_packages,
@@ -1616,7 +1618,9 @@ const CreateConsumerModal = ({ isOpen, onClose, onCreate }) => {
                   borderRadius: '8px',
                   boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
                   zIndex: 1000
-                }}>
+                }}
+                onMouseDown={(e) => e.preventDefault()}
+                >
                   {filteredCountries.length > 0 ? (
                     filteredCountries.map((country) => (
                       <div

@@ -26,157 +26,78 @@ const BaseEmailTemplate = ({
 } = {}) => {
   return `<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <title>${title} - DuhaNashrahAi</title>
-    <!--[if mso]>
-    <style type="text/css">
-      body, table, td {font-family: Verdana, Geneva, sans-serif !important;}
-    </style>
-    <![endif]-->
-    <style type="text/css">
-      /* Use Verdana for general text - Outlook compatible */
-      body, td, th, p, span, div, h1, h2, h3, h4, h5, h6, strong, em {
-        font-family: Verdana, Geneva, sans-serif;
-      }
-      /* Use monospace for numbers - fallback for Outlook */
-      .mono-num {
-        font-family: 'Courier New', Courier, monospace;
-        letter-spacing: 0.03em;
-      }
-    </style>
-  </head>
-  <body style="margin: 0; padding: 0; width: 100%; background-color: #f7f7f9; font-family: Verdana, Geneva, sans-serif;">
-    <!--[if mso]>
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
-      <tr>
-        <td>
-    <![endif]-->
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width: 100%; background-color: #f7f7f9;">
-      <tr>
-        <td align="center" style="padding: 24px 0;">
-          <!--[if mso]>
-          <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0">
-          <![endif]-->
-          <!--[if !mso]><!-->
-          <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width: 600px; max-width: 600px; background-color: #ffffff;">
-          <!--<![endif]-->
-            
-            <!-- Header -->
-            <tr>
-              <td align="center" style="padding: 32px 0 16px 0; background-color: #ffffff;">
-                <img src="https://duhanashrah.ai/wp-content/uploads/2025/10/Asset-3@2x.png" alt="DuhaNashrahAi" width="450" style="display: block; height: auto; max-height: 101px;" />
-              </td>
-            </tr>
-
-            <!-- Title Header -->
-            <tr>
-              <td style="padding: 24px 40px 16px 40px; background-color: #8a3b9a; color: #ffffff;">
-                <h1 style="font-size: 24px; font-weight: bold; margin: 0 0 8px 0; color: #ffffff; font-family: Verdana, Geneva, sans-serif;">${title}</h1>
-                ${subtitle ? `<p style="margin: 0; font-size: 15px; color: #ffffff; font-family: Verdana, Geneva, sans-serif;">${subtitle}</p>` : ''}
-              </td>
-            </tr>
-
-            <!-- Content -->
-            <tr>
-              <td style="padding: 32px 40px; color: #232347; font-size: 16px; line-height: 1.5; font-family: Verdana, Geneva, sans-serif;">
-                ${content}
-                
-                ${buttonText && buttonUrl ? `
-                <!-- CTA Button -->
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 28px 0 16px 0;">
-                  <tr>
-                    <td align="center" style="padding: 0;">
-                      <table role="presentation" cellspacing="0" cellpadding="0" border="0">
-                        <tr>
-                          <td align="center" style="background-color: #8a3b9a; padding: 14px 38px;">
-                            <a href="${buttonUrl}" target="_blank" style="color: #ffffff; text-decoration: none; font-weight: bold; font-size: 18px; font-family: Verdana, Geneva, sans-serif; display: block;">
-                        ${buttonText}
-                      </a>
-                          </td>
-                        </tr>
-                      </table>
-                    </td>
-                  </tr>
-                </table>
-                ` : ''}
-
-                ${footerText ? `
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 16px 0 0 0;">
-                  <tr>
-                    <td align="center" style="font-size: 14px; color: #66698c; font-family: Verdana, Geneva, sans-serif;">
-                  ${footerText}
-                    </td>
-                  </tr>
-                </table>
-                ` : ''}
-              </td>
-            </tr>
-
-            <!-- Footer -->
-            <tr>
-              <td align="center" style="padding: 28px 40px 24px 40px; background-color: #fafbfc;">
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
-                  <tr>
-                    <td style="border-top: 1px solid #e6e6ec; padding: 0 0 16px 0;"></td>
-                  </tr>
-                  <tr>
-                    <td align="center" style="padding-bottom: 8px;">
-                      <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center">
-                        <tr>
-                          <td style="padding: 0 6px;">
-                            <a href="https://www.facebook.com/duhanashraai" style="text-decoration: none;">
-                              <img src="https://app-rsrc.getbee.io/public/resources/social-networks-icon-sets/t-circle-dark-gray/facebook@2x.png" width="24" height="24" alt="Facebook" style="display: block;" />
-                      </a>
-                          </td>
-                          <td style="padding: 0 6px;">
-                            <a href="https://www.youtube.com/@DuhaNashrahAi" style="text-decoration: none;">
-                              <img src="https://app-rsrc.getbee.io/public/resources/social-networks-icon-sets/t-circle-dark-gray/twitter@2x.png" width="24" height="24" alt="YouTube" style="display: block;" />
-                      </a>
-                          </td>
-                          <td style="padding: 0 6px;">
-                            <a href="https://www.instagram.com/duhanashrahai/" style="text-decoration: none;">
-                              <img src="https://app-rsrc.getbee.io/public/resources/social-networks-icon-sets/t-circle-dark-gray/instagram@2x.png" width="24" height="24" alt="Instagram" style="display: block;" />
-                      </a>
-                          </td>
-                          <td style="padding: 0 6px;">
-                            <a href="https://www.tiktok.com/@duhanashrahai" style="text-decoration: none;">
-                              <img src="https://app-rsrc.getbee.io/public/resources/social-networks-icon-sets/t-circle-dark-gray/linkedin@2x.png" width="24" height="24" alt="TikTok" style="display: block;" />
-                      </a>
-                          </td>
-                        </tr>
-                      </table>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td align="center" style="font-size: 15px; color: #8889a8; padding-top: 8px; font-family: Verdana, Geneva, sans-serif;">
-                      Questions? Contact us at info@duhanashrah.ai
-                    </td>
-                  </tr>
-                  <tr>
-                    <td align="center" style="font-size: 13px; color: #a5a6be; padding-top: 4px; font-family: Verdana, Geneva, sans-serif;">
-                      © 2025 DuhaNashrahAi. All Rights Reserved
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-
-          </table>
-          <!--[if mso]>
-          </table>
-          <![endif]-->
-        </td>
-      </tr>
-    </table>
-    <!--[if mso]>
-        </td>
-      </tr>
-    </table>
-    <![endif]-->
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${title} - DuhaNashrah ai</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { margin:0; padding:0; background:#f4f5f7; font-family:'Manrope', Arial, sans-serif; color:#333 }
+    .wrapper { width:100%; table-layout:fixed; background:#f4f5f7; padding:40px 20px; box-sizing:border-box }
+    .main-container { max-width:600px; margin:0 auto; background:#fff; border-radius:12px; box-shadow:0 4px 15px rgba(0,0,0,0.05) }
+    .header { padding:30px 40px 10px; display:flex; justify-content:space-between; align-items:center }
+    .contact-btn { color:#00B48D; text-decoration:none; font-size:15px; font-weight:600 }
+    .content { padding:20px 40px }
+    .title { text-align:center; font-size:24px; font-weight:700; color:#111; margin:0 0 18px }
+    .subtitle { text-align:center; font-size:14px; color:#6b7280; margin:6px 0 18px }
+    .greeting { font-size:16px; margin-bottom:12px }
+    .message { font-size:16px; line-height:1.6; color:#444; margin-bottom:18px }
+    .code-container { background:#F1F1F1; border-radius:8px; padding:14px 25px; margin:20px auto; text-align:center; display:inline-block }
+    .code-box { display:inline-block; width:auto; padding:0 20px; letter-spacing:12px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; height:55px; line-height:55px; font-size:26px; font-weight:700; color:#111 }
+    .cta { display:block; text-align:center; margin:26px 0 }
+    .btn { background:#00B48D; color:#fff; padding:12px 24px; border-radius:6px; text-decoration:none; font-weight:600 }
+    .expire-text { text-align:center; font-size:14px; color:#6b7280; margin-bottom:16px }
+    .help-text { font-size:15px; line-height:1.6; color:#555; margin-bottom:12px }
+    .signature { font-size:16px; color:#444; margin-bottom:24px }
+    .footer-area { margin-top:20px; position:relative }
+    .green-footer { background:#00B48D; padding:30px 20px 25px; text-align:center; color:#fff; border-top-left-radius:90% 100%; border-top-right-radius:90% 100%; border-bottom-left-radius:12px; border-bottom-right-radius:12px }
+    .footer-img-left { width:150px; max-width:100%; height:auto; display:block }
+    .footer-img-right { width:320px; max-width:100%; height:auto; display:block }
+    .social-icons { text-align:center; margin-bottom:12px }
+    .social-icon img { width:30px; height:30px }
+    .copyright { font-size:14px; opacity:0.9 }
+    @media only screen and (max-width:600px) { .wrapper{padding:20px 10px} .header{padding:20px} .content{padding:20px} .code-box{font-size:24px;padding:0 16px} .footer-img-right{width:140px} }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="main-container">
+      <div class="header">
+        <div class="logo">
+          <img src="https://lblkjhlojjlwqmwfnels.supabase.co/storage/v1/object/public/styling-image/DnaiLogo.png" alt="DuhaNashrah ai" style="height:45px; width:auto; display:block" />
+        </div>
+        <a href="#" class="contact-btn">Contact Us</a>
+      </div>
+      <div class="content">
+        <h1 class="title">${title}</h1>
+        ${subtitle ? `<div class="subtitle">${subtitle}</div>` : ''}
+        <div class="greeting"></div>
+        <div class="message">${content}</div>
+        ${buttonText && buttonUrl ? `<div class="cta"><a href="${buttonUrl}" class="btn" target="_blank" rel="noopener">${buttonText}</a></div>` : ''}
+        ${footerText ? `<div style="text-align:center; color:#6b7280; font-size:13px; margin-top:6px">${footerText}</div>` : ''}
+      </div>
+      <div class="footer-area">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom:-40px; position:relative; z-index:10">
+          <tr>
+            <td align="left" valign="bottom"><img src="https://lblkjhlojjlwqmwfnels.supabase.co/storage/v1/object/public/styling-image/beeba.png" alt="Beeba" class="footer-img-left" /></td>
+            <td align="right" valign="bottom"><img src="https://lblkjhlojjlwqmwfnels.supabase.co/storage/v1/object/public/styling-image/genie.png" alt="Genie" class="footer-img-right" /></td>
+          </tr>
+        </table>
+        <div class="green-footer">
+          <h2 style="margin:0 0 12px 0; font-size:20px; font-weight:700;">DuhaNashrah ai</h2>
+          <div class="social-icons">
+            <a href="#" class="social-icon" aria-label="Facebook"><img src="https://img.icons8.com/ios-filled/50/ffffff/facebook-new.png" alt="facebook" /></a>
+            <a href="#" class="social-icon" aria-label="Twitter"><img src="https://img.icons8.com/ios-filled/50/ffffff/twitter.png" alt="twitter" /></a>
+            <a href="#" class="social-icon" aria-label="Instagram"><img src="https://img.icons8.com/ios-filled/50/ffffff/instagram-new.png" alt="instagram" /></a>
+          </div>
+          <div class="copyright">© 2026 DuhaNashrah ai</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
 </html>`;
 };
 
@@ -1343,6 +1264,296 @@ export const CallLogsReportTemplate = ({
   });
 };
 
+/**
+ * Email Verification Template (new design)
+ * Uses the provided HTML/CSS design. Placeholders: `full_name`, `token`, `confirmation_url`.
+ */
+export const EmailVerificationTemplate = ({
+  full_name = 'User',
+  token = '123456',
+  confirmation_url = '#'
+} = {}) => {
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Email Verification - DuhaNashrah ai</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: #f4f5f7;
+    font-family: 'Manrope', Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    color: #333333;
+  }
+  .wrapper {
+    width: 100%;
+    table-layout: fixed;
+    background-color: #f4f5f7;
+    padding: 40px 20px;
+    box-sizing: border-box;
+    font-family: 'Manrope', Arial, sans-serif;
+  }
+  .main-container {
+    max-width: 600px;
+    margin: 0 auto;
+    background-color: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+    font-family: 'Manrope', Arial, sans-serif;
+  }
+  .header {
+    padding: 30px 40px 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .contact-btn {
+    color: #00B48D;
+    text-decoration: none;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .content {
+    padding: 20px 40px;
+  }
+  .title {
+    text-align: center;
+    font-size: 24px;
+    font-weight: 700;
+    color: #111111;
+    margin: 0 0 30px 0;
+  }
+  .greeting {
+    font-size: 16px;
+    margin-bottom: 15px;
+  }
+  .message {
+    font-size: 16px;
+    line-height: 1.6;
+    margin-bottom: 25px;
+    color: #444444;
+  }
+  .code-container {
+    background-color: #F1F1F1; 
+    border-radius: 8px;
+    padding: 14px 25px;
+    margin: 30px auto;
+    text-align: center;
+    display: inline-block;
+  }
+  .code-box {
+    width: 45px;
+    height: 55px;
+    background-color: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    display: inline-block;
+    text-align: center;
+    line-height: 55px;
+    font-size: 26px;
+    font-weight: 700;
+    color: #111111;
+    margin: 5px;
+    vertical-align: middle;
+    font-family: 'Manrope', Arial, sans-serif;
+  }
+  .expire-text {
+    text-align: center;
+    font-size: 14px;
+    color: #6b7280;
+    margin-bottom: 30px;
+  }
+  .help-text {
+    font-size: 15px;
+    line-height: 1.6;
+    color: #555555;
+    margin-bottom: 20px;
+  }
+  .link {
+    color: #00B48D;
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .signature {
+    font-size: 16px;
+    line-height: 1.6;
+    color: #444444;
+    margin-bottom: 40px;
+  }
+  .footer-area {
+    position: relative;
+    background-color: #ffffff;
+    margin-top: 20px;
+  }
+  .green-footer {
+    background-color: #00B48D;
+    padding: 30px 20px 25px;
+    text-align: center;
+    color: #ffffff;
+    position: relative;
+    overflow: hidden;
+    border-top-left-radius: 90% 100%;
+    border-top-right-radius: 90% 100% ;
+    border-bottom-left-radius: 12px;
+    border-bottom-right-radius: 12px;
+  }
+  .footer-img-left {
+    width: 150px;
+    max-width: 100%;
+    height: auto;
+    display: block;
+  }
+  .footer-img-right {
+    width: 320px;
+    max-width: 100%;
+    height: auto;
+    display: block;
+  }
+  .footer-cell-left {
+    padding-left: 20px;
+  }
+  .footer-cell-right {
+    padding-right: -20px;
+  }
+  .footer-logo {
+    font-family: 'Manrope', Arial, sans-serif;
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0 0 15px 0;
+  }
+  .social-icons {
+    text-align: center;
+    margin-bottom: 15px;
+  }
+  .social-icon {
+    display: inline-block;
+    text-align: center;
+    line-height: 32px;
+    color: #ffffff;
+    text-decoration: none;
+    margin: 0 8px;
+  }
+  .social-icon img {
+    width: 30px;
+    height: 30px;
+    vertical-align: middle;
+    border: 0;
+    display: inline-block;
+    margin-top: -3px;
+  }
+  .copyright {
+    font-size: 14px;
+    opacity: 0.9;
+  }
+  @media only screen and (max-width: 600px) {
+    .wrapper { padding: 20px 10px; }
+    .header { padding: 20px 20px 10px; }
+    .content { padding: 20px 20px; }
+    .code-container { padding: 14px 20px; gap: 10px; }
+    .code-box { width: 40px; height: 50px; font-size: 24px; }
+    .footer-img-left { width: 120px; }
+    .footer-img-right { width: 140px; }
+  }
+
+  @media only screen and (max-width: 480px) {
+    .header { flex-direction: column; gap: 15px; text-align: center; }
+    .title { font-size: 22px; margin: 0 0 20px 0; }
+    .code-container { padding: 14px 10px; gap: 6px; }
+    .code-box { width: 35px; height: 45px; font-size: 22px; }
+    .green-footer { padding: 40px 15px 20px; border-top-left-radius: 50% 40px; border-top-right-radius: 50% 40px; }
+    .footer-img-left { width: 100px; }
+    .footer-img-right { width: 115px; }
+    .footer-cell-left { padding-left: 10px; }
+    .footer-cell-right { padding-right: 10px; }
+  }
+  
+  @media only screen and (max-width: 360px) {
+    .code-container { padding: 12px 5px; gap: 4px; }
+    .code-box { width: 30px; height: 40px; font-size: 20px; }
+    .footer-img-left { width: 80px; }
+    .footer-img-right { width: 95px; }
+    .footer-cell-left { padding-left: 5px; }
+    .footer-cell-right { padding-right: 5px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="main-container">
+    <div class="header">
+      <div class="logo">
+        <img src="https://lblkjhlojjlwqmwfnels.supabase.co/storage/v1/object/public/styling-image/DnaiLogo.png" alt="DNAi Duha Nashrah" style="height: 45px; width: auto;" />
+      </div>
+      <a href="#" class="contact-btn">Contact Us</a>
+    </div>
+    <div class="content">
+      <h1 class="title">Email Verification</h1>
+      <div class="greeting">Hello ${full_name},</div>
+      <div class="message">Your account is nearly set up. Please use this code to verify your email address.</div>
+     <div style="text-align: center; margin: 30px 0;">
+  <div class="code-container">
+    <div class="code-box" style="width:auto;padding:0 20px;letter-spacing:12px;">
+      ${token}
+    </div>
+  </div>
+</div>
+      <div class="expire-text"><strong>Code will expire in 5 minutes.</strong></div>
+      <div class="help-text">Code expired? Please <a href="#" class="link">sign up</a> again to get a new code.</div>
+      <div class="help-text">If you're having issues with email verification or creating an account, please <a href="#" class="link">Contact Us</a> If you did not make this request, you can ignore this email. No account will be created.</div>
+<div class="help-text">
+If you're having issues verifying your email, you can also click the link below:
+</div>
+
+<div style="text-align:center;margin-bottom:30px;">
+<a href="${confirmation_url}" style="background:#00B48D;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">
+Verify Email
+</a>
+</div>
+      <div class="signature">Thank you,<br>The DuhaNashrah Team</div>
+    </div>
+    <div class="footer-area">
+      <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: -50px; position: relative; z-index: 10;">
+        <tr>
+          <td align="left" valign="bottom" class="footer-cell-left">
+            <img src="https://lblkjhlojjlwqmwfnels.supabase.co/storage/v1/object/public/styling-image/beeba.png" alt="Beeba" class="footer-img-left" />
+          </td>
+          <td align="right" valign="bottom" class="footer-cell-right">
+            <img src="https://lblkjhlojjlwqmwfnels.supabase.co/storage/v1/object/public/styling-image/genie.png" alt="Genie" class="footer-img-right" />
+          </td>
+        </tr>
+      </table>
+      <div class="green-footer">
+        <h2 class="footer-logo" style="margin-top: 20px;">DuhaNashrah ai</h2>
+        
+        <div class="social-icons">
+          <a href="#" class="social-icon" aria-label="Facebook">
+            <img src="https://img.icons8.com/ios-filled/50/ffffff/facebook-new.png" alt="Facebook" />
+          </a>
+          <a href="#" class="social-icon" aria-label="Twitter">
+            <img src="https://img.icons8.com/ios-filled/50/ffffff/twitter.png" alt="Twitter" />
+          </a>
+          <a href="#" class="social-icon" aria-label="Instagram">
+            <img src="https://img.icons8.com/ios-filled/50/ffffff/instagram-new.png" alt="Instagram" />
+          </a>
+        </div>
+        
+        <div class="copyright">© 2026 DuhaNashrah ai</div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>`;
+
+  return html;
+};
+
 export default { 
   AdminEmailTemplateUserCreated, 
   PasswordResetTemplate, 
@@ -1355,7 +1566,7 @@ export default {
   TicketCreatedAdminNotificationTemplate,
   TicketStatusChangedTemplate,
   TicketReplyTemplate,
-  CallLogsReportTemplate
+  CallLogsReportTemplate,
+  EmailVerificationTemplate
 };
-
-export { AdminEmailTemplateUserCreated as _Admin, PasswordResetTemplate as _Reset };
+export { AdminEmailTemplateUserCreated as _Admin, PasswordResetTemplate as _Reset, EmailVerificationTemplate as _Verify };
