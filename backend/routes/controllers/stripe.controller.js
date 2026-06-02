@@ -1,5 +1,5 @@
 import Stripe from 'stripe';
-import { supabaseAdmin } from '../../config/database.js';
+import { supabaseAdmin, billingSupabaseAdmin } from '../../config/database.js';
 import { decryptPaymentData } from '../../utils/encryption.js';
 import { logActivity, getActorInfo, getClientIp, getUserAgent } from '../../services/activityLogger.js';
 import {
@@ -99,7 +99,7 @@ export const createPaymentIntent = async (req, res) => {
     // ========================================
     console.log('🔍 Looking for invoice:', invoice_id);
     const { data: invoice, error: invoiceError } = await executeWithTimeout(
-      supabaseAdmin
+      billingSupabaseAdmin
         .from('invoices')
         .select('id, status, total_amount, receiver_id')
         .eq('id', invoice_id)
@@ -324,7 +324,7 @@ export const confirmPayment = async (req, res) => {
       // For succeeded payments, mark invoice as paid immediately
       // For processing (bank transfers), invoice stays under_review until payment completes
       if (paymentStatus === 'succeeded') {
-        const updatePromise = supabaseAdmin
+        const updatePromise = billingSupabaseAdmin
           .from('invoices')
           .update({ 
             status: 'paid',
@@ -338,7 +338,7 @@ export const confirmPayment = async (req, res) => {
         }
       } else if (paymentStatus === 'processing') {
         // Bank transfer is processing - set invoice to under_review
-        const updatePromise = supabaseAdmin
+        const updatePromise = billingSupabaseAdmin
           .from('invoices')
           .update({ 
             status: 'under_review',

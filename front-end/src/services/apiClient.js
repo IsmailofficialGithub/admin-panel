@@ -695,6 +695,11 @@ const apiClient = {
     getAll: (queryString = '') => axiosInstance.get(`/invoices${queryString}`),
 
     /**
+     * Get a single invoice by ID
+     */
+    getById: (invoiceId) => axiosInstance.get(`/invoices/${invoiceId}`),
+
+    /**
      * Get invoices for reseller (reseller only)
      */
     getMyInvoices: (queryString = '') => axiosInstance.get(`/invoices/my-invoices${queryString}`),

@@ -5,6 +5,7 @@ import {
   getConsumerProductsForInvoice,
   getConsumerPackagesForInvoice,
   getAllInvoices,
+  getInvoiceById,
   getMyInvoices,
   createInvoice,
   getConsumerInvoices,
@@ -112,6 +113,20 @@ router.get(
 );
 
 /**
+ * @route   GET /api/invoices/:id
+ * @desc    Get a single invoice by ID
+ * @access  Private (Admin, Support, Reseller, Consumer)
+ */
+router.get(
+  '/:id',
+  authenticate,
+  loadUserProfile,
+  rateLimitMiddleware,
+  sanitizeInputMiddleware,
+  getInvoiceById
+);
+
+/**
  * @route   POST /api/invoices
  * @desc    Create invoice with invoice items
  * @access  Private (Admin or Reseller)
@@ -162,6 +177,7 @@ router.get(
 router.post(
   '/:id/payments',
   authenticate,
+  loadUserProfile,
   rateLimitMiddleware,
   upload.single('proof'), // Handle file upload (must come after rate limit, before sanitize)
   sanitizeInputMiddleware,
@@ -176,6 +192,7 @@ router.post(
 router.get(
   '/:id/payments',
   authenticate,
+  loadUserProfile,
   rateLimitMiddleware,
   sanitizeInputMiddleware,
   getInvoicePayments

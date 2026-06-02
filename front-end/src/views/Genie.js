@@ -4,12 +4,34 @@ import { usePermissions } from "hooks/usePermissions";
 import { useGenieWebSocket } from "hooks/useGenieWebSocket";
 import { Phone, Calendar, Star, BarChart2, Wifi, WifiOff, Zap, Bot } from "lucide-react";
 
+const lazyWithChunkRetry = (factory, chunkName) => lazy(() =>
+  factory()
+    .then(module => {
+      sessionStorage.removeItem(`chunk-retry-${chunkName}`);
+      return module;
+    })
+    .catch(error => {
+      const isChunkLoadError =
+        error?.name === 'ChunkLoadError' ||
+        /Loading chunk .+ failed/i.test(error?.message || '');
+      const retryKey = `chunk-retry-${chunkName}`;
+
+      if (isChunkLoadError && !sessionStorage.getItem(retryKey)) {
+        sessionStorage.setItem(retryKey, 'true');
+        window.location.reload();
+        return new Promise(() => {});
+      }
+
+      throw error;
+    })
+);
+
 // Lazy load tab components - only loads when tab is selected
-const CallsTab = lazy(() => import("components/Genie/CallsTab"));
-const CampaignsTab = lazy(() => import("components/Genie/CampaignsTab"));
-const LeadsTab = lazy(() => import("components/Genie/LeadsTab"));
-const AnalyticsTab = lazy(() => import("components/Genie/AnalyticsTab"));
-const AgentsTab = lazy(() => import("components/Genie/AgentsTab"));
+const CallsTab = lazyWithChunkRetry(() => import("components/Genie/CallsTab"), 'genie-calls');
+const CampaignsTab = lazyWithChunkRetry(() => import("components/Genie/CampaignsTab"), 'genie-campaigns');
+const LeadsTab = lazyWithChunkRetry(() => import("components/Genie/LeadsTab"), 'genie-leads');
+const AnalyticsTab = lazyWithChunkRetry(() => import("components/Genie/AnalyticsTab"), 'genie-analytics');
+const AgentsTab = lazyWithChunkRetry(() => import("components/Genie/AgentsTab"), 'genie-agents');
 
 // Loading component for lazy loaded tabs
 const TabLoader = () => (

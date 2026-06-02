@@ -20,12 +20,15 @@ import {
 import toast from 'react-hot-toast';
 import apiClient from '../services/apiClient';
 import { useAuth } from '../hooks/useAuth';
+import { hasRole } from '../utils/roleUtils';
 
 const InvoicePaymentDetail = () => {
   const { invoiceId } = useParams();
   const history = useHistory();
   const { profile } = useAuth();
-  const userRole = profile?.role || 'admin';
+  const userRole = profile?.role;
+  const isAdmin = profile?.is_systemadmin === true || hasRole(userRole, 'admin') || hasRole(userRole, 'support');
+  const isReseller = hasRole(userRole, 'reseller');
 
   const [invoice, setInvoice] = useState(null);
   const [payments, setPayments] = useState([]);
@@ -42,19 +45,27 @@ const InvoicePaymentDetail = () => {
     try {
       setLoading(true);
       
-      // Fetch invoice details
-      let invoiceData = null;
-      if (userRole === 'admin') {
-        const invoicesResult = await apiClient.invoices.getAll();
-        invoiceData = invoicesResult?.data?.find(inv => inv.id === invoiceId) || 
-                     invoicesResult?.find(inv => inv.id === invoiceId);
-      } else if (userRole === 'reseller') {
-        const myInvoices = await apiClient.invoices.getMyInvoices();
-        invoiceData = myInvoices?.data?.find(inv => inv.id === invoiceId) ||
-                     myInvoices?.find(inv => inv.id === invoiceId);
-      }
+      // Fetch invoice details directly. The list endpoint is paginated, so older
+      // invoices may not be present in the first page.
+      console.log('[InvoicePaymentDetail] fetching invoice', {
+        invoiceId,
+        role: userRole,
+        is_systemadmin: profile?.is_systemadmin,
+        isAdmin,
+        isReseller
+      });
+
+      const invoiceResult = await apiClient.invoices.getById(invoiceId);
+      const invoiceData = invoiceResult?.data?.data || invoiceResult?.data || invoiceResult || null;
       
       if (!invoiceData) {
+        console.warn('[InvoicePaymentDetail] invoice not found by id', {
+          invoiceId,
+          role: userRole,
+          is_systemadmin: profile?.is_systemadmin,
+          isAdmin,
+          isReseller
+        });
         throw new Error('Invoice not found');
       }
       

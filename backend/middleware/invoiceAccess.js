@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../config/database.js';
+import { billingSupabaseAdmin } from '../config/database.js';
 import { hasRole } from '../utils/roleUtils.js';
 
 /**
@@ -22,7 +22,7 @@ export const checkInvoiceAccess = async (req, res, next) => {
     }
 
     // Fetch the invoice
-    const { data: invoice, error: invoiceError } = await supabaseAdmin
+    const { data: invoice, error: invoiceError } = await billingSupabaseAdmin
       .from('invoices')
       .select('id, sender_id, receiver_id')
       .eq('id', invoiceId)

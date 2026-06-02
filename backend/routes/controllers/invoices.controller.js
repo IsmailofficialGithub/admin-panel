@@ -1,4 +1,4 @@
-import { supabase, supabaseAdmin } from '../../config/database.js';
+import { supabase, supabaseAdmin, billingSupabaseAdmin } from '../../config/database.js';
 import { sendInvoiceCreatedEmail } from '../../services/emailService.js';
 import { cacheService } from '../../config/redis.js';
 import {
@@ -22,17 +22,282 @@ import PDFDocument from 'pdfkit';
 // Cache configuration
 const CACHE_TTL = 300; // 5 minutes
 const CACHE_KEYS = {
-  ALL_INVOICES: (search, status, page, limit) => `invoices:list:${search || 'all'}:${status || 'all'}_page${page}_limit${limit}`,
-  MY_INVOICES: (userId, page, limit) => `invoices:my:${userId}_page${page}_limit${limit}`,
-  CONSUMER_INVOICES: (consumerId, page, limit) => `invoices:consumer:${consumerId}_page${page}_limit${limit}`,
+  ALL_INVOICES: (search, status, page, limit) => `invoices:v4:list:${search || 'all'}:${status || 'all'}_page${page}_limit${limit}`,
+  MY_INVOICES: (userId, page, limit) => `invoices:v4:my:${userId}_page${page}_limit${limit}`,
+  CONSUMER_INVOICES: (consumerId, page, limit) => `invoices:v4:consumer:${consumerId}_page${page}_limit${limit}`,
   CONSUMER_PRODUCTS: (consumerId) => `invoices:consumer-products:${consumerId}`,
-  CONSUMER_PACKAGES: (consumerId) => `invoices:consumer-packages:${consumerId}`,
+  CONSUMER_PACKAGES: (consumerId) => `invoices:v4:consumer-packages:${consumerId}`,
   INVOICE_BY_ID: (id) => `invoices:id:${id}`,
 };
 
 // Export middleware for use in routes
 export { sanitizeInputMiddleware };
 export const rateLimitMiddleware = createRateLimitMiddleware('invoices', 100);
+
+const fetchBillingPackageMaps = async (invoices = []) => {
+  const items = invoices.flatMap(invoice => invoice.invoice_items || []);
+  const packageIds = Array.from(new Set(items.map(item => item.package_id).filter(Boolean)));
+  const packagePrices = Array.from(new Set(
+    items
+      .map(item => parseFloat(item.unit_price))
+      .filter(price => Number.isFinite(price) && price >= 0)
+  ));
+
+  let packageMap = new Map();
+  let priceMap = new Map();
+  let productMap = new Map();
+  const packageSource = 'public.packages view -> billing.packages';
+
+  console.log('[invoice-package-debug] resolver input', {
+    invoiceCount: invoices.length,
+    itemCount: items.length,
+    packageIds,
+    packagePrices,
+    packageSource,
+    sampleItems: items.slice(0, 10).map(item => ({
+      invoice_item_id: item.id,
+      package_id: item.package_id,
+      product_id: item.product_id,
+      unit_price: item.unit_price,
+      joined_package_name: item.packages?.name || null,
+      joined_product_name: item.products?.name || item.packages?.products?.name || null
+    }))
+  });
+
+  if (packageIds.length > 0) {
+    const packagesPromise = billingSupabaseAdmin
+      .from('packages')
+      .select('id, name, price, product_id, product_type')
+      .in('id', packageIds);
+
+    const { data: billingPackages, error: packagesError } = await executeWithTimeout(packagesPromise, 5000);
+
+    if (packagesError) {
+      console.warn('[invoice-package-debug] failed billing package lookup by id', {
+        message: packagesError.message,
+        code: packagesError.code,
+        details: packagesError.details,
+        hint: packagesError.hint
+      });
+    } else {
+      console.log('[invoice-package-debug] billing packages by id result', {
+        requestedIds: packageIds,
+        foundCount: billingPackages?.length || 0,
+        found: (billingPackages || []).map(pkg => ({
+          id: pkg.id,
+          name: pkg.name,
+          price: pkg.price,
+          product_id: pkg.product_id,
+          product_type: pkg.product_type
+        })),
+        missingIds: packageIds.filter(id => !(billingPackages || []).some(pkg => pkg.id === id))
+      });
+      packageMap = new Map((billingPackages || []).map(pkg => [pkg.id, pkg]));
+    }
+  }
+
+  if (packagePrices.length > 0) {
+    const packagesByPricePromise = billingSupabaseAdmin
+      .from('packages')
+      .select('id, name, price, product_id, product_type')
+      .in('price', packagePrices);
+
+    const { data: packagesByPrice, error: packagesByPriceError } = await executeWithTimeout(packagesByPricePromise, 5000);
+
+    if (packagesByPriceError) {
+      console.warn('[invoice-package-debug] failed billing package lookup by price', {
+        message: packagesByPriceError.message,
+        code: packagesByPriceError.code,
+        details: packagesByPriceError.details,
+        hint: packagesByPriceError.hint
+      });
+    } else {
+      console.log('[invoice-package-debug] billing packages by price result', {
+        requestedPrices: packagePrices,
+        foundCount: packagesByPrice?.length || 0,
+        found: (packagesByPrice || []).map(pkg => ({
+          id: pkg.id,
+          name: pkg.name,
+          price: pkg.price,
+          product_id: pkg.product_id,
+          product_type: pkg.product_type
+        }))
+      });
+
+      const packagesByPriceGroups = (packagesByPrice || []).reduce((groups, pkg) => {
+        const key = parseFloat(pkg.price || 0).toFixed(2);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(pkg);
+        return groups;
+      }, new Map());
+
+      priceMap = new Map(
+        Array.from(packagesByPriceGroups.entries())
+          .filter(([, matches]) => matches.length === 1)
+          .map(([price, matches]) => [price, matches[0]])
+      );
+
+      console.log('[invoice-package-debug] unique price fallback map', {
+        entries: Array.from(priceMap.entries()).map(([price, pkg]) => ({
+          price,
+          id: pkg.id,
+          name: pkg.name,
+          product_id: pkg.product_id,
+          product_type: pkg.product_type
+        })),
+        ambiguousPrices: Array.from(packagesByPriceGroups.entries())
+          .filter(([, matches]) => matches.length > 1)
+          .map(([price, matches]) => ({
+            price,
+            matches: matches.map(pkg => ({ id: pkg.id, name: pkg.name, product_type: pkg.product_type }))
+          }))
+      });
+    }
+  }
+
+  const productIds = Array.from(new Set([
+    ...items.map(item => item.product_id).filter(Boolean),
+    ...Array.from(packageMap.values()).map(pkg => pkg.product_id).filter(Boolean),
+    ...Array.from(priceMap.values()).map(pkg => pkg.product_id).filter(Boolean)
+  ]));
+
+  if (productIds.length > 0) {
+    const productsPromise = supabaseAdmin
+      .from('products')
+      .select('id, name, price')
+      .in('id', productIds);
+
+    const { data: products, error: productsError } = await executeWithTimeout(productsPromise, 3000);
+
+    if (productsError) {
+      console.warn('[invoice-package-debug] failed product lookup', {
+        message: productsError.message,
+        code: productsError.code,
+        details: productsError.details,
+        hint: productsError.hint
+      });
+    } else {
+      console.log('[invoice-package-debug] products lookup result', {
+        requestedIds: productIds,
+        foundCount: products?.length || 0,
+        found: (products || []).map(product => ({ id: product.id, name: product.name }))
+      });
+      productMap = new Map((products || []).map(product => [product.id, product]));
+    }
+  }
+
+  return { packageMap, priceMap, productMap };
+};
+
+const getProductTypeLabel = (productType) => {
+  if (!productType) return null;
+  return productType
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+};
+
+const setNoStoreHeaders = (res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+};
+
+const formatInvoicePackages = (invoice, packageMap = new Map(), productMap = new Map(), priceMap = new Map()) => (
+  invoice.invoice_items?.map(item => {
+    const itemPriceKey = parseFloat(item.unit_price || 0).toFixed(2);
+    const billingPackage = (item.package_id ? packageMap.get(item.package_id) : null) || priceMap.get(itemPriceKey) || null;
+    const packageName = billingPackage?.name || item.packages?.name || item.products?.name || 'Unknown Package';
+    const productId = billingPackage?.product_id || item.product_id || item.packages?.product_id || item.products?.id || null;
+    const product = productId ? productMap.get(productId) : null;
+    const productName = product?.name || item.packages?.products?.name || getProductTypeLabel(billingPackage?.product_type);
+    const displayName = productName ? `${productName} - ${packageName}` : packageName;
+
+    if (packageName === 'Unknown Package' && (item.package_id || item.product_id)) {
+      console.warn('[invoice-package-debug] unresolved invoice item', {
+        invoice_id: invoice.id,
+        invoice_created_at: invoice.created_at,
+        invoice_notes: invoice.notes,
+        invoice_status: invoice.status,
+        invoice_item_id: item.id,
+        package_id: item.package_id,
+        product_id: item.product_id,
+        unit_price: item.unit_price,
+        total_price: item.total_price,
+        itemPriceKey,
+        packageMapHasId: item.package_id ? packageMap.has(item.package_id) : false,
+        priceMapHasPrice: priceMap.has(itemPriceKey),
+        joined_package: item.packages || null,
+        joined_product: item.products || null
+      });
+    }
+
+    return {
+      package_id: item.package_id || billingPackage?.id || null,
+      product_id: productId,
+      name: displayName,
+      product_name: productName,
+      package_name: packageName,
+      quantity: item.quantity,
+      price: parseFloat(item.unit_price || 0).toFixed(2),
+      total: parseFloat(item.total_price || 0).toFixed(2)
+    };
+  }) || []
+);
+
+const attachInvoiceItems = async (invoices = []) => {
+  const invoiceIds = Array.from(new Set((invoices || []).map(invoice => invoice.id).filter(Boolean)));
+
+  if (invoiceIds.length === 0) {
+    return invoices || [];
+  }
+
+  const itemsPromise = billingSupabaseAdmin
+    .from('invoice_items')
+    .select('id, invoice_id, package_id, product_id, quantity, unit_price, tax_rate, total_price')
+    .in('invoice_id', invoiceIds);
+
+  const { data: items, error } = await executeWithTimeout(itemsPromise, 5000);
+
+  if (error) {
+    console.error('[invoice-package-debug] failed invoice_items lookup', {
+      invoiceIds,
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint
+    });
+    throw error;
+  }
+
+  const itemsByInvoiceId = (items || []).reduce((groups, item) => {
+    if (!groups.has(item.invoice_id)) groups.set(item.invoice_id, []);
+    groups.get(item.invoice_id).push(item);
+    return groups;
+  }, new Map());
+
+  return (invoices || []).map(invoice => {
+    const invoiceItems = itemsByInvoiceId.get(invoice.id) || [];
+    const fallbackItem = invoiceItems.length === 0 && invoice.package_id
+      ? [{
+          id: `${invoice.id}-package`,
+          invoice_id: invoice.id,
+          package_id: invoice.package_id,
+          product_id: null,
+          quantity: 1,
+          unit_price: invoice.subtotal || invoice.total_amount || 0,
+          tax_rate: invoice.tax_rate || 0,
+          total_price: invoice.total_amount || invoice.subtotal || 0
+        }]
+      : [];
+
+    return {
+      ...invoice,
+      invoice_items: invoiceItems.length > 0 ? invoiceItems : fallbackItem
+    };
+  });
+};
 
 /**
  * Invoices Controller
@@ -332,9 +597,9 @@ export const getConsumerPackagesForInvoice = async (req, res) => {
     // 6. GET PACKAGE DETAILS (with timeout)
     // ========================================
     const packageIds = packageAccess.map(pa => pa.package_id);
-    const packagesPromise = supabaseAdmin
+    const packagesPromise = billingSupabaseAdmin
       .from('packages')
-      .select('id, name, price, description, product_id, products:product_id (id, name)')
+      .select('id, name, price, description, product_id, product_type')
       .in('id', packageIds);
 
     const { data: packages, error: packagesError } = await executeWithTimeout(packagesPromise, 5000);
@@ -348,6 +613,24 @@ export const getConsumerPackagesForInvoice = async (req, res) => {
       });
     }
 
+    const productIds = Array.from(new Set((packages || []).map(pkg => pkg.product_id).filter(Boolean)));
+    let productMap = new Map();
+
+    if (productIds.length > 0) {
+      const productsPromise = supabaseAdmin
+        .from('products')
+        .select('id, name')
+        .in('id', productIds);
+
+      const { data: products, error: productsError } = await executeWithTimeout(productsPromise, 3000);
+
+      if (productsError) {
+        console.warn('Failed to fetch products for consumer packages:', productsError.message);
+      } else {
+        productMap = new Map((products || []).map(product => [product.id, product]));
+      }
+    }
+
     // ========================================
     // 7. COMBINE DATA & SANITIZE
     // ========================================
@@ -357,7 +640,7 @@ export const getConsumerPackagesForInvoice = async (req, res) => {
         package_id: pkg.id,
         package_name: pkg.name,
         product_id: pkg.product_id,
-        product_name: pkg.products?.name || null,
+        product_name: productMap.get(pkg.product_id)?.name || getProductTypeLabel(pkg.product_type),
         price: parseFloat(pkg.price || 0),
         description: pkg.description,
         granted_at: access?.granted_at
@@ -402,6 +685,8 @@ export const getConsumerPackagesForInvoice = async (req, res) => {
  */
 export const getAllInvoices = async (req, res) => {
   try {
+    setNoStoreHeaders(res);
+
     // ========================================
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
@@ -430,6 +715,12 @@ export const getAllInvoices = async (req, res) => {
     // Validate status
     const validStatuses = ['paid', 'unpaid', 'under_review', 'all'];
     const statusFilter = status && validStatuses.includes(status) ? status : 'all';
+    const billingStatusFilterMap = {
+      unpaid: ['unpaid', 'pending', 'draft', 'sent', 'overdue'],
+      under_review: ['under_review', 'processing'],
+      paid: ['paid']
+    };
+    const billingStatuses = billingStatusFilterMap[statusFilter] || null;
 
     // Validate pagination parameters
     const { pageNum, limitNum } = validatePagination(page, limit);
@@ -439,9 +730,23 @@ export const getAllInvoices = async (req, res) => {
     // 2. CACHE CHECK
     // ========================================
     const cacheKey = CACHE_KEYS.ALL_INVOICES(searchTerm || '', statusFilter, pageNum, limitNum);
+    console.log('[invoice-package-debug] getAllInvoices request', {
+      query: req.query,
+      statusFilter,
+      billingStatuses,
+      pageNum,
+      limitNum,
+      cacheKey,
+      userId: req.user?.id
+    });
+
     const cachedData = await cacheService.get(cacheKey);
     if (cachedData) {
-      console.log('✅ Cache HIT for invoices list');
+      console.log('[invoice-package-debug] Cache HIT for invoices list', {
+        cacheKey,
+        invoiceCount: cachedData?.data?.length || 0,
+        firstInvoicePackages: cachedData?.data?.[0]?.packages || []
+      });
       return res.json(cachedData);
     }
 
@@ -450,12 +755,13 @@ export const getAllInvoices = async (req, res) => {
     // ========================================
     // 3. OPTIMIZED DATABASE QUERY
     // ========================================
-    let query = supabaseAdmin
+    let query = billingSupabaseAdmin
       .from('invoices')
       .select(`
         id,
         sender_id,
         receiver_id,
+        user_id,
         issue_date,
         due_date,
         total_amount,
@@ -464,44 +770,21 @@ export const getAllInvoices = async (req, res) => {
         notes,
         created_at,
         updated_at,
-        sender:profiles!invoices_sender_id_fkey(user_id, full_name, role),
-        receiver:profiles!invoices_receiver_id_fkey(user_id, full_name, role, referred_by),
-        invoice_items (
-          id,
-          package_id,
-          product_id,
-          quantity,
-          unit_price,
-          tax_rate,
-          total_price,
-          packages (
-            id,
-            name,
-            price,
-            product_id,
-            products:product_id (
-              id,
-              name
-            )
-          ),
-          products (
-            id,
-            name,
-            price
-          )
-        )
+        reseller_commission_percentage,
+        applied_offer_id,
+        commission_calculated_at
       `, { count: 'exact' })
       .order('created_at', { ascending: false });
 
-    // Apply status filter
-    if (statusFilter && statusFilter !== 'all') {
-      query = query.eq('status', statusFilter);
+    // Billing invoices use draft/sent/overdue for records the admin UI groups as unpaid.
+    if (billingStatuses) {
+      query = query.in('status', billingStatuses);
     }
 
     // Note: Search filtering done in application layer after fetching
     // Pagination applied after search filtering
 
-    const { data: invoices, error, count } = await executeWithTimeout(query);
+    const { data: rawInvoices, error, count } = await executeWithTimeout(query);
 
     // ========================================
     // 4. ERROR HANDLING (Security)
@@ -515,11 +798,24 @@ export const getAllInvoices = async (req, res) => {
       });
     }
 
+    console.log('[invoice-package-debug] raw invoice query result', {
+      count: rawInvoices?.length || 0,
+      dbCount: count,
+      sampleInvoices: (rawInvoices || []).slice(0, 5).map(invoice => ({
+        id: invoice.id,
+        status: invoice.status,
+        notes: invoice.notes,
+        created_at: invoice.created_at
+      }))
+    });
+
+    const invoices = await attachInvoiceItems(rawInvoices || []);
+
     // ========================================
     // 5. ENRICH WITH EMAIL (with timeout)
     // ========================================
-    const receiverIds = Array.from(new Set((invoices || []).map(inv => inv.receiver?.user_id || inv.receiver_id).filter(Boolean)));
-    const senderIds = Array.from(new Set((invoices || []).map(inv => inv.sender?.user_id || inv.sender_id).filter(Boolean)));
+    const receiverIds = Array.from(new Set((invoices || []).map(inv => inv.receiver_id || inv.user_id).filter(Boolean)));
+    const senderIds = Array.from(new Set((invoices || []).map(inv => inv.sender_id).filter(Boolean)));
 
     const receiverProfilesPromise = supabaseAdmin
       .from('auth_role_with_profiles')
@@ -540,43 +836,43 @@ export const getAllInvoices = async (req, res) => {
     ]);
 
     const receiverIdToEmail = new Map((receiverProfiles || []).map(p => [p.user_id, p.email]));
+    const receiverIdToProfile = new Map((receiverProfiles || []).map(p => [p.user_id, p]));
     const senderIdToProfile = new Map((senderProfiles || []).map(p => [p.user_id, { email: p.email, full_name: p.full_name, role: p.role }]));
+
+    const { packageMap, priceMap, productMap } = await fetchBillingPackageMaps(invoices || []);
 
     // Format invoices for frontend
     const formattedInvoices = invoices.map(invoice => ({
       id: invoice.id,
-      invoice_number: `INV-${invoice.created_at?.split('T')[0]?.replace(/-/g, '')}-${invoice.id.substring(0, 8).toUpperCase()}`,
-      consumer_id: invoice.receiver?.user_id || invoice.receiver_id,
-      consumer_name: invoice.receiver?.full_name || 'Unknown',
-      consumer_email: receiverIdToEmail.get(invoice.receiver?.user_id || invoice.receiver_id) || '',
-      referred_by: invoice.receiver?.referred_by || null,
-      reseller_id: invoice.sender?.user_id || invoice.sender_id,
-      reseller_name: hasRole(senderIdToProfile.get(invoice.sender?.user_id || invoice.sender_id)?.role, 'reseller')
-        ? (senderIdToProfile.get(invoice.sender?.user_id || invoice.sender_id)?.full_name || 'Unknown Reseller')
+      invoice_number: invoice.invoice_number || `INV-${invoice.created_at?.split('T')[0]?.replace(/-/g, '')}-${invoice.id.substring(0, 8).toUpperCase()}`,
+      consumer_id: invoice.receiver_id || invoice.user_id,
+      consumer_name: receiverIdToProfile.get(invoice.receiver_id || invoice.user_id)?.full_name || 'Unknown',
+      consumer_email: receiverIdToEmail.get(invoice.receiver_id || invoice.user_id) || '',
+      referred_by: receiverIdToProfile.get(invoice.receiver_id || invoice.user_id)?.referred_by || null,
+      reseller_id: invoice.sender_id,
+      reseller_name: hasRole(senderIdToProfile.get(invoice.sender_id)?.role, 'reseller')
+        ? (senderIdToProfile.get(invoice.sender_id)?.full_name || 'Unknown Reseller')
         : null,
-      invoice_date: invoice.issue_date,
+      invoice_date: invoice.issue_date || invoice.invoice_date,
       due_date: invoice.due_date,
-      amount: parseFloat((invoice.total_amount || 0) - (invoice.tax_total || 0)).toFixed(2),
-      tax: parseFloat(invoice.tax_total || 0).toFixed(2),
+      amount: parseFloat(invoice.subtotal ?? ((invoice.total_amount || 0) - (invoice.tax_total || invoice.tax_amount || 0))).toFixed(2),
+      tax: parseFloat(invoice.tax_total || invoice.tax_amount || 0).toFixed(2),
       total: parseFloat(invoice.total_amount || 0).toFixed(2),
       status: invoice.status || 'unpaid',
       payment_date: invoice.status === 'paid' ? invoice.updated_at : null,
-        packages: invoice.invoice_items?.map(item => {
-          const packageName = item.packages?.name || item.products?.name || 'Unknown Package';
-          const productName = item.packages?.products?.name || null;
-          const displayName = productName ? `${productName} - ${packageName}` : packageName;
-          return {
-            name: displayName,
-            product_name: productName,
-            package_name: packageName,
-        quantity: item.quantity,
-        price: parseFloat(item.unit_price || 0).toFixed(2),
-        total: parseFloat(item.total_price || 0).toFixed(2)
-          };
-        }) || [],
+      packages: formatInvoicePackages(invoice, packageMap, productMap, priceMap),
       notes: invoice.notes,
       created_at: invoice.created_at
     }));
+
+    console.log('[invoice-package-debug] formatted invoice sample', {
+      sampleInvoices: formattedInvoices.slice(0, 5).map(invoice => ({
+        id: invoice.id,
+        invoice_number: invoice.invoice_number,
+        notes: invoice.notes,
+        packages: invoice.packages
+      }))
+    });
 
     // ========================================
     // 6. APPLY SEARCH FILTER
@@ -654,6 +950,8 @@ export const getAllInvoices = async (req, res) => {
  */
 export const getMyInvoices = async (req, res) => {
   try {
+    setNoStoreHeaders(res);
+
     // ========================================
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
@@ -696,7 +994,7 @@ export const getMyInvoices = async (req, res) => {
     // ========================================
     // 3. BUILD QUERY
     // ========================================
-    let query = supabaseAdmin
+    let query = billingSupabaseAdmin
       .from('invoices')
       .select(`
         id,
@@ -713,31 +1011,7 @@ export const getMyInvoices = async (req, res) => {
         reseller_commission_percentage,
         applied_offer_id,
         commission_calculated_at,
-        receiver:profiles!invoices_receiver_id_fkey(user_id, full_name, role, referred_by),
-        invoice_items (
-          id,
-          package_id,
-          product_id,
-          quantity,
-          unit_price,
-          tax_rate,
-          total_price,
-          packages (
-            id,
-            name,
-            price,
-            product_id,
-            products:product_id (
-              id,
-              name
-            )
-          ),
-          products (
-            id,
-            name,
-            price
-          )
-        )
+        commission_calculated_at
       `, { count: 'exact' })
       .eq('sender_id', senderId)
       .order('created_at', { ascending: false });
@@ -750,7 +1024,7 @@ export const getMyInvoices = async (req, res) => {
     // ========================================
     // 4. EXECUTE QUERY WITH TIMEOUT
     // ========================================
-    const { data: invoices, error, count } = await executeWithTimeout(query.range(offset, offset + limitNum - 1));
+    const { data: rawInvoices, error, count } = await executeWithTimeout(query.range(offset, offset + limitNum - 1));
 
     if (error) {
       console.error('❌ Error fetching reseller invoices:', error);
@@ -764,8 +1038,11 @@ export const getMyInvoices = async (req, res) => {
     // ========================================
     // 5. ENRICH WITH EMAIL (with timeout)
     // ========================================
-    const receiverIds = Array.from(new Set((invoices || []).map(inv => inv.receiver?.user_id || inv.receiver_id).filter(Boolean)));
+    const invoices = await attachInvoiceItems(rawInvoices || []);
+
+    const receiverIds = Array.from(new Set((invoices || []).map(inv => inv.receiver_id).filter(Boolean)));
     let receiverIdToEmail = new Map();
+    let receiverIdToProfile = new Map();
     
     if (receiverIds.length > 0) {
       const profilesPromise = supabaseAdmin
@@ -775,6 +1052,7 @@ export const getMyInvoices = async (req, res) => {
 
       const { data: receiverProfiles } = await executeWithTimeout(profilesPromise, 3000);
       receiverIdToEmail = new Map((receiverProfiles || []).map(p => [p.user_id, p.email]));
+      receiverIdToProfile = new Map((receiverProfiles || []).map(p => [p.user_id, p]));
     }
 
     // ========================================
@@ -797,6 +1075,8 @@ export const getMyInvoices = async (req, res) => {
       }
     }
 
+    const { packageMap, priceMap, productMap } = await fetchBillingPackageMaps(invoices || []);
+
     // Format invoices for frontend
     const formattedInvoices = invoices.map(invoice => {
       const offer = invoice.applied_offer_id ? offerMap.get(invoice.applied_offer_id) : null;
@@ -804,10 +1084,10 @@ export const getMyInvoices = async (req, res) => {
       return {
         id: invoice.id,
         invoice_number: `INV-${invoice.created_at?.split('T')[0]?.replace(/-/g, '')}-${invoice.id.substring(0, 8).toUpperCase()}`,
-        consumer_id: invoice.receiver?.user_id || invoice.receiver_id,
-        consumer_name: invoice.receiver?.full_name || 'Unknown',
-        consumer_email: receiverIdToEmail.get(invoice.receiver?.user_id || invoice.receiver_id) || '',
-        referred_by: invoice.receiver?.referred_by || null,
+        consumer_id: invoice.receiver_id,
+        consumer_name: receiverIdToProfile.get(invoice.receiver_id)?.full_name || 'Unknown',
+        consumer_email: receiverIdToEmail.get(invoice.receiver_id) || '',
+        referred_by: receiverIdToProfile.get(invoice.receiver_id)?.referred_by || null,
         reseller_id: senderId,
         reseller_name: null, // Not needed for reseller view
         invoice_date: invoice.issue_date,
@@ -826,19 +1106,7 @@ export const getMyInvoices = async (req, res) => {
           name: offer.name,
           commission_percentage: parseFloat(offer.commission_percentage)
         } : null,
-        packages: invoice.invoice_items?.map(item => {
-          const packageName = item.packages?.name || item.products?.name || 'Unknown Package';
-          const productName = item.packages?.products?.name || null;
-          const displayName = productName ? `${productName} - ${packageName}` : packageName;
-          return {
-            name: displayName,
-            product_name: productName,
-            package_name: packageName,
-          quantity: item.quantity,
-          price: parseFloat(item.unit_price || 0).toFixed(2),
-          total: parseFloat(item.total_price || 0).toFixed(2)
-          };
-        }) || [],
+        packages: formatInvoicePackages(invoice, packageMap, productMap, priceMap),
         notes: invoice.notes,
         created_at: invoice.created_at
       };
@@ -894,6 +1162,8 @@ export const getMyInvoices = async (req, res) => {
  */
 export const getConsumerInvoices = async (req, res) => {
   try {
+    setNoStoreHeaders(res);
+
     // ========================================
     // 1. INPUT VALIDATION & SANITIZATION
     // ========================================
@@ -961,7 +1231,7 @@ export const getConsumerInvoices = async (req, res) => {
     // ========================================
     // 4. BUILD COUNT QUERY (with timeout)
     // ========================================
-    let countQuery = supabaseAdmin
+    let countQuery = billingSupabaseAdmin
       .from('invoices')
       .select('id', { count: 'exact', head: true })
       .eq('receiver_id', consumerId);
@@ -985,7 +1255,7 @@ export const getConsumerInvoices = async (req, res) => {
     // ========================================
     // 5. BUILD INVOICES QUERY (with timeout)
     // ========================================
-    let query = supabaseAdmin
+    let query = billingSupabaseAdmin
       .from('invoices')
       .select(`
         id,
@@ -1001,32 +1271,7 @@ export const getConsumerInvoices = async (req, res) => {
         updated_at,
         reseller_commission_percentage,
         applied_offer_id,
-        commission_calculated_at,
-        sender:profiles!invoices_sender_id_fkey(user_id, full_name, role),
-        invoice_items (
-          id,
-          package_id,
-          product_id,
-          quantity,
-          unit_price,
-          tax_rate,
-          total_price,
-          packages (
-            id,
-            name,
-            price,
-            product_id,
-            products:product_id (
-              id,
-              name
-            )
-          ),
-          products (
-            id,
-            name,
-            price
-          )
-        )
+        commission_calculated_at
       `)
       .eq('receiver_id', consumerId)
       .order('created_at', { ascending: false })
@@ -1037,7 +1282,7 @@ export const getConsumerInvoices = async (req, res) => {
       query = query.eq('sender_id', senderId);
     }
 
-    const { data: invoices, error } = await executeWithTimeout(query);
+    const { data: rawInvoices, error } = await executeWithTimeout(query);
 
     if (error) {
       console.error('❌ Error fetching consumer invoices:', error);
@@ -1051,6 +1296,8 @@ export const getConsumerInvoices = async (req, res) => {
     // ========================================
     // 6. GET SENDER PROFILES (with timeout)
     // ========================================
+    const invoices = await attachInvoiceItems(rawInvoices || []);
+
     const senderIds = Array.from(new Set((invoices || []).map(inv => inv.sender_id).filter(Boolean)));
     let senderIdToProfile = new Map();
     
@@ -1084,6 +1331,8 @@ export const getConsumerInvoices = async (req, res) => {
       }
     }
 
+    const { packageMap, priceMap, productMap } = await fetchBillingPackageMaps(invoices || []);
+
     // Format invoices for frontend
     const formattedInvoices = invoices.map(invoice => {
       const offer = invoice.applied_offer_id ? offerMap.get(invoice.applied_offer_id) : null;
@@ -1112,19 +1361,7 @@ export const getConsumerInvoices = async (req, res) => {
           name: offer.name,
           commission_percentage: parseFloat(offer.commission_percentage)
         } : null,
-        packages: invoice.invoice_items?.map(item => {
-          const packageName = item.packages?.name || item.products?.name || 'Unknown Package';
-          const productName = item.packages?.products?.name || null;
-          const displayName = productName ? `${productName} - ${packageName}` : packageName;
-          return {
-            name: displayName,
-            product_name: productName,
-            package_name: packageName,
-          quantity: item.quantity,
-          price: parseFloat(item.unit_price || 0).toFixed(2),
-          total: parseFloat(item.total_price || 0).toFixed(2)
-          };
-        }) || [],
+        packages: formatInvoicePackages(invoice, packageMap, productMap, priceMap),
         notes: invoice.notes,
         created_at: invoice.created_at
       };
@@ -1148,6 +1385,132 @@ export const getConsumerInvoices = async (req, res) => {
     res.json(response);
   } catch (error) {
     return handleApiError(error, res, 'An error occurred while fetching consumer invoices.');
+  }
+};
+
+/**
+ * Get a single invoice by ID
+ * @route   GET /api/invoices/:id
+ * @access  Private (Admin, Support, Reseller, Consumer)
+ */
+export const getInvoiceById = async (req, res) => {
+  try {
+    setNoStoreHeaders(res);
+
+    const { id: invoiceId } = req.params;
+    const userId = req.user.id;
+    const userRole = req.userProfile?.role;
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
+    const isAdmin = isSystemAdmin || hasRole(userRole, 'admin') || hasRole(userRole, 'support');
+    const isConsumer = hasRole(userRole, 'consumer');
+    const isReseller = hasRole(userRole, 'reseller');
+
+    if (!invoiceId || !isValidUUID(invoiceId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        message: 'Invalid invoice ID format'
+      });
+    }
+
+    const invoicePromise = billingSupabaseAdmin
+      .from('invoices')
+      .select(`
+        id,
+        sender_id,
+        receiver_id,
+        user_id,
+        issue_date,
+        due_date,
+        total_amount,
+        tax_total,
+        status,
+        notes,
+        created_at,
+        updated_at,
+        reseller_commission_percentage,
+        applied_offer_id,
+        commission_calculated_at
+      `)
+      .eq('id', invoiceId)
+      .single();
+
+    const { data: rawInvoice, error: invoiceError } = await executeWithTimeout(invoicePromise, 5000);
+
+    if (invoiceError || !rawInvoice) {
+      console.error('❌ Error fetching invoice by id:', invoiceError);
+      return res.status(404).json({
+        success: false,
+        error: 'Not Found',
+        message: 'Invoice not found'
+      });
+    }
+
+    const invoiceOwnerId = rawInvoice.receiver_id || rawInvoice.user_id;
+
+    if (!isAdmin) {
+      if (isConsumer && invoiceOwnerId !== userId) {
+        return res.status(403).json({ success: false, error: 'Forbidden', message: 'Access denied' });
+      }
+
+      if (isReseller && rawInvoice.sender_id !== userId) {
+        return res.status(403).json({ success: false, error: 'Forbidden', message: 'Access denied' });
+      }
+
+      if (!isConsumer && !isReseller) {
+        return res.status(403).json({ success: false, error: 'Forbidden', message: 'Access denied' });
+      }
+    }
+
+    const [invoiceWithItems] = await attachInvoiceItems([rawInvoice]);
+    const profileIds = Array.from(new Set([invoiceWithItems.sender_id, invoiceOwnerId].filter(Boolean)));
+    let profileMap = new Map();
+
+    if (profileIds.length > 0) {
+      const profilesPromise = supabaseAdmin
+        .from('auth_role_with_profiles')
+        .select('user_id, email, full_name, role, referred_by')
+        .in('user_id', profileIds);
+
+      const { data: profiles } = await executeWithTimeout(profilesPromise, 3000);
+      profileMap = new Map((profiles || []).map(profile => [profile.user_id, profile]));
+    }
+
+    const { packageMap, priceMap, productMap } = await fetchBillingPackageMaps([invoiceWithItems]);
+    const consumerProfile = profileMap.get(invoiceOwnerId);
+    const senderProfile = profileMap.get(invoiceWithItems.sender_id);
+
+    const formattedInvoice = {
+      id: invoiceWithItems.id,
+      invoice_number: `INV-${invoiceWithItems.created_at?.split('T')[0]?.replace(/-/g, '')}-${invoiceWithItems.id.substring(0, 8).toUpperCase()}`,
+      consumer_id: invoiceOwnerId,
+      consumer_name: consumerProfile?.full_name || 'Unknown',
+      consumer_email: consumerProfile?.email || '',
+      referred_by: consumerProfile?.referred_by || null,
+      reseller_id: invoiceWithItems.sender_id,
+      reseller_name: hasRole(senderProfile?.role, 'reseller') ? (senderProfile?.full_name || 'Unknown Reseller') : null,
+      invoice_date: invoiceWithItems.issue_date,
+      due_date: invoiceWithItems.due_date,
+      amount: parseFloat((invoiceWithItems.total_amount || 0) - (invoiceWithItems.tax_total || 0)).toFixed(2),
+      tax: parseFloat(invoiceWithItems.tax_total || 0).toFixed(2),
+      total: parseFloat(invoiceWithItems.total_amount || 0).toFixed(2),
+      total_amount: parseFloat(invoiceWithItems.total_amount || 0),
+      status: invoiceWithItems.status || 'unpaid',
+      payment_date: invoiceWithItems.status === 'paid' ? invoiceWithItems.updated_at : null,
+      reseller_commission_percentage: invoiceWithItems.reseller_commission_percentage ? parseFloat(invoiceWithItems.reseller_commission_percentage) : null,
+      applied_offer_id: invoiceWithItems.applied_offer_id || null,
+      commission_calculated_at: invoiceWithItems.commission_calculated_at || null,
+      packages: formatInvoicePackages(invoiceWithItems, packageMap, productMap, priceMap),
+      notes: invoiceWithItems.notes,
+      created_at: invoiceWithItems.created_at
+    };
+
+    return res.json({
+      success: true,
+      data: sanitizeObject(formattedInvoice)
+    });
+  } catch (error) {
+    return handleApiError(error, res, 'An error occurred while fetching the invoice.');
   }
 };
 
@@ -1280,9 +1643,9 @@ export const createInvoice = async (req, res) => {
     // 4. BATCH VERIFY PACKAGES (with timeout)
     // ========================================
     const packageIds = items.map(item => item.package_id);
-    const packagesPromise = supabase
+    const packagesPromise = billingSupabaseAdmin
       .from('packages')
-      .select('id, name, price, product_id, products:product_id (id, name)')
+      .select('id, name, price, product_id, product_type')
       .in('id', packageIds);
 
     const { data: packages, error: packagesError } = await executeWithTimeout(packagesPromise);
@@ -1523,7 +1886,7 @@ export const createInvoice = async (req, res) => {
     // ========================================
     // 7. CREATE INVOICE (with timeout)
     // ========================================
-    const invoicePromise = supabaseAdmin
+    const invoicePromise = billingSupabaseAdmin
       .from('invoices')
       .insert(invoiceData)
       .select()
@@ -1552,7 +1915,7 @@ export const createInvoice = async (req, res) => {
       // total_price is auto-calculated by the database
     }));
 
-    const itemsPromise = supabaseAdmin
+    const itemsPromise = billingSupabaseAdmin
       .from('invoice_items')
       .insert(invoiceItems)
       .select();
@@ -1564,7 +1927,7 @@ export const createInvoice = async (req, res) => {
       // Try to delete the invoice if items insertion failed
       try {
         await executeWithTimeout(
-          supabaseAdmin.from('invoices').delete().eq('id', invoice.id),
+          billingSupabaseAdmin.from('invoices').delete().eq('id', invoice.id),
           3000
         );
       } catch (deleteError) {
@@ -1695,7 +2058,7 @@ export const resendInvoice = async (req, res) => {
     // ========================================
     // 2. FETCH INVOICE (with timeout)
     // ========================================
-    const invoicePromise = supabaseAdmin
+    const invoicePromise = billingSupabaseAdmin
       .from('invoices')
       .select(`
         id,
@@ -1707,37 +2070,12 @@ export const resendInvoice = async (req, res) => {
         tax_total,
         status,
         notes,
-        created_at,
-        receiver:auth_role_with_profiles!invoices_receiver_id_fkey(user_id, full_name, email, role),
-        invoice_items (
-          id,
-          package_id,
-          product_id,
-          quantity,
-          unit_price,
-          tax_rate,
-          total_price,
-          packages (
-            id,
-            name,
-            price,
-            product_id,
-            products:product_id (
-              id,
-              name
-            )
-          ),
-          products (
-            id,
-            name,
-            price
-          )
-        )
+        created_at
       `)
       .eq('id', id)
       .single();
 
-    const { data: invoice, error: invoiceError } = await executeWithTimeout(invoicePromise);
+    const { data: rawInvoice, error: invoiceError } = await executeWithTimeout(invoicePromise);
 
     if (invoiceError) {
       console.error('❌ Error fetching invoice:', invoiceError);
@@ -1748,13 +2086,15 @@ export const resendInvoice = async (req, res) => {
       });
     }
 
-    if (!invoice) {
+    if (!rawInvoice) {
       return res.status(404).json({
         success: false,
         error: 'Not Found',
         message: 'Invoice not found'
       });
     }
+
+    const [invoice] = await attachInvoiceItems([rawInvoice]);
 
     // If reseller, check that they created this invoice
     if (senderRole === 'reseller' && invoice.sender_id !== senderId) {
@@ -1768,7 +2108,14 @@ export const resendInvoice = async (req, res) => {
     // ========================================
     // 3. VALIDATE RECEIVER DATA
     // ========================================
-    const receiver = invoice.receiver;
+    const receiverPromise = supabaseAdmin
+      .from('auth_role_with_profiles')
+      .select('user_id, full_name, email, role')
+      .eq('user_id', invoice.receiver_id)
+      .maybeSingle();
+
+    const { data: receiver } = await executeWithTimeout(receiverPromise, 3000);
+
     if (!receiver || !receiver.email) {
       return res.status(400).json({
         success: false,
@@ -1780,10 +2127,15 @@ export const resendInvoice = async (req, res) => {
     // Generate invoice number
     const invoiceNumber = `INV-${(invoice.created_at || new Date().toISOString()).split('T')[0].replace(/-/g, '')}-${String(invoice.id).substring(0,8).toUpperCase()}`;
 
+    const { packageMap, priceMap, productMap } = await fetchBillingPackageMaps([invoice]);
+
     // Build items for email
     const emailItems = (invoice.invoice_items || []).map((it) => {
-      const packageName = it.packages?.name || it.products?.name || 'Package';
-      const productName = it.packages?.products?.name || null;
+      const priceKey = parseFloat(it.unit_price || 0).toFixed(2);
+      const billingPackage = (it.package_id ? packageMap.get(it.package_id) : null) || priceMap.get(priceKey) || null;
+      const packageName = billingPackage?.name || it.packages?.name || it.products?.name || 'Package';
+      const productId = billingPackage?.product_id || it.product_id || it.packages?.product_id || it.products?.id || null;
+      const productName = productMap.get(productId)?.name || it.packages?.products?.name || getProductTypeLabel(billingPackage?.product_type);
       const displayName = productName ? `${productName} - ${packageName}` : packageName;
       return {
         name: displayName,
@@ -1853,7 +2205,7 @@ export const downloadInvoicePDF = async (req, res) => {
     // ========================================
     // 2. FETCH INVOICE (with timeout)
     // ========================================
-    const invoicePromise = supabaseAdmin
+    const invoicePromise = billingSupabaseAdmin
       .from('invoices')
       .select(`
         id,
@@ -1865,43 +2217,17 @@ export const downloadInvoicePDF = async (req, res) => {
         tax_total,
         status,
         notes,
-        created_at,
-        sender:auth_role_with_profiles!invoices_sender_id_fkey(user_id, full_name, email, role),
-        receiver:auth_role_with_profiles!invoices_receiver_id_fkey(user_id, full_name, email, role),
-        invoice_items (
-          id,
-          package_id,
-          product_id,
-          quantity,
-          unit_price,
-          tax_rate,
-          total_price,
-          packages (
-            id,
-            name,
-            price,
-            product_id,
-            products:product_id (
-              id,
-              name
-            )
-          ),
-          products (
-            id,
-            name,
-            price
-          )
-        )
+        created_at
       `)
       .eq('id', invoiceId)
       .single();
 
-    const { data: invoice, error: invoiceError } = await executeWithTimeout(invoicePromise);
+    const { data: rawInvoice, error: invoiceError } = await executeWithTimeout(invoicePromise);
 
     // ========================================
     // 3. ERROR HANDLING (Security)
     // ========================================
-    if (invoiceError || !invoice) {
+    if (invoiceError || !rawInvoice) {
       console.error('❌ Error fetching invoice:', invoiceError);
       return res.status(404).json({
         success: false,
@@ -1909,6 +2235,28 @@ export const downloadInvoicePDF = async (req, res) => {
         message: 'Invoice not found'
       });
     }
+
+    const [invoiceWithItems] = await attachInvoiceItems([rawInvoice]);
+    const profileIds = [invoiceWithItems.sender_id, invoiceWithItems.receiver_id].filter(Boolean);
+    let profileMap = new Map();
+
+    if (profileIds.length > 0) {
+      const profilesPromise = supabaseAdmin
+        .from('auth_role_with_profiles')
+        .select('user_id, full_name, email, role')
+        .in('user_id', profileIds);
+
+      const { data: profiles } = await executeWithTimeout(profilesPromise, 3000);
+      profileMap = new Map((profiles || []).map(profile => [profile.user_id, profile]));
+    }
+
+    const invoice = {
+      ...invoiceWithItems,
+      sender: profileMap.get(invoiceWithItems.sender_id) || null,
+      receiver: profileMap.get(invoiceWithItems.receiver_id) || null
+    };
+
+    const { packageMap, priceMap, productMap } = await fetchBillingPackageMaps([invoice]);
 
     // ========================================
     // 4. GENERATE PDF
@@ -1970,8 +2318,11 @@ export const downloadInvoicePDF = async (req, res) => {
     doc.fontSize(10).font('Helvetica');
     const invoiceItems = invoice.invoice_items || [];
     invoiceItems.forEach((item) => {
-      const packageName = item.packages?.name || item.products?.name || 'Unknown Package';
-      const productName = item.packages?.products?.name || null;
+      const priceKey = parseFloat(item.unit_price || 0).toFixed(2);
+      const billingPackage = (item.package_id ? packageMap.get(item.package_id) : null) || priceMap.get(priceKey) || null;
+      const packageName = billingPackage?.name || item.packages?.name || item.products?.name || 'Unknown Package';
+      const productId = billingPackage?.product_id || item.product_id || item.packages?.product_id || item.products?.id || null;
+      const productName = productMap.get(productId)?.name || item.packages?.products?.name || getProductTypeLabel(billingPackage?.product_type);
       const itemName = productName ? `${productName} - ${packageName}` : packageName;
       const quantity = item.quantity || 0;
       const unitPrice = parseFloat(item.unit_price || 0).toFixed(2);

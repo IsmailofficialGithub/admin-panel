@@ -86,9 +86,11 @@ export const inboundSupabaseAdmin = inboundSupabaseServiceKey
   })
   : null;
 
-// Create Supabase admin client for "billing" schema (actually querying public views)
-export const billingSupabaseAdmin = inboundSupabaseServiceKey
-  ? createClient(inboundSupabaseUrl, inboundSupabaseServiceKey, {
+// Create Supabase admin client for billing tables through exposed public views.
+// Billing data lives in the main Supabase project; inbound has its own project
+// and currently exposes an empty invoices view.
+export const billingSupabaseAdmin = supabaseServiceKey
+  ? createClient(supabaseUrl, supabaseServiceKey, {
     db: {
       schema: 'public'
     },
@@ -121,7 +123,7 @@ export const testConnection = async () => {
 console.log('✅ Supabase clients initialized:');
 console.log(`   - Main: ${supabaseUrl} (schema: public)`);
 console.log(`   - Inbound Admin: ${inboundSupabaseUrl} (schema: public)`);
-console.log(`   - Billing Admin: ${inboundSupabaseUrl} (schema: public)`);
+console.log(`   - Billing Admin: ${supabaseUrl} (schema: public views for billing tables)`);
 
 export default supabase;
 

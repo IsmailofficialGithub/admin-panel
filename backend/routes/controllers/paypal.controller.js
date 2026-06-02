@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../../config/database.js';
+import { supabaseAdmin, billingSupabaseAdmin } from '../../config/database.js';
 import { decryptPaymentData } from '../../utils/encryption.js';
 import { logActivity, getActorInfo, getClientIp, getUserAgent } from '../../services/activityLogger.js';
 import {
@@ -165,7 +165,7 @@ export const createPayPalOrder = async (req, res) => {
     // 2. QUERY TIMEOUT - Validate invoice exists
     // ========================================
     const { data: invoice, error: invoiceError } = await executeWithTimeout(
-      supabaseAdmin
+      billingSupabaseAdmin
         .from('invoices')
         .select('id, status, total_amount, receiver_id')
         .eq('id', invoice_id)
@@ -356,7 +356,7 @@ export const capturePayPalPayment = async (req, res) => {
       // 3. QUERY TIMEOUT - Update invoice status
       // ========================================
       if (invoice_id) {
-        const updatePromise = supabaseAdmin
+        const updatePromise = billingSupabaseAdmin
           .from('invoices')
           .update({ 
             status: 'paid',

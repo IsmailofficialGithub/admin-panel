@@ -82,6 +82,143 @@ const Pagination = ({ current, total, limit, onPageChange, disabled }) => {
   );
 };
 
+const UserCell = ({ item, users }) => {
+  const [isHovered, setIsHovered] = React.useState(false);
+  const profile = item.user_profile || {};
+  let displayEmail = item.user_email || profile.email;
+  let displayName = item.user_full_name || profile.full_name;
+  let role = item.user_role || profile.role;
+
+  // Fallback: lookup user details by ID from the preloaded users list if they are not already enriched
+  if (!displayEmail && item.user_id && users && users.length > 0) {
+    const matchedUser = users.find(u => (u.user_id === item.user_id || u.id === item.user_id));
+    if (matchedUser) {
+      displayEmail = matchedUser.email;
+      displayName = matchedUser.full_name || matchedUser.name || displayName;
+      role = matchedUser.role || role;
+    }
+  }
+
+  displayName = displayName || 'Anonymous User';
+  role = role || 'User';
+
+  const details = [
+    { label: 'Role', value: role, icon: '🛡️' },
+    { label: 'Status', value: profile.account_status || 'Active', icon: '🟢' },
+    { label: 'Phone', value: profile.phone, icon: '📞' },
+    { label: 'Created', value: profile.created_at ? new Date(profile.created_at).toLocaleDateString() : null, icon: '📅' },
+  ].filter(d => d.value);
+
+  if (!item.user_id && !displayEmail) {
+    return <span style={{ color: '#9ca3af' }}>-</span>;
+  }
+
+  return (
+    <div
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{
+        position: 'relative',
+        display: 'inline-block',
+        maxWidth: '200px',
+      }}
+    >
+      <span
+        style={{
+          color: displayEmail ? '#74317e' : '#6b7280',
+          fontWeight: displayEmail ? '600' : '400',
+          cursor: 'pointer',
+          display: 'block',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          textDecoration: displayEmail ? 'underline' : 'none',
+          textDecorationColor: '#e8d5ec',
+          textUnderlineOffset: '3px',
+          transition: 'all 0.2s',
+        }}
+        onMouseEnter={(e) => {
+          if (displayEmail) e.target.style.color = '#5a2262';
+        }}
+        onMouseLeave={(e) => {
+          if (displayEmail) e.target.style.color = '#74317e';
+        }}
+      >
+        {displayEmail || `ID: ${item.user_id.substring(0, 8)}...`}
+      </span>
+
+      {/* Premium Tooltip/Popover */}
+      <div
+        style={{
+          visibility: isHovered ? 'visible' : 'hidden',
+          opacity: isHovered ? 1 : 0,
+          transform: isHovered ? 'translateY(0) scale(1)' : 'translateY(10px) scale(0.95)',
+          transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+          position: 'absolute',
+          top: '26px',
+          left: '-20px',
+          zIndex: 9999, // Ensure it floats on top of everything
+          minWidth: '280px',
+          background: 'rgba(255, 255, 255, 0.98)',
+          backdropFilter: 'blur(10px)',
+          border: '1px solid rgba(116, 49, 126, 0.1)',
+          borderRadius: '12px',
+          boxShadow: '0 10px 30px -5px rgba(116, 49, 126, 0.15), 0 8px 20px -6px rgba(0, 0, 0, 0.1)',
+          padding: '16px',
+          color: '#1f2937',
+          lineHeight: 1.5,
+          pointerEvents: 'none', // Prevents jitter when mouse accidentally enters popover
+        }}
+      >
+        {/* Card Header with Profile Info */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', borderBottom: '1px solid #f3f4f6', paddingBottom: '10px' }}>
+          <div style={{
+            width: '36px',
+            height: '36px',
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #74317e 0%, #a252ad 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'white',
+            fontWeight: '600',
+            fontSize: '14px',
+            boxShadow: '0 2px 8px rgba(116, 49, 126, 0.3)'
+          }}>
+            {displayName.charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <div style={{ fontWeight: '600', fontSize: '14px', color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '190px' }}>
+              {displayName}
+            </div>
+            <div style={{ fontSize: '11px', color: '#6b7280', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10b981' }}></span>
+              {role.toUpperCase()}
+            </div>
+          </div>
+        </div>
+
+        {/* Detailed Rows */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#4b5563' }}>
+            <span style={{ fontSize: '14px' }}>📧</span>
+            <span style={{ fontWeight: '500', wordBreak: 'break-all' }}>{displayEmail || '-'}</span>
+          </div>
+          {details.map((detail, idx) => (
+            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#4b5563' }}>
+              <span style={{ fontSize: '14px' }}>{detail.icon}</span>
+              <span><strong>{detail.label}:</strong> {detail.value}</span>
+            </div>
+          ))}
+          <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: '8px', marginTop: '4px', fontSize: '10px', color: '#9ca3af', wordBreak: 'break-all' }}>
+            ID: {item.user_id || '-'}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 function InboundGenie() {
   const history = useHistory();
   const { hasPermission } = usePermissions();
@@ -735,6 +872,7 @@ function InboundGenie() {
       if (activeTab === 'numbers') {
         fetchInboundNumbers();
         fetchAvailableAgents();
+        fetchUsers();
       } else if (activeTab === 'calls') {
         fetchCallHistory();
       } else if (activeTab === 'schedules') {
@@ -1138,7 +1276,10 @@ function InboundGenie() {
       num.phone_number?.toLowerCase().includes(query) ||
       num.phone_label?.toLowerCase().includes(query) ||
       num.provider?.toLowerCase().includes(query) ||
-      num.status?.toLowerCase().includes(query)
+      num.status?.toLowerCase().includes(query) ||
+      num.user_email?.toLowerCase().includes(query) ||
+      num.user_full_name?.toLowerCase().includes(query) ||
+      num.user_id?.toLowerCase().includes(query)
     );
   });
 
@@ -1253,10 +1394,12 @@ function InboundGenie() {
       let rows = [];
 
       if (type === 'numbers') {
-        headers = ['Phone Number', 'Label', 'Provider', 'Status', 'Health Status', 'Webhook Status', 'Agent', 'Created At'];
+        headers = ['Phone Number', 'Label', 'User', 'User Email', 'Provider', 'Status', 'Health Status', 'Webhook Status', 'Agent', 'Created At'];
         rows = data.map(item => [
           item.phone_number || '',
           item.phone_label || '',
+          item.user_email || item.user_profile?.email || item.user_id?.substring(0, 8) || '',
+          item.user_email || '',
           item.provider || '',
           item.status || '',
           item.health_status || 'unknown',
@@ -1385,6 +1528,13 @@ function InboundGenie() {
       padding: '20px',
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
     }}>
+      <style>
+        {`
+          .inbound-user-cell:hover .inbound-user-popover {
+            display: block !important;
+          }
+        `}
+      </style>
       <div style={{
         maxWidth: '1400px',
         margin: '0 auto'
@@ -2054,6 +2204,7 @@ function InboundGenie() {
                         <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
                           <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Phone Number</th>
                           <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Label</th>
+                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>User</th>
                           <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Provider</th>
                           <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Status</th>
                           <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600' }}>Health</th>
@@ -2068,6 +2219,9 @@ function InboundGenie() {
                           <tr key={number.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
                             <td style={{ padding: '12px', fontWeight: '500' }}>{number.phone_number}</td>
                             <td style={{ padding: '12px' }}>{number.phone_label || '-'}</td>
+                            <td style={{ padding: '12px', fontSize: '12px' }}>
+                              <UserCell item={number} users={users} />
+                            </td>
                             <td style={{ padding: '12px' }}>
                               <span style={{
                                 padding: '4px 8px',

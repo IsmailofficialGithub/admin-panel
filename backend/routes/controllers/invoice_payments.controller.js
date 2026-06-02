@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../../config/database.js';
+import { supabaseAdmin, billingSupabaseAdmin } from '../../config/database.js';
 import multer from 'multer';
 import { cacheService } from '../../config/redis.js';
 import {
@@ -123,6 +123,20 @@ export const submitPayment = async (req, res) => {
     const { id: invoiceId } = req.params;
     const userId = req.user.id;
     const userRole = req.userProfile?.role;
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
+    const isAdmin = isSystemAdmin || hasRole(userRole, 'admin') || hasRole(userRole, 'support');
+    const isConsumer = hasRole(userRole, 'consumer');
+    const isReseller = hasRole(userRole, 'reseller');
+
+    console.log('[invoice-payment-access] submitPayment role check', {
+      invoiceId,
+      userId,
+      role: userRole,
+      is_systemadmin: req.userProfile?.is_systemadmin,
+      isAdmin,
+      isConsumer,
+      isReseller
+    });
 
     if (!invoiceId || !isValidUUID(invoiceId)) {
       return res.status(400).json({
@@ -135,7 +149,7 @@ export const submitPayment = async (req, res) => {
     // ========================================
     // 2. VALIDATE INVOICE EXISTS (with timeout)
     // ========================================
-    const invoicePromise = supabaseAdmin
+    const invoicePromise = billingSupabaseAdmin
       .from('invoices')
       .select('id, receiver_id, sender_id, status, total_amount')
       .eq('id', invoiceId)
@@ -158,7 +172,9 @@ export const submitPayment = async (req, res) => {
     // Check permissions: Admin can submit for any invoice, 
     // Reseller can submit for their invoices, 
     // Consumer can submit for their own invoices
-    if (userRole === 'consumer') {
+    if (isAdmin) {
+      // Admin/support/system admin may submit payments for any invoice.
+    } else if (isConsumer) {
       if (invoice.receiver_id !== userId) {
         return res.status(403).json({
           success: false,
@@ -166,7 +182,7 @@ export const submitPayment = async (req, res) => {
           message: 'You can only submit payments for your own invoices'
         });
       }
-    } else if (userRole === 'reseller') {
+    } else if (isReseller) {
       if (invoice.sender_id !== userId) {
         return res.status(403).json({
           success: false,
@@ -174,6 +190,12 @@ export const submitPayment = async (req, res) => {
           message: 'You can only submit payments for invoices you created'
         });
       }
+    } else {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden',
+        message: 'Access denied'
+      });
     }
 
     // Validate invoice status
@@ -338,7 +360,7 @@ export const submitPayment = async (req, res) => {
     // ========================================
     // 6. UPDATE INVOICE STATUS (with timeout)
     // ========================================
-    const updatePromise = supabaseAdmin
+    const updatePromise = billingSupabaseAdmin
       .from('invoices')
       .update({ 
         status: 'under_review',
@@ -402,6 +424,20 @@ export const getInvoicePayments = async (req, res) => {
     const { id: invoiceId } = req.params;
     const userId = req.user.id;
     const userRole = req.userProfile?.role;
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
+    const isAdmin = isSystemAdmin || hasRole(userRole, 'admin') || hasRole(userRole, 'support');
+    const isConsumer = hasRole(userRole, 'consumer');
+    const isReseller = hasRole(userRole, 'reseller');
+
+    console.log('[invoice-payment-access] getInvoicePayments role check', {
+      invoiceId,
+      userId,
+      role: userRole,
+      is_systemadmin: req.userProfile?.is_systemadmin,
+      isAdmin,
+      isConsumer,
+      isReseller
+    });
 
     if (!invoiceId || !isValidUUID(invoiceId)) {
       return res.status(400).json({
@@ -426,7 +462,7 @@ export const getInvoicePayments = async (req, res) => {
     // ========================================
     // 3. VALIDATE INVOICE EXISTS (with timeout)
     // ========================================
-    const invoicePromise = supabaseAdmin
+    const invoicePromise = billingSupabaseAdmin
       .from('invoices')
       .select('id, receiver_id, sender_id')
       .eq('id', invoiceId)
@@ -447,13 +483,21 @@ export const getInvoicePayments = async (req, res) => {
     }
 
     // Check permissions
-    if (userRole === 'consumer' && invoice.receiver_id !== userId) {
+    if (isAdmin) {
+      // Admin/support/system admin may view payments for any invoice.
+    } else if (isConsumer && invoice.receiver_id !== userId) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',
         message: 'Access denied'
       });
-    } else if (userRole === 'reseller' && invoice.sender_id !== userId) {
+    } else if (isReseller && invoice.sender_id !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden',
+        message: 'Access denied'
+      });
+    } else if (!isConsumer && !isReseller) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',
@@ -630,6 +674,14 @@ export const reviewPayment = async (req, res) => {
     const { paymentId } = req.params;
     const userId = req.user.id;
     const userRole = req.userProfile?.role;
+    const isSystemAdmin = req.userProfile?.is_systemadmin === true;
+
+    console.log('[invoice-payment-access] reviewPayment role check', {
+      paymentId,
+      userId,
+      role: userRole,
+      is_systemadmin: req.userProfile?.is_systemadmin
+    });
 
     if (!paymentId || !isValidUUID(paymentId)) {
       return res.status(400).json({
@@ -640,7 +692,7 @@ export const reviewPayment = async (req, res) => {
     }
 
     // Only admin can review payments
-    if (!hasRole(userRole, 'admin')) {
+    if (!isSystemAdmin && !hasRole(userRole, 'admin') && !hasRole(userRole, 'support')) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',
@@ -713,7 +765,7 @@ export const reviewPayment = async (req, res) => {
     // 4. UPDATE INVOICE STATUS IF APPROVED (with timeout)
     // ========================================
     if (status === 'approved') {
-      const invoiceUpdatePromise = supabaseAdmin
+      const invoiceUpdatePromise = billingSupabaseAdmin
         .from('invoices')
         .update({ 
           status: 'paid',

@@ -175,6 +175,70 @@ const enrichWithRelations = async (items, includeAgents = false, includeNumbers 
   return enriched;
 };
 
+const enrichWithUserProfiles = async (items) => {
+  if (!items || items.length === 0 || !inboundSupabaseAdmin) return items || [];
+
+  try {
+    const userIds = [...new Set(items.map(item => item.user_id).filter(Boolean))];
+    if (userIds.length === 0) return items;
+
+    // Fetch user details from Inbound Supabase auth in parallel
+    const usersList = await Promise.all(
+      userIds.map(async (id) => {
+        try {
+          const { data, error } = await inboundSupabaseAdmin.auth.admin.getUserById(id);
+          if (error || !data?.user) return null;
+          return data.user;
+        } catch (err) {
+          return null;
+        }
+      })
+    );
+
+    const validUsers = usersList.filter(Boolean);
+    const userMap = new Map(validUsers.map(user => [user.id, user]));
+
+    // Fetch details from user_profiles table in Inbound Supabase
+    const { data: profiles, error: profileError } = await inboundSupabaseAdmin
+      .from('user_profiles')
+      .select('*')
+      .in('id', userIds);
+
+    const profileMap = new Map((profiles || []).map(p => [p.id, p]));
+
+    return items.map(item => {
+      const user = item.user_id ? userMap.get(item.user_id) : null;
+      const profile = item.user_id ? profileMap.get(item.user_id) : null;
+      
+      const fullName = profile ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() : null;
+
+      return {
+        ...item,
+        user_email: user?.email || profile?.email || null,
+        user_full_name: fullName || user?.user_metadata?.full_name || null,
+        user_role: user?.user_metadata?.role || (user?.user_metadata?.roles ? user.user_metadata.roles[0] : null) || 'consumer',
+        user_profile: profile ? {
+          ...profile,
+          email: user?.email || profile.email,
+          full_name: fullName,
+          role: user?.user_metadata?.role || 'consumer',
+          account_status: profile.account_status || 'active',
+          created_at: profile.created_at || user?.created_at
+        } : user ? {
+          email: user.email,
+          full_name: user.user_metadata?.full_name,
+          role: user.user_metadata?.role || 'consumer',
+          account_status: 'active',
+          created_at: user.created_at
+        } : null
+      };
+    });
+  } catch (error) {
+    console.warn('Warning: Error enriching inbound numbers with user profiles:', error.message);
+    return items;
+  }
+};
+
 // =====================================================
 // INBOUND NUMBERS ENDPOINTS
 // =====================================================
@@ -213,8 +277,9 @@ export const getAllInboundNumbers = async (req, res) => {
 
     if (error) throw error;
 
-    // Enrich with agent data
-    const enriched = await enrichWithRelations(data || [], true, false);
+    // Enrich with agent and user data
+    const enrichedWithAgents = await enrichWithRelations(data || [], true, false);
+    const enriched = await enrichWithUserProfiles(enrichedWithAgents);
 
     return res.json(
       createPaginatedResponse(enriched, count || 0, pageNum, limitNum)
@@ -252,8 +317,9 @@ export const getInboundNumberById = async (req, res) => {
       });
     }
 
-    // Enrich with agent data
-    const enriched = await enrichWithRelations([data], true, false);
+    // Enrich with agent and user data
+    const enrichedWithAgents = await enrichWithRelations([data], true, false);
+    const enriched = await enrichWithUserProfiles(enrichedWithAgents);
 
     return res.json({
       success: true,
