@@ -37,7 +37,7 @@ const BaseEmailTemplate = ({
     body { margin:0; padding:0; background:#f4f5f7; font-family:'Manrope', Arial, sans-serif; color:#333 }
     .wrapper { width:100%; table-layout:fixed; background:#f4f5f7; padding:40px 20px; box-sizing:border-box }
     .main-container { max-width:600px; margin:0 auto; background:#fff; border-radius:12px; box-shadow:0 4px 15px rgba(0,0,0,0.05) }
-    .header { padding:30px 40px 10px; display:flex; justify-content:space-between; align-items:center }
+    .header-table { width:100%; border-collapse:collapse }
     .contact-btn { color:#00B48D; text-decoration:none; font-size:15px; font-weight:600 }
     .content { padding:20px 40px }
     .title { text-align:center; font-size:24px; font-weight:700; color:#111; margin:0 0 18px }
@@ -54,22 +54,29 @@ const BaseEmailTemplate = ({
     .footer-area { margin-top:20px; position:relative }
     .green-footer { background:#00B48D; padding:30px 20px 25px; text-align:center; color:#fff; border-top-left-radius:90% 100%; border-top-right-radius:90% 100%; border-bottom-left-radius:12px; border-bottom-right-radius:12px }
     .footer-img-left { width:150px; max-width:100%; height:auto; display:block }
-    .footer-img-right { width:320px; max-width:100%; height:auto; display:block }
+    .footer-img-right { width:180px; max-width:100%; height:auto; display:block }
     .social-icons { text-align:center; margin-bottom:12px }
     .social-icon img { width:30px; height:30px }
     .copyright { font-size:14px; opacity:0.9 }
-    @media only screen and (max-width:600px) { .wrapper{padding:20px 10px} .header{padding:20px} .content{padding:20px} .code-box{font-size:24px;padding:0 16px} .footer-img-right{width:140px} }
+    @media only screen and (max-width:600px) { .wrapper{padding:20px 10px} .content{padding:20px} .code-box{font-size:24px;padding:0 16px} .footer-img-right{width:130px} .footer-img-left{width:120px} }
   </style>
 </head>
 <body>
   <div class="wrapper">
     <div class="main-container">
-      <div class="header">
-        <div class="logo">
-          <img src="https://lblkjhlojjlwqmwfnels.supabase.co/storage/v1/object/public/styling-image/DnaiLogo.png" alt="DuhaNashrah ai" style="height:45px; width:auto; display:block" />
-        </div>
-        <a href="#" class="contact-btn">Contact Us</a>
-      </div>
+      <!-- Header Table -->
+      <table class="header-table" role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width: 100%; padding: 30px 40px 10px;">
+        <tr>
+          <td align="left" valign="middle">
+            <div class="logo">
+              <img src="https://lblkjhlojjlwqmwfnels.supabase.co/storage/v1/object/public/styling-image/DnaiLogo.png" alt="DuhaNashrah ai" style="height:45px; width:auto; display:block; border:0;" />
+            </div>
+          </td>
+          <td align="right" valign="middle">
+            <a href="https://social.duhanashrah.ai/contact" class="contact-btn">Contact Us</a>
+          </td>
+        </tr>
+      </table>
       <div class="content">
         <h1 class="title">${title}</h1>
         ${subtitle ? `<div class="subtitle">${subtitle}</div>` : ''}
@@ -99,7 +106,7 @@ const BaseEmailTemplate = ({
   </div>
 </body>
 </html>`;
-};
+}
 
 /**
  * Welcome Email Template - User Created
@@ -122,28 +129,28 @@ export const AdminEmailTemplateUserCreated = ({
     consumer: {
       title: 'Welcome Consumer!',
       subtitle: 'Your Account has been created',
-      greeting: `Hello <strong style="color: #8a3b9a;">${full_name}</strong>,`,
+      greeting: `Hello <strong style="color: #00B48D;">${full_name}</strong>,`,
       message: `Welcome to DuhaNashrahAi! We're thrilled to have you as a consumer. Your account has been successfully created and you can start exploring our services right away.`,
       buttonText: 'Login Now'
     },
     reseller: {
       title: 'Welcome Reseller!',
       subtitle: 'Your reseller account is ready',
-      greeting: `Hello <strong style="color: #8a3b9a;">${full_name}</strong>,`,
+      greeting: `Hello <strong style="color: #00B48D;">${full_name}</strong>,`,
       message: `Welcome to DuhaNashrahAi! We're excited to have you join our reseller network. Your account has been successfully created and you can start managing your business right away.`,
       buttonText: 'Go to Dashboard'
     },
     admin: {
       title: 'Welcome Administrator!',
       subtitle: 'Your admin account is ready',
-      greeting: `Hello <strong style="color: #8a3b9a;">${full_name}</strong>,`,
+      greeting: `Hello <strong style="color: #00B48D;">${full_name}</strong>,`,
       message: `Welcome to DuhaNashrahAi! Your administrator account has been successfully created. You now have full access to manage the platform.`,
       buttonText: 'Access Admin Panel'
     },
     user: {
       title: 'Welcome Aboard!',
       subtitle: 'Your account is ready',
-      greeting: `Hello <strong style="color: #8a3b9a;">${full_name}</strong>,`,
+      greeting: `Hello <strong style="color: #00B48D;">${full_name}</strong>,`,
       message: `Thank you for joining us! We're excited to have you as part of our community. Your account has been successfully created.`,
       buttonText: 'Get Started'
     }
@@ -179,7 +186,7 @@ export const AdminEmailTemplateUserCreated = ({
     </table>
 
     <!-- Account Details - Outlook compatible -->
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #8a3b9a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #00B48D;">
       <tr>
         <td style="padding: 20px; color: #232347; font-size: 15px; line-height: 1.6; font-family: Verdana, Geneva, sans-serif;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
@@ -200,7 +207,7 @@ export const AdminEmailTemplateUserCreated = ({
             </tr>
             <tr>
               <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-                <strong>Password:</strong> <span class="mono-num" style="background-color: #ffffff; padding: 4px 8px; font-weight: bold; color: #8a3b9a; font-family: 'Courier New', Courier, monospace;">${password}</span>
+                <strong>Password:</strong> <span class="mono-num" style="background-color: #ffffff; padding: 4px 8px; font-weight: bold; color: #00B48D; font-family: 'Courier New', Courier, monospace;">${password}</span>
               </td>
             </tr>
             <tr>
@@ -234,7 +241,7 @@ export const PasswordResetTemplate = ({
 } = {}) => {
   const content = `
     <p style="margin: 0 0 12px 0; color: #232347;">
-      Hello <strong style="color: #8a3b9a;">${full_name}</strong>,
+      Hello <strong style="color: #00B48D;">${full_name}</strong>,
     </p>
     
     <p style="margin: 0 0 20px 0; color: #232347;">
@@ -242,7 +249,7 @@ export const PasswordResetTemplate = ({
     </p>
 
     <!-- Password Info - Outlook compatible -->
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #8a3b9a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #00B48D;">
       <tr>
         <td style="padding: 20px; color: #232347; font-size: 15px; line-height: 1.6; font-family: Verdana, Geneva, sans-serif;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
@@ -258,7 +265,7 @@ export const PasswordResetTemplate = ({
             </tr>
             <tr>
               <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-                <strong>New Password:</strong> <span class="mono-num" style="background-color: #ffffff; padding: 4px 8px; font-weight: bold; color: #8a3b9a; font-family: 'Courier New', Courier, monospace;">${new_password}</span>
+                <strong>New Password:</strong> <span class="mono-num" style="background-color: #ffffff; padding: 4px 8px; font-weight: bold; color: #00B48D; font-family: 'Courier New', Courier, monospace;">${new_password}</span>
               </td>
             </tr>
             <tr>
@@ -303,7 +310,7 @@ export const TrialPeriodChangeTemplate = ({
 
   const content = `
     <p style="margin: 0 0 12px 0; color: #232347;">
-      Hello <strong style="color: #8a3b9a;">${full_name}</strong>,
+      Hello <strong style="color: #00B48D;">${full_name}</strong>,
     </p>
     
     <p style="margin: 0 0 20px 0; color: #232347;">
@@ -311,7 +318,7 @@ export const TrialPeriodChangeTemplate = ({
     </p>
 
     <!-- Trial Details - Outlook compatible -->
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #8a3b9a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #00B48D;">
       <tr>
         <td style="padding: 20px; color: #232347; font-size: 15px; line-height: 1.6; font-family: Verdana, Geneva, sans-serif;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
@@ -327,7 +334,7 @@ export const TrialPeriodChangeTemplate = ({
             </tr>
             <tr>
               <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-                <strong>New Expiry:</strong> <span style="color: #8a3b9a; font-weight: bold;">${formatDate(new_trial_date)}</span>
+                <strong>New Expiry:</strong> <span style="color: #00B48D; font-weight: bold;">${formatDate(new_trial_date)}</span>
               </td>
             </tr>
             <tr>
@@ -374,7 +381,7 @@ export const TrialExtensionTemplate = ({
 
   const content = `
     <p style="margin: 0 0 12px 0; color: #232347;">
-      Hello <strong style="color: #8a3b9a;">${full_name}</strong>,
+      Hello <strong style="color: #00B48D;">${full_name}</strong>,
     </p>
     
     <p style="margin: 0 0 20px 0; color: #232347;">
@@ -382,7 +389,7 @@ export const TrialExtensionTemplate = ({
     </p>
 
     <!-- Extension Details - Outlook compatible -->
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #8a3b9a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #00B48D;">
       <tr>
         <td style="padding: 20px; color: #232347; font-size: 15px; line-height: 1.6; font-family: Verdana, Geneva, sans-serif;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
@@ -393,12 +400,12 @@ export const TrialExtensionTemplate = ({
             </tr>
             <tr>
               <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-                <strong>New Trial End Date:</strong> <span style="color: #8a3b9a; font-weight: bold;">${formatDate(new_trial_date)}</span>
+                <strong>New Trial End Date:</strong> <span style="color: #00B48D; font-weight: bold;">${formatDate(new_trial_date)}</span>
               </td>
             </tr>
             <tr>
               <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-                <strong>Extended By:</strong> <span class="mono-num" style="color: #8a3b9a; font-weight: bold; font-family: 'Courier New', Courier, monospace;">${extension_days} days</span>
+                <strong>Extended By:</strong> <span class="mono-num" style="color: #00B48D; font-weight: bold; font-family: 'Courier New', Courier, monospace;">${extension_days} days</span>
               </td>
             </tr>
             <tr>
@@ -443,11 +450,11 @@ export const InviteEmailTemplate = ({
     </p>
     
     <p style="margin: 0 0 20px 0; color: #232347;">
-      <strong style="color: #8a3b9a;">${inviter_name}</strong> has invited you to join as a <strong>${roleLabels[role] || role}</strong>. Complete your registration to get started!
+      <strong style="color: #00B48D;">${inviter_name}</strong> has invited you to join as a <strong>${roleLabels[role] || role}</strong>. Complete your registration to get started!
     </p>
 
     <!-- Invitation Details - Outlook compatible -->
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #8a3b9a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #00B48D;">
       <tr>
         <td style="padding: 20px; color: #232347; font-size: 15px; line-height: 1.6; font-family: Verdana, Geneva, sans-serif;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
@@ -463,7 +470,7 @@ export const InviteEmailTemplate = ({
             </tr>
             <tr>
               <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-                <strong>Role:</strong> <span style="color: #8a3b9a; font-weight: bold;">${roleLabels[role] || role}</span>
+                <strong>Role:</strong> <span style="color: #00B48D; font-weight: bold;">${roleLabels[role] || role}</span>
               </td>
             </tr>
             <tr>
@@ -518,7 +525,7 @@ export const InvoiceCreatedTemplate = ({
 
   const content = `
     <p style="margin: 0 0 12px 0; color: #232347;">
-      Hello <strong style="color: #8a3b9a;">${full_name}</strong>,
+      Hello <strong style="color: #00B48D;">${full_name}</strong>,
     </p>
     
     <p style="margin: 0 0 20px 0; color: #232347;">
@@ -555,12 +562,12 @@ export const InvoiceCreatedTemplate = ({
       </tr>
       <tr style="background-color: #f9f9fb;">
         <td colspan="3" style="padding: 14px 12px; font-weight: bold; font-size: 18px; text-align: right;">Total Amount:</td>
-        <td style="padding: 14px 12px; font-weight: bold; font-size: 18px; color: #8a3b9a; text-align: right;" class="mono-num">${formatCurrency(total)}</td>
+        <td style="padding: 14px 12px; font-weight: bold; font-size: 18px; color: #00B48D; text-align: right;" class="mono-num">${formatCurrency(total)}</td>
       </tr>
     </table>
 
     <!-- Payment Info - Outlook compatible -->
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #8a3b9a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #00B48D;">
       <tr>
         <td style="padding: 20px; color: #232347; font-size: 15px; line-height: 1.6; font-family: Verdana, Geneva, sans-serif;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
@@ -571,7 +578,7 @@ export const InvoiceCreatedTemplate = ({
             </tr>
             <tr>
               <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-                <strong>Invoice #:</strong> <span class="mono-num" style="color: #8a3b9a; font-weight: bold; font-family: 'Courier New', Courier, monospace;">${invoice_number}</span>
+                <strong>Invoice #:</strong> <span class="mono-num" style="color: #00B48D; font-weight: bold; font-family: 'Courier New', Courier, monospace;">${invoice_number}</span>
               </td>
             </tr>
             <tr>
@@ -664,7 +671,7 @@ export const TicketCreatedTemplate = ({
           <ul style="margin: 0; padding-left: 20px; color: #66698c;">
             ${attachments.map(att => `
               <li style="margin: 4px 0;">
-                <a href="${att.file_url || att.file_path}" style="color: #8a3b9a; text-decoration: none;">${att.file_name}</a>
+                <a href="${att.file_url || att.file_path}" style="color: #00B48D; text-decoration: none;">${att.file_name}</a>
                 ${att.file_size ? ` <span style="color: #999; font-size: 12px;">(${formatFileSize(att.file_size)})</span>` : ''}
               </li>
             `).join('')}
@@ -676,7 +683,7 @@ export const TicketCreatedTemplate = ({
 
   const content = `
     <p style="margin: 0 0 12px 0; color: #232347;">
-      Hello <strong style="color: #8a3b9a;">${full_name}</strong>,
+      Hello <strong style="color: #00B48D;">${full_name}</strong>,
     </p>
     
     <p style="margin: 0 0 20px 0; color: #232347;">
@@ -684,7 +691,7 @@ export const TicketCreatedTemplate = ({
     </p>
 
     <!-- Ticket Details - Outlook compatible -->
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #8a3b9a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #00B48D;">
       <tr>
         <td style="padding: 20px; color: #232347; font-size: 15px; line-height: 1.6; font-family: Verdana, Geneva, sans-serif;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
@@ -695,7 +702,7 @@ export const TicketCreatedTemplate = ({
             </tr>
             <tr>
               <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-                <strong>Ticket Number:</strong> <span class="mono-num" style="color: #8a3b9a; font-weight: bold; font-family: 'Courier New', Courier, monospace;">${ticket_number}</span>
+                <strong>Ticket Number:</strong> <span class="mono-num" style="color: #00B48D; font-weight: bold; font-family: 'Courier New', Courier, monospace;">${ticket_number}</span>
               </td>
             </tr>
             <tr>
@@ -714,7 +721,7 @@ export const TicketCreatedTemplate = ({
               </td>
             </tr>
             <tr>
-              <td style="padding: 8px 0 0 0; color: #66698c; font-family: Verdana, Geneva, sans-serif; font-style: italic; border-left: 3px solid #8a3b9a; padding-left: 12px;">
+              <td style="padding: 8px 0 0 0; color: #66698c; font-family: Verdana, Geneva, sans-serif; font-style: italic; border-left: 3px solid #00B48D; padding-left: 12px;">
                 ${messagePreview}
               </td>
             </tr>
@@ -797,7 +804,7 @@ export const TicketCreatedAdminNotificationTemplate = ({
           <ul style="margin: 0; padding-left: 20px; color: #66698c;">
             ${attachments.map(att => `
               <li style="margin: 4px 0;">
-                <a href="${att.file_url || att.file_path}" style="color: #8a3b9a; text-decoration: none;">${att.file_name}</a>
+                <a href="${att.file_url || att.file_path}" style="color: #00B48D; text-decoration: none;">${att.file_name}</a>
                 ${att.file_size ? ` <span style="color: #999; font-size: 12px;">(${formatFileSize(att.file_size)})</span>` : ''}
               </li>
             `).join('')}
@@ -809,7 +816,7 @@ export const TicketCreatedAdminNotificationTemplate = ({
 
   const content = `
     <p style="margin: 0 0 12px 0; color: #232347;">
-      Hello <strong style="color: #8a3b9a;">Superadmin</strong>,
+      Hello <strong style="color: #00B48D;">Superadmin</strong>,
     </p>
     
     <p style="margin: 0 0 20px 0; color: #232347;">
@@ -817,7 +824,7 @@ export const TicketCreatedAdminNotificationTemplate = ({
     </p>
 
     <!-- Ticket Details - Outlook compatible -->
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #8a3b9a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #00B48D;">
       <tr>
         <td style="padding: 20px; color: #232347; font-size: 15px; line-height: 1.6; font-family: Verdana, Geneva, sans-serif;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
@@ -828,7 +835,7 @@ export const TicketCreatedAdminNotificationTemplate = ({
             </tr>
             <tr>
               <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-                <strong>Ticket Number:</strong> <span class="mono-num" style="color: #8a3b9a; font-weight: bold; font-family: 'Courier New', Courier, monospace;">${ticket_number}</span>
+                <strong>Ticket Number:</strong> <span class="mono-num" style="color: #00B48D; font-weight: bold; font-family: 'Courier New', Courier, monospace;">${ticket_number}</span>
               </td>
             </tr>
             <tr>
@@ -843,7 +850,7 @@ export const TicketCreatedAdminNotificationTemplate = ({
             </tr>
             <tr>
               <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-                <strong>Priority:</strong> <span style="text-transform: capitalize; color: #8a3b9a; font-weight: bold;">${priority}</span>
+                <strong>Priority:</strong> <span style="text-transform: capitalize; color: #00B48D; font-weight: bold;">${priority}</span>
               </td>
             </tr>
             <tr>
@@ -862,7 +869,7 @@ export const TicketCreatedAdminNotificationTemplate = ({
               </td>
             </tr>
             <tr>
-              <td style="padding: 8px 0 0 0; color: #66698c; font-family: Verdana, Geneva, sans-serif; font-style: italic; border-left: 3px solid #8a3b9a; padding-left: 12px; white-space: pre-wrap;">
+              <td style="padding: 8px 0 0 0; color: #66698c; font-family: Verdana, Geneva, sans-serif; font-style: italic; border-left: 3px solid #00B48D; padding-left: 12px; white-space: pre-wrap;">
                 ${message.replace(/\n/g, '<br>')}
               </td>
             </tr>
@@ -939,7 +946,7 @@ export const TicketStatusChangedTemplate = ({
 
   const content = `
     <p style="margin: 0 0 12px 0; color: #232347;">
-      Hello <strong style="color: #8a3b9a;">${full_name}</strong>,
+      Hello <strong style="color: #00B48D;">${full_name}</strong>,
     </p>
     
     <p style="margin: 0 0 20px 0; color: #232347;">
@@ -947,7 +954,7 @@ export const TicketStatusChangedTemplate = ({
     </p>
 
     <!-- Status Change Details - Outlook compatible -->
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #8a3b9a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #00B48D;">
       <tr>
         <td style="padding: 20px; color: #232347; font-size: 15px; line-height: 1.6; font-family: Verdana, Geneva, sans-serif;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
@@ -958,7 +965,7 @@ export const TicketStatusChangedTemplate = ({
             </tr>
             <tr>
               <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-                <strong>Ticket Number:</strong> <span class="mono-num" style="color: #8a3b9a; font-weight: bold; font-family: 'Courier New', Courier, monospace;">${ticket_number}</span>
+                <strong>Ticket Number:</strong> <span class="mono-num" style="color: #00B48D; font-weight: bold; font-family: 'Courier New', Courier, monospace;">${ticket_number}</span>
               </td>
             </tr>
             <tr>
@@ -968,7 +975,7 @@ export const TicketStatusChangedTemplate = ({
             </tr>
             <tr>
               <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-                <strong>New Status:</strong> <span style="color: #8a3b9a; font-weight: bold; text-transform: capitalize;">${statusLabels[new_status] || new_status}</span>
+                <strong>New Status:</strong> <span style="color: #00B48D; font-weight: bold; text-transform: capitalize;">${statusLabels[new_status] || new_status}</span>
               </td>
             </tr>
             <tr>
@@ -1051,7 +1058,7 @@ export const TicketReplyTemplate = ({
           <ul style="margin: 0; padding-left: 20px; color: #66698c;">
             ${attachments.map(att => `
               <li style="margin: 4px 0;">
-                <a href="${att.file_url || att.file_path}" style="color: #8a3b9a; text-decoration: none;">${att.file_name}</a>
+                <a href="${att.file_url || att.file_path}" style="color: #00B48D; text-decoration: none;">${att.file_name}</a>
                 ${att.file_size ? ` <span style="color: #999; font-size: 12px;">(${formatFileSize(att.file_size)})</span>` : ''}
               </li>
             `).join('')}
@@ -1063,15 +1070,15 @@ export const TicketReplyTemplate = ({
 
   const content = `
     <p style="margin: 0 0 12px 0; color: #232347;">
-      Hello <strong style="color: #8a3b9a;">${full_name}</strong>,
+      Hello <strong style="color: #00B48D;">${full_name}</strong>,
     </p>
     
     <p style="margin: 0 0 20px 0; color: #232347;">
-      You have received a reply from <strong style="color: #8a3b9a;">${admin_name}</strong> regarding your support ticket.
+      You have received a reply from <strong style="color: #00B48D;">${admin_name}</strong> regarding your support ticket.
     </p>
 
     <!-- Reply Details - Outlook compatible -->
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #8a3b9a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #00B48D;">
       <tr>
         <td style="padding: 20px; color: #232347; font-size: 15px; line-height: 1.6; font-family: Verdana, Geneva, sans-serif;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
@@ -1082,7 +1089,7 @@ export const TicketReplyTemplate = ({
             </tr>
             <tr>
               <td style="padding: 0 0 8px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-                <strong>Ticket Number:</strong> <span class="mono-num" style="color: #8a3b9a; font-weight: bold; font-family: 'Courier New', Courier, monospace;">${ticket_number}</span>
+                <strong>Ticket Number:</strong> <span class="mono-num" style="color: #00B48D; font-weight: bold; font-family: 'Courier New', Courier, monospace;">${ticket_number}</span>
               </td>
             </tr>
             <tr>
@@ -1096,7 +1103,7 @@ export const TicketReplyTemplate = ({
               </td>
             </tr>
             <tr>
-              <td style="padding: 8px 0 0 0; color: #66698c; font-family: Verdana, Geneva, sans-serif; font-style: italic; border-left: 3px solid #8a3b9a; padding-left: 12px; white-space: pre-wrap;">
+              <td style="padding: 8px 0 0 0; color: #66698c; font-family: Verdana, Geneva, sans-serif; font-style: italic; border-left: 3px solid #00B48D; padding-left: 12px; white-space: pre-wrap;">
                 ${message.replace(/\n/g, '<br>')}
               </td>
             </tr>
@@ -1138,7 +1145,7 @@ export const PasswordResetMagicLinkTemplate = ({
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
       <tr>
         <td style="padding: 0 0 12px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-          Hello <strong style="color: #8a3b9a;">${full_name}</strong>,
+          Hello <strong style="color: #00B48D;">${full_name}</strong>,
         </td>
       </tr>
       <tr>
@@ -1149,7 +1156,7 @@ export const PasswordResetMagicLinkTemplate = ({
     </table>
 
     <!-- Magic Link Info - Outlook compatible -->
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #8a3b9a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0; background-color: #f9f9fb; border-left: 4px solid #00B48D;">
       <tr>
         <td style="padding: 20px; color: #232347; font-size: 15px; line-height: 1.6; font-family: Verdana, Geneva, sans-serif;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
@@ -1181,8 +1188,8 @@ export const PasswordResetMagicLinkTemplate = ({
         </td>
       </tr>
       <tr>
-        <td style="padding: 0; word-break: break-all; font-size: 13px; color: #8a3b9a; font-family: 'Courier New', Courier, monospace;">
-          <a href="${magic_link}" style="color: #8a3b9a; text-decoration: underline;">${magic_link}</a>
+        <td style="padding: 0; word-break: break-all; font-size: 13px; color: #00B48D; font-family: 'Courier New', Courier, monospace;">
+          <a href="${magic_link}" style="color: #00B48D; text-decoration: underline;">${magic_link}</a>
         </td>
       </tr>
     </table>
@@ -1209,7 +1216,7 @@ export const CallLogsReportTemplate = ({
 } = {}) => {
   const content = `
     <p style="margin: 0 0 12px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
-      Hello <strong style="color: #8a3b9a;">${full_name}</strong>,
+      Hello <strong style="color: #00B48D;">${full_name}</strong>,
     </p>
     <p style="margin: 0 0 12px 0; color: #232347; font-family: Verdana, Geneva, sans-serif;">
       Your dialer list <strong>"${campaign_name}"</strong> has been completed successfully!
@@ -1307,11 +1314,9 @@ export const EmailVerificationTemplate = ({
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
     font-family: 'Manrope', Arial, sans-serif;
   }
-  .header {
-    padding: 30px 40px 10px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+  .header-table {
+    width: 100%;
+    border-collapse: collapse;
   }
   .contact-btn {
     color: #00B48D;
@@ -1410,7 +1415,7 @@ export const EmailVerificationTemplate = ({
     display: block;
   }
   .footer-img-right {
-    width: 320px;
+    width: 180px;
     max-width: 100%;
     height: auto;
     display: block;
@@ -1453,16 +1458,14 @@ export const EmailVerificationTemplate = ({
   }
   @media only screen and (max-width: 600px) {
     .wrapper { padding: 20px 10px; }
-    .header { padding: 20px 20px 10px; }
     .content { padding: 20px 20px; }
     .code-container { padding: 14px 20px; gap: 10px; }
     .code-box { width: 40px; height: 50px; font-size: 24px; }
     .footer-img-left { width: 120px; }
-    .footer-img-right { width: 140px; }
+    .footer-img-right { width: 130px; }
   }
 
   @media only screen and (max-width: 480px) {
-    .header { flex-direction: column; gap: 15px; text-align: center; }
     .title { font-size: 22px; margin: 0 0 20px 0; }
     .code-container { padding: 14px 10px; gap: 6px; }
     .code-box { width: 35px; height: 45px; font-size: 22px; }
@@ -1486,12 +1489,19 @@ export const EmailVerificationTemplate = ({
 <body>
 <div class="wrapper">
   <div class="main-container">
-    <div class="header">
-      <div class="logo">
-        <img src="https://lblkjhlojjlwqmwfnels.supabase.co/storage/v1/object/public/styling-image/DnaiLogo.png" alt="DNAi Duha Nashrah" style="height: 45px; width: auto;" />
-      </div>
-      <a href="#" class="contact-btn">Contact Us</a>
-    </div>
+    <!-- Header Table -->
+    <table class="header-table" role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width: 100%; padding: 30px 40px 10px;">
+      <tr>
+        <td align="left" valign="middle">
+          <div class="logo">
+            <img src="https://lblkjhlojjlwqmwfnels.supabase.co/storage/v1/object/public/styling-image/DnaiLogo.png" alt="DNAi Duha Nashrah" style="height: 45px; width: auto; border: 0;" />
+          </div>
+        </td>
+        <td align="right" valign="middle">
+          <a href="https://social.duhanashrah.ai/contact" class="contact-btn">Contact Us</a>
+        </td>
+      </tr>
+    </table>
     <div class="content">
       <h1 class="title">Email Verification</h1>
       <div class="greeting">Hello ${full_name},</div>
@@ -1552,7 +1562,7 @@ Verify Email
 </html>`;
 
   return html;
-};
+}
 
 export default { 
   AdminEmailTemplateUserCreated, 
